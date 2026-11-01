@@ -1,0 +1,1440 @@
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("fonts/HankenGrotesk-latin-var.woff2") format("woff2");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+/* The theme: System follows the phone's setting; data-theme, set from
+   the user's choice before the first paint, overrides it. Each colour token is
+   light-dark(light, dark) and follows the root's color-scheme. */
+:root {
+  color-scheme: light dark;
+
+  --body: light-dark(#ebe8e2, #1c1c1a);
+  --face: light-dark(#f7f6f2, #151514);
+  --ink: light-dark(#121211, #dcd8cf);
+  --ink-soft: light-dark(#55524c, #9c978d);
+  --rule: light-dark(#cbc6bc, #34332f);
+  --key-face: light-dark(#f7f6f2, #282725);
+  --key-edge: light-dark(#bdb8ad, #0d0d0c);
+  --key-shade: light-dark(rgb(60 50 30 / 0.12), rgb(0 0 0 / 0.35));
+  --key-dark: light-dark(#1d1d1b, #dcd8cf);
+  --key-dark-ink: light-dark(#f7f6f2, #1c1c1a);
+  --signal: light-dark(#e2560f, #cf5418);
+  --signal-hi: light-dark(#ffa266, #f08a4b);
+  --lamp-off: light-dark(#d6d1c7, #393834);
+  --lamp-off-shade: light-dark(rgb(60 50 30 / 0.22), rgb(0 0 0 / 0.5));
+  /* The switcher sheet's scrim and its shadow: shades, like the key and lamp shades. */
+  --scrim: light-dark(rgb(18 18 17 / 0.28), rgb(0 0 0 / 0.5));
+  --switcher-shade: light-dark(rgb(60 50 30 / 0.22), rgb(0 0 0 / 0.6));
+  --hold-fill: light-dark(rgb(18 18 17 / 0.16), rgb(220 216 207 / 0.2));
+  /* Output colours: Atomic's cyan code and orange links, recoloured; its two row shades. */
+  --code: light-dark(#00646b, #6fd3d6);
+  --link: light-dark(#2357a6, #8ab4f8);
+  --band-you: light-dark(#e2e6dc, #1f2a1f);
+  --band-tool: light-dark(#e6e3dd, #26262a);
+
+  --sans: "Hanken Grotesk", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --text-s: 13px;
+  --text-m: 15px;
+  --text-l: 17px;
+  --text-xl: 22px;
+
+  --unit: 8px;
+  --row: 56px;
+  --key: 48px;
+  --radius: 8px;
+  --gutter: 16px;
+  /* Edge to edge: a negative gutter on each side. */
+  --bleed: calc(-1 * var(--gutter));
+  /* The output face's line height: terminal lines, blocks and the quiet notes. */
+  --leading-output: 20px;
+  --hold-ms: 700ms;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--body);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--body);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--text-m);
+  line-height: 1.45;
+  font-feature-settings: "tnum" 1;
+  -webkit-tap-highlight-color: transparent;
+  caret-color: var(--ink);
+  scrollbar-color: var(--rule) transparent;
+  scrollbar-width: thin;
+}
+
+::selection {
+  background: var(--hold-fill);
+  color: var(--ink);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+textarea,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.sprite {
+  position: absolute;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.noscript {
+  padding: var(--gutter);
+}
+
+.app {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.lamp {
+  --size: 12px;
+  width: var(--size);
+  height: var(--size);
+  flex: none;
+  border-radius: 50%;
+  background: var(--lamp-off);
+  box-shadow: inset 0 1px 2px var(--lamp-off-shade);
+}
+
+[data-status="blocked"] > .lamp,
+.lamp[data-status="blocked"] {
+  background: radial-gradient(circle at 35% 30%, var(--signal-hi), var(--signal) 62%);
+  box-shadow: 0 1px 3px rgb(226 86 15 / 0.45);
+}
+
+[data-status="working"] > .lamp,
+.lamp[data-status="working"] {
+  background: var(--ink);
+  box-shadow: none;
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+[data-status="done"] > .lamp,
+.lamp[data-status="done"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+[data-status="unknown"] > .lamp,
+.lamp[data-status="unknown"] {
+  background: transparent;
+  box-shadow: none;
+  border: 2px dotted var(--ink-soft);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.masthead {
+  padding: calc(var(--gutter) + env(safe-area-inset-top)) var(--gutter) var(--unit);
+}
+
+.masthead-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 12px;
+  min-height: 40px;
+}
+
+.lamp-master {
+  --size: 16px;
+}
+
+.masthead-title {
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  flex: 1;
+}
+
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+/* The offline reason takes its own line under the title, so a long one
+   doesn't squeeze between the title and the theme key. */
+.freshness.is-offline {
+  order: 1;
+  flex-basis: 100%;
+  align-items: start;
+  margin-left: 28px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.freshness.is-offline .icon {
+  margin-top: 2px;
+}
+
+.freshness .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* The theme control, a 48px icon key at the right of the home and All headers. */
+.theme-key {
+  display: grid;
+  place-items: center;
+  width: var(--key);
+  height: var(--key);
+  flex: none;
+  margin: -4px calc(var(--unit) - var(--gutter)) -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+}
+
+.summary {
+  margin-left: 28px;
+  font-size: var(--text-m);
+  color: var(--ink-soft);
+}
+
+.list {
+  padding-bottom: calc(var(--unit) * 4 + env(safe-area-inset-bottom));
+  transition: opacity 200ms ease-out;
+}
+
+.list.is-stale {
+  opacity: 0.55;
+}
+
+.section {
+  margin-top: calc(var(--unit) * 2);
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--unit);
+  padding: var(--unit) var(--gutter);
+  font-size: var(--text-m);
+  font-weight: 650;
+}
+
+.count {
+  font-weight: 450;
+  color: var(--ink-soft);
+}
+
+.section-body {
+  border-top: 1px solid var(--rule);
+}
+
+/* A list row (home, All) and a switcher row: lamp slot, text, end. */
+.row,
+.pane-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--row);
+  padding: var(--unit) var(--gutter);
+}
+
+.row {
+  grid-template-columns: 24px 1fr auto;
+  border-bottom: 1px solid var(--rule);
+}
+
+.row-inbox {
+  align-items: start;
+}
+
+.row-inbox > .lamp {
+  margin-top: 6px;
+}
+
+/* One column that may shrink below its content. */
+.row-text,
+.pane-text,
+.controls,
+.key-menu,
+.picker,
+.commands-editor,
+.command,
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.row-text {
+  min-width: 0;
+}
+
+/* A long folder name gives way before the session or pane does, so two rows
+   in the same long folder still tell apart. */
+.row-title,
+.pane-head {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.row-title {
+  gap: 0.25em;
+  font-size: var(--text-l);
+  font-weight: 550;
+}
+
+.row-folder,
+.row-tag,
+.pane-name,
+.pane-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-folder,
+.pane-name {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.row-tag,
+.pane-kind {
+  flex: 1 1 0;
+  font-size: var(--text-s);
+  font-weight: 450;
+  color: var(--ink-soft);
+}
+
+.row-tag {
+  min-width: 6em;
+}
+
+/* One line, cut with an ellipsis. */
+.row-meta,
+.row-tick,
+.identity-folder,
+.identity-meta,
+.identity-name,
+.key-label,
+.reply,
+.send-label,
+.switcher-title,
+.pane-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-meta {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+/* The Inbox line: a blocked agent's question or a finished agent's last line, up to two lines. */
+.row-line {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-s);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* The output face: a terminal's latest line (.row-tick, .pane-line), and
+   the agent screen's terminal lines and blocks. */
+.row-tick,
+.pane-line,
+.line,
+.block {
+  font-family: var(--mono);
+  font-size: var(--text-s);
+  line-height: var(--leading-output);
+  font-feature-settings: normal;
+}
+
+.row-time,
+.pane-end {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.row-time.is-key {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.calm,
+.empty {
+  padding: calc(var(--unit) * 3) var(--gutter);
+  color: var(--ink-soft);
+}
+
+.calm {
+  padding-bottom: var(--unit);
+}
+
+.all-key-wrap {
+  padding: calc(var(--unit) * 3) var(--gutter);
+}
+
+.all-key {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--unit);
+  min-height: var(--key);
+  padding: 0 12px 0 var(--gutter);
+  font-size: var(--text-m);
+}
+
+.all-key .icon {
+  color: var(--ink-soft);
+}
+
+/* Activity: a stopped agent's line is quieter than an Inbox line. */
+.row-line.is-quiet {
+  color: var(--ink-soft);
+}
+
+/* The "Older" label over the two oldest recent rows, which fade. */
+.fold {
+  padding: var(--unit) var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+.row.is-older {
+  opacity: 0.6;
+}
+
+.app[data-screen="agent"] {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: var(--key) 1fr auto;
+  align-items: center;
+  gap: var(--unit);
+  min-height: 64px;
+  padding: env(safe-area-inset-top) var(--gutter) 0 var(--unit);
+  border-bottom: 1px solid var(--rule);
+}
+
+.back {
+  display: grid;
+  place-items: center;
+  width: var(--key);
+  height: var(--key);
+  border-radius: var(--radius);
+}
+
+.back .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.identity {
+  min-width: 0;
+}
+
+.identity-folder {
+  font-size: var(--text-l);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.identity-meta {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--unit);
+  font-size: var(--text-s);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.output-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The agent's output in Reader style. Prose in the UI face at 15/22;
+   tables, boxes, code blocks, tool bands and Atomic's chrome stay mono. */
+.output {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The page keeps the view still itself when earlier messages arrive above. */
+  overflow-anchor: none;
+  padding: 12px var(--gutter);
+  background: var(--face);
+  font-family: var(--sans);
+  font-size: var(--text-m);
+  line-height: 22px;
+}
+
+/* Earlier messages from Atomic's session store, above the live screen.
+   A quiet line at the top says what is happening; a 1px rule labelled
+   "Live screen" marks where herdr's screen starts. */
+.history-note,
+.history-gap,
+.history-join {
+  font-size: var(--text-s);
+  line-height: var(--leading-output);
+  color: var(--ink-soft);
+}
+
+.history-note {
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--unit) * 5);
+  margin: 0;
+}
+
+/* What scrolled off the live screen couldn't be added: said once, at the Join. */
+.history-gap {
+  margin: var(--unit) 0 0;
+}
+
+.h-msg + .h-msg {
+  margin-top: var(--unit);
+}
+
+.history-join {
+  display: flex;
+  align-items: center;
+  gap: var(--unit);
+  margin: var(--unit) 0;
+}
+
+.history-join::before,
+.history-join::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--rule);
+}
+
+.output .p {
+  margin: 0 0 2px;
+  overflow-wrap: anywhere;
+}
+
+/* A list item hangs its marker. */
+.output .li {
+  padding-left: 1.4em;
+  text-indent: -1.4em;
+}
+
+.output .gap {
+  height: var(--unit);
+}
+
+.line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.output-rule {
+  height: 0;
+  margin: 9px 0 10px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+
+/* A box-drawn region (workflow graph, panel, table) keeps its terminal
+   layout in one block that scrolls sideways inside its own row. */
+.block {
+  margin: 0 var(--bleed);
+  padding: 0 var(--gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  white-space: pre;
+}
+
+.line.is-chrome,
+.block.is-chrome {
+  color: var(--ink-soft);
+}
+
+.band {
+  margin: 0 var(--bleed);
+  padding: var(--unit) var(--gutter);
+}
+
+.band.band-you {
+  background: var(--band-you);
+}
+
+.band.band-tool {
+  background: var(--band-tool);
+}
+
+/* A question dialog's options. The row under Atomic's cursor is an ink
+   bar edge to edge with a drawn marker, never a link; boxes are drawn, filled
+   with a check when ticked, empty when not. Ink tokens only, no orange. */
+.opt {
+  --opt-ink: var(--ink);
+  --opt-ground: var(--face);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--unit);
+  min-height: calc(var(--unit) * 5);
+  margin: 0 var(--bleed);
+  padding: var(--unit) var(--gutter);
+  color: var(--opt-ink);
+}
+
+.opt.is-selected {
+  --opt-ink: var(--key-dark-ink);
+  --opt-ground: var(--key-dark);
+  background: var(--key-dark);
+  font-weight: 700;
+}
+
+.opt-mark,
+.opt-box {
+  position: relative;
+  flex: none;
+  width: 16px;
+}
+
+.opt-mark {
+  height: 22px;
+}
+
+.is-selected .opt-mark::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 1px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid var(--opt-ink);
+  border-right: 2px solid var(--opt-ink);
+  transform: rotate(45deg);
+}
+
+.opt-num {
+  flex: none;
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.opt-box {
+  height: 16px;
+  margin-top: 3px;
+  border: 2px solid var(--opt-ink);
+}
+
+.is-ticked .opt-box {
+  background: var(--opt-ink);
+}
+
+.is-ticked .opt-box::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  width: 6px;
+  height: 9px;
+  border-right: 2px solid var(--opt-ground);
+  border-bottom: 2px solid var(--opt-ground);
+  transform: rotate(45deg);
+}
+
+.opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.a-b {
+  font-weight: 700;
+}
+
+.a-i {
+  font-style: italic;
+}
+
+.a-u,
+.a-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.a-code {
+  color: var(--code);
+}
+
+.a-link {
+  color: var(--link);
+}
+
+.a-soft {
+  color: var(--ink-soft);
+}
+
+.a-inv {
+  background: var(--ink);
+  color: var(--face);
+}
+
+/* Code and file names in prose become mono chips. */
+.output .p .a-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--body);
+  font-family: var(--mono);
+  font-size: var(--text-s);
+}
+
+.output-empty {
+  font-family: var(--sans);
+  font-size: var(--text-m);
+  color: var(--ink-soft);
+}
+
+.latest {
+  position: absolute;
+  right: var(--gutter);
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--key);
+  padding: 0 14px 0 10px;
+  border: 0;
+  border-radius: var(--radius);
+  font-size: var(--text-s);
+  font-weight: 600;
+  box-shadow: 0 2px 6px var(--key-shade);
+}
+
+.controls {
+  gap: var(--unit);
+  padding: var(--unit) var(--gutter) calc(var(--unit) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--rule);
+}
+
+.keys {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--unit);
+}
+
+.key {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: var(--key);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--key-face);
+  font-size: var(--text-m);
+  font-weight: 600;
+  box-shadow: 0 1px 0 var(--key-edge), 0 2px 4px var(--key-shade);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out;
+}
+
+.key:active {
+  transform: translateY(1px);
+  box-shadow: 0 0 0 var(--key-edge), 0 1px 2px var(--key-shade);
+}
+
+.key-hold {
+  place-content: center;
+  font-size: var(--text-s);
+}
+
+.key-hold::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--hold-fill);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.key-hold.is-holding::before {
+  transform: scaleX(1);
+  transition: transform var(--hold-ms) linear;
+}
+
+.key-hold > span {
+  position: relative;
+  line-height: 16px;
+}
+
+.key-hint {
+  font-weight: 450;
+  color: var(--ink-soft);
+}
+
+.key-answer {
+  display: none;
+}
+
+/* A key's own label. Longer labels drop to 13px and may take two lines. */
+.key-label {
+  max-width: 100%;
+  padding: 0 4px;
+}
+
+.key-label.is-long {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--text-s);
+  line-height: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.key-hold .key-label.is-long {
+  -webkit-line-clamp: 1;
+}
+
+/* The + key adds a key; it is a tool, not a terminal key, so it has no face. */
+.key-add {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+
+.key-add[aria-expanded="true"],
+.key.is-picked {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+/* Panels under the keys: the key menu, the key picker and the saved
+   commands editor. Separated by a 1px rule, never a card. */
+.key-menu,
+.picker,
+.commands-editor {
+  gap: var(--unit);
+  padding-top: var(--unit);
+  border-top: 1px solid var(--rule);
+}
+
+.panel-title {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.panel-title small {
+  font-size: var(--text-s);
+  font-weight: 450;
+  color: var(--ink-soft);
+}
+
+.key-menu-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--unit);
+}
+
+.panel-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--unit);
+}
+
+/* Outlined keys: a 1px rule, no face. */
+.act,
+.reply,
+.all-key {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.act,
+.reply {
+  background: transparent;
+}
+
+.act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: var(--key);
+  height: var(--key);
+  padding: 0 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+/* A pressed control takes the face colour, as does the switcher's own row. */
+.theme-key:active,
+.row:active,
+.all-key:active,
+.key-add:active,
+.act:active,
+.reply:active,
+.terminals-key:active,
+.pane-row:active,
+.pane-row.is-here {
+  background: var(--face);
+}
+
+/* Filled dark keys. */
+.act-dark,
+.latest,
+.link-key,
+.send {
+  background: var(--key-dark);
+  color: var(--key-dark-ink);
+}
+
+.act-dark {
+  border-color: var(--key-dark);
+}
+
+.act-dark:active {
+  background: var(--key-dark);
+}
+
+.act:disabled {
+  border-color: var(--rule);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: default;
+}
+
+.toggles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--unit);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--unit);
+  height: var(--key);
+  border-radius: var(--radius);
+  background: var(--key-face);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.toggle:has(input:checked) {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.toggle:has(input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.toggle input:focus-visible {
+  outline: none;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--unit);
+}
+
+.field {
+  display: grid;
+  min-width: 0;
+}
+
+.field-label {
+  font-size: var(--text-s);
+  line-height: 24px;
+  color: var(--ink-soft);
+}
+
+.field select,
+.field input {
+  width: 100%;
+  min-width: 0;
+  height: var(--key);
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--face);
+  font-size: var(--text-l);
+}
+
+.field input::placeholder,
+.composer textarea::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
+.field select:focus-visible,
+.field input:focus-visible,
+.command textarea:focus-visible,
+.composer textarea:focus-visible {
+  outline-offset: 0;
+}
+
+.picker-status {
+  font-size: var(--text-s);
+  font-weight: 600;
+}
+
+.picker-note {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+.command-list {
+  display: grid;
+  max-height: 50dvh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.command {
+  gap: var(--unit);
+  padding: var(--unit) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.command-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--unit);
+}
+
+.app.is-editing-keys .replies,
+.app.is-editing-keys .composer,
+.app.is-editing-commands .keys,
+.app.is-editing-commands .key-menu,
+.app.is-editing-commands .replies,
+.app.is-editing-commands .composer {
+  display: none;
+}
+
+.app[data-agent-status="blocked"] .key-answer {
+  display: grid;
+}
+
+.link-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--key);
+  margin-top: var(--gutter);
+  padding: 0 var(--gutter) 0 12px;
+  border-radius: var(--radius);
+  font-family: var(--sans);
+  font-size: var(--text-m);
+  font-weight: 650;
+}
+
+.replies {
+  display: flex;
+  gap: var(--unit);
+  margin: 0 var(--bleed);
+  mask-image: linear-gradient(to right, transparent, #000 var(--gutter), #000 calc(100% - var(--gutter)), transparent);
+  padding: 2px var(--gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.replies::-webkit-scrollbar {
+  display: none;
+}
+
+.reply {
+  flex: none;
+  max-width: 240px;
+  height: var(--key);
+  padding: 0 14px;
+  font-size: var(--text-m);
+}
+
+.reply-edit {
+  font-weight: 600;
+}
+
+.composer {
+  gap: var(--unit);
+}
+
+.composer textarea,
+.command textarea {
+  display: block;
+  width: 100%;
+  min-height: var(--key);
+  max-height: 160px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--face);
+  font-size: var(--text-l);
+  line-height: 22px;
+  resize: none;
+}
+
+.send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--key);
+  padding: 0 var(--gutter);
+  border: 0;
+  border-radius: var(--radius);
+  font-weight: 650;
+  box-shadow: 0 1px 0 var(--key-edge), 0 2px 4px var(--key-shade);
+  transition: transform 80ms ease-out;
+}
+
+.send:active {
+  transform: translateY(1px);
+}
+
+.blocked-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--key);
+  font-size: var(--text-m);
+}
+
+.notice {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+.notice:empty {
+  display: none;
+}
+
+.notice.is-error {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.app.is-composing .keys,
+.app.is-composing .replies {
+  display: none;
+}
+
+/* A plain shell's glyph, drawn where an agent has its lamp. */
+.shell-glyph {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-soft);
+}
+
+.row-shell .shell-glyph {
+  justify-self: start;
+}
+
+/* The agent screen's second header line: the terminal's name, then the key
+   that opens the switcher. The key is 48px tall; its negative margin
+   keeps the line's own height, so the header doesn't grow. */
+.app[data-screen="agent"] .identity-meta {
+  display: flex;
+  align-items: center;
+  overflow: visible;
+}
+
+.identity-name {
+  min-width: 0;
+}
+
+.terminals-key {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: var(--key);
+  margin: calc((var(--key) - 20px) / -2) 0;
+  padding: 0 var(--unit);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-s);
+  font-weight: 600;
+  touch-action: manipulation;
+}
+
+.terminals-key::before {
+  content: "·";
+  margin-right: 4px;
+  color: var(--ink-soft);
+}
+
+.terminals-count {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.terminals-key .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.state .shell-glyph,
+.state[data-status="shell"] .lamp {
+  display: none;
+}
+
+.state[data-status="shell"] .shell-glyph {
+  display: block;
+}
+
+/* Switcher sheet: the one raised surface. A scrim over the app, the sheet
+   rising from the bottom edge with a real offset shadow, a grab handle and
+   title that can be swiped down, and one 56px+ row per pane. */
+.switcher-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.switcher-dim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: var(--scrim);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
+.switcher-layer.is-open .switcher-dim {
+  opacity: 1;
+}
+
+.switcher {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 600px;
+  max-height: 60dvh;
+  margin: 0 auto;
+  padding-bottom: calc(var(--unit) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--rule);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--body);
+  box-shadow: 0 -8px 24px var(--switcher-shade);
+  transform: translateY(100%);
+  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.switcher-layer.is-open .switcher {
+  transform: none;
+}
+
+.switcher.is-dragging {
+  transition: none;
+}
+
+.switcher-head {
+  flex: none;
+  min-height: var(--row);
+  padding: var(--unit) var(--gutter) 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.switcher-grab {
+  width: 40px;
+  height: 4px;
+  margin: 4px auto var(--unit);
+  border-radius: 4px;
+  background: var(--rule);
+}
+
+.switcher-title {
+  padding-bottom: var(--unit);
+  font-size: var(--text-m);
+  font-weight: 650;
+}
+
+.switcher-list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+
+.pane-row {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  border-top: 1px solid var(--rule);
+}
+
+.pane-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.pane-head {
+  gap: 0.5em;
+}
+
+.pane-name {
+  font-weight: 650;
+}
+
+.pane-kind {
+  min-width: 4em;
+}
+
+.switcher-more {
+  flex: none;
+  padding: var(--unit) var(--gutter) 0;
+  border-top: 1px solid var(--rule);
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-status="working"] > .lamp,
+  .lamp[data-status="working"] {
+    animation: none;
+  }
+
+  .switcher,
+  .switcher-dim {
+    transition: none;
+  }
+}

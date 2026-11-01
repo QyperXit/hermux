@@ -1,0 +1,18 @@
+node_modules/
+*.log
+.impeccable/review/
+.impeccable/tmp/
+web/concepts/
+web/round2/
+web/round3/
+web/round4/
+
+# run artifacts (screenshots, captures, helper scripts) stay local
+docs/project/notes/*/
+
+# local-only: your login, design mocks, agent run state
+.env
+.env.local
+.env*.local
+.impeccable/mocks/
+.atomic/
