@@ -44,6 +44,7 @@ It prints `Agents server listening on http://127.0.0.1:8787`. Leave the pane ope
 - The server refuses to start outside Herdr (`HERDR_ENV` must be `1`, which Herdr sets in its panes) and without `AGENTS_ALLOWED_LOGIN`.
 - `PORT=8790 scripts/start.sh` uses another port. If you change it, use the same port in step 3.
 - `HERDR_BIN=/path/to/herdr` picks a different herdr binary. The default is `herdr` on `PATH`.
+- `bun install` fetches the server's one runtime dependency, `@xterm/headless` (pinned at 6.0.0, the terminal emulator for live output; see "Live output" below), and the two dev tools. There is no build step. After pulling a version that adds a dependency, run `bun install` again before restarting the server.
 
 Quick check from the laptop (expect `403`, because curl sends no login header):
 
@@ -133,9 +134,19 @@ The live check for it creates one disposable `--no-focus` tab, starts its own se
 bun test/live/stream-check.ts
 ```
 
+## Live output
+
+While the phone shows a Terminal, the server pushes that Terminal's output to it as it changes, instead of the page reading it every 2 s. A line printed in the pane shows on the phone about 60 ms later on the laptop's loopback (plus the phone's network time), against 0-2 s with the poll.
+
+- It is read-only. For each Terminal a page is viewing, and only while one is, the server runs `herdr terminal session observe <pane>` (a stream of the pane's screen; it never sends input and doesn't resize the pane) and keeps a copy of the screen in a terminal emulator, `@xterm/headless`. When the screen really changes (looked at once per 40 ms), it reads the pane's output exactly as the 2 s poll does and pushes that text on the page's stream, so the screen, Earlier messages and the Join look the same as before.
+- The page asks for it with `POST /api/terminals/<pane>/watch` and stops with `DELETE` on the same path (JSON body `{"stream": "<id>"}`, the id the stream sends first as `event: stream`). Both have the usual login check (403), refuse other sites (403) and take only JSON (415). The output comes as `event: output` (`{"pane_id", "text"}`) and `event: watch` (`{"pane_id", "streaming"}`), only to the page that asked.
+- The observe stream stops 5 s after the last page leaves that Terminal, closes or is hidden.
+- If the observe stream fails or ends, the server tells the page to poll that Terminal every 2 s again (it reads at once), and opens the stream again after 0.5 s, then 1, 2, 4 and 8 s, then every 10 s, and logs "Live output: the stream of <pane> stopped (…). Retrying." Once it works again the polling stops by itself.
+- Nothing to set up beyond `bun install`. An older herdr without `terminal session observe` just means the page keeps polling.
+
 ## Type checking
 
-`bun install` once (it fetches the two dev tools, `typescript` and `@types/bun`), then:
+`bun install` once (it fetches the two dev tools, `typescript` and `@types/bun`, and the runtime dependency `@xterm/headless`), then:
 
 ```bash
 bun run typecheck

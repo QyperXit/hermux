@@ -357,8 +357,62 @@ const optionRowOf = (line) => {
   return { selected: end[1] === "❯ ", number: null, ticked: null, start: line.text.length - end[2].length, end: line.text.length, numbered: false };
 };
 
+// Atomic's `/workflow connect` picker: a ╭── Connect to workflow run ──╮ box.
+// Each run in it is its id row (" ● <id>", wrapped on "   " rows when the
+// box is narrow), then its name row ("   <name>   <elapsed>   <n/m> stages");
+// an "ACTIVE" or "TERMINAL" row heads each group. Atomic draws the run under
+// its cursor on its accent shade in bold across the whole inner width, and the
+// others never bold, so a run whose rows are all bold is the selected one.
+// Every run becomes a dialog row whose parts are its rows inside the borders;
+// nothing is changed unless one run is selected.
+const PICKER_TITLE = /^\s*╭── Connect to workflow run ─/;
+const PICKER_ID_ROW = /^ \S \S/;
+const PICKER_SECTION_ROW = /^ {3}(?:ACTIVE|TERMINAL)$/;
+
+// The row's text inside the box's two │ edges, or null for a row that isn't a box row.
+/** @param {Line} line */
+const insideBorders = (line) => {
+  const match = /^(\s*│)(.*)│$/.exec(line.text);
+  return match ? trimEnd(sliceLine(line, match[1].length, line.text.length - 1)) : null;
+};
+
+/** @param {Line} line */
+const allBold = (line) => line.runs.every((run) => !run.text.trim() || run.cls.split(" ").includes("a-b"));
+
+/**
+ * @param {Line[]} lines
+ * @param {number} limit
+ * @param {Map<number, DialogRow>} options
+ */
+function pickerOptions(lines, limit, options) {
+  for (let top = 0; top < limit; top++) {
+    if (!PICKER_TITLE.test(lines[top].text)) continue;
+    /** @type {DialogRow[]} */
+    const runs = [];
+    let i = top + 1;
+    for (; i < limit; i++) {
+      const inner = insideBorders(lines[i]);
+      if (!inner) break;
+      const next = i + 1 < limit ? insideBorders(lines[i + 1]) : null;
+      const last = runs.at(-1);
+      if (PICKER_ID_ROW.test(inner.text)) {
+        runs.push({ index: i, selected: allBold(inner), number: null, ticked: null, start: 0, end: 0, numbered: false, more: 0, parts: [inner] });
+      } else if (last && last.index + last.more + 1 === i && /^ {3}\S/.test(inner.text) && !(PICKER_SECTION_ROW.test(inner.text) && next && PICKER_ID_ROW.test(next.text))) {
+        last.more++;
+        last.parts.push(inner);
+        last.selected = last.selected && allBold(inner);
+      }
+    }
+    if (runs.filter((run) => run.selected).length === 1) {
+      for (const run of runs) options.set(run.index, { ...run, parts: run.parts.map(trimStart) });
+    }
+    top = i;
+  }
+}
+
 // Rows of a dialog by line index, each with the label's continuation lines. A
-// wrapped label of the cursor row is bold on every line.
+// wrapped label of the cursor row is bold on every line. The picker's runs are
+// dialog rows too.
 /**
  * @param {Line[]} lines
  * @param {number} limit
@@ -403,6 +457,7 @@ function dialogOptions(lines, limit) {
     cluster.push(row);
   }
   flush();
+  pickerOptions(lines, limit, options);
   return options;
 }
 

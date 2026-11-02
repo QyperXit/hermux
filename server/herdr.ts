@@ -6,9 +6,12 @@
 //   pane list, get, read (every pane is a terminal that can be listed and read);
 //   workspace list, tab list (labels only);
 //   pane send-text, pane send-keys, each straight after the re-check of the
-//     pane: `agent get` for an agent, `pane get` for a plain shell.
+//     pane: `agent get` for an agent, `pane get` for a plain shell;
+//   terminal session observe (D30): a read-only stream of a pane's screen,
+//     with stdin closed, so nothing can be typed through it.
 // Keys come from the shared grammar (web/key-grammar.js) only. Never pane run,
-// pane close, agent start, focus or rename, server stop, or --machine.
+// pane close, agent start, focus or rename, server stop, terminal session
+// control, terminal attach, or --machine.
 import { KEY_HELP, isAllowedKey } from "../web/key-grammar.js";
 
 export { isAllowedKey };
@@ -93,9 +96,27 @@ export type Tab = Record<string, unknown> & { tab_id: string; workspace_id?: str
 
 export type Herdr = ReturnType<typeof createHerdr>;
 
-function checkTarget(paneId: string) {
+export function checkTarget(paneId: string) {
   if (!PANE_ID.test(paneId)) throw new HerdrError("invalid_target", `Not a herdr pane ID: ${paneId}`);
 }
+
+// One frame of `terminal session observe` (D30), shapes probed read-only on
+// herdr 0.9.5: the pane's screen as ANSI bytes drawn on a `width` x `height`
+// canvas, the whole screen (`full`, always the first) or only what changed.
+export type Frame = { full: boolean; width: number; height: number; seq: number; bytes: Uint8Array };
+// A running observe stream; stop() ends its herdr process by its own handle.
+export type Observation = { stop(): void };
+export type ObserveHandlers = { frame(frame: Frame): void; end(error: HerdrError): void };
+
+const isFrameRow = (row: unknown): row is { full: boolean; width: number; height: number; seq: number; bytes: string } =>
+  isRecord(row) &&
+  row.type === "terminal.frame" &&
+  row.encoding === "ansi" &&
+  typeof row.full === "boolean" &&
+  Number.isInteger(row.width) &&
+  Number.isInteger(row.height) &&
+  typeof row.seq === "number" &&
+  typeof row.bytes === "string";
 
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -137,13 +158,16 @@ function parseResult(stdout: string): Record<string, unknown> {
 }
 
 export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { submitDelayMs?: number } = {}) {
-  async function run(args: string[]): Promise<string> {
-    let proc;
+  function spawn(args: string[]) {
     try {
-      proc = Bun.spawn([bin, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      return Bun.spawn([bin, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     } catch (error) {
       throw new HerdrError("herdr_unavailable", `Couldn't run herdr (${bin}): ${errorMessage(error)}`);
     }
+  }
+
+  async function run(args: string[]): Promise<string> {
+    const proc = spawn(args);
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
@@ -151,6 +175,42 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     ]);
     if (exitCode !== 0) throw failure(exitCode, stderr);
     return stdout;
+  }
+
+  // A pane's screen as it changes (D30): one JSON frame per line from
+  // `terminal session observe`, drawn on a cols x rows canvas (herdr clips
+  // the pane's rows to it, or pads them; it never resizes the pane). The
+  // process runs until stop() kills it by its handle; if it ends by itself,
+  // or can't run, `end` hears why. A line that isn't a frame is skipped.
+  function observe(paneId: string, { cols, rows }: { cols: number; rows: number }, { frame, end }: ObserveHandlers): Observation {
+    checkTarget(paneId);
+    const proc = spawn(["terminal", "session", "observe", paneId, "--cols", String(cols), "--rows", String(rows)]);
+    let stopped = false;
+    const stderr = new Response(proc.stderr).text();
+    (async () => {
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for await (const chunk of proc.stdout) {
+        buffer += decoder.decode(chunk, { stream: true });
+        for (let index = buffer.indexOf("\n"); index !== -1; index = buffer.indexOf("\n")) {
+          const row = parseJson(buffer.slice(0, index));
+          buffer = buffer.slice(index + 1);
+          if (stopped || !isFrameRow(row)) continue;
+          frame({ full: row.full, width: row.width, height: row.height, seq: row.seq, bytes: Buffer.from(row.bytes, "base64") });
+        }
+      }
+      const exitCode = await proc.exited;
+      if (!stopped) end(failure(exitCode, await stderr));
+    })().catch((error) => {
+      if (!stopped) end(new HerdrError("herdr_failed", `herdr's observe stream failed: ${errorMessage(error)}`));
+    });
+    return {
+      stop() {
+        if (stopped) return;
+        stopped = true;
+        proc.kill();
+      },
+    };
   }
 
   async function get(paneId: string): Promise<Agent> {
@@ -264,6 +324,8 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     workspaces: () => listOf(["workspace", "list"], "workspaces", isWorkspace),
     tabs: () => listOf(["tab", "list"], "tabs", isTab),
     pane: paneGet,
+    // A pane's screen as a read-only stream of frames (D30).
+    observe,
 
     get,
 

@@ -4,6 +4,7 @@
 // piece of text is HTML-escaped, so a message can never add markup. Drawing
 // only: when they load is web/earlier.js. No DOM here, so the tests can import it.
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
+import { linkedRunsHtml, linkedTextHtml } from "./links.js";
 
 /**
  * @typedef {import("../server/history").Message} Message
@@ -19,7 +20,8 @@ const QUOTE = /^\s*>\s?(.*)$/;
 
 // Inline markdown: code spans become chips, **bold**, *italic* and _italic_
 // keep their emphasis, and a [link](url) shows its text as a link does on the
-// live screen. Anything else is plain text.
+// live screen, opening the address when it is http(s). Anything else is plain
+// text, with its addresses as links and laptop paths copyable (web/links.js).
 const INLINE = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|\b_([^_\s][^_]*)_\b|\[([^\]]+)\]\(([^)\s]*)\)/g;
 
 /** @param {string} text */
@@ -27,21 +29,22 @@ function inlineHtml(text) {
   let html = "";
   let last = 0;
   for (const match of text.matchAll(INLINE)) {
-    html += escapeHtml(text.slice(last, match.index));
-    const [, code, bold, bold2, italic, italic2, linkText] = match;
-    if (code !== undefined) html += `<span class="a-code">${escapeHtml(code)}</span>`;
-    else if (bold !== undefined || bold2 !== undefined) html += `<span class="a-b">${escapeHtml(bold ?? bold2)}</span>`;
-    else if (italic !== undefined || italic2 !== undefined) html += `<span class="a-i">${escapeHtml(italic ?? italic2)}</span>`;
+    html += linkedTextHtml(text.slice(last, match.index));
+    const [, code, bold, bold2, italic, italic2, linkText, url] = match;
+    if (code !== undefined) html += linkedRunsHtml([{ text: code, cls: "a-code" }], "key");
+    else if (bold !== undefined || bold2 !== undefined) html += `<span class="a-b">${linkedTextHtml(bold ?? bold2)}</span>`;
+    else if (italic !== undefined || italic2 !== undefined) html += `<span class="a-i">${linkedTextHtml(italic ?? italic2)}</span>`;
+    else if (/^https?:\/\/[^/]/.test(url)) html += `<a class="a-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(linkText)}</a>`;
     else html += `<span class="a-link">${escapeHtml(linkText)}</span>`;
     last = match.index + match[0].length;
   }
-  return html + escapeHtml(text.slice(last));
+  return html + linkedTextHtml(text.slice(last));
 }
 
 /** @param {number} ch */
 const indentStyle = (ch) => (ch > 0 ? ` style="margin-left:${Math.min(ch, MAX_INDENT_CH)}ch"` : "");
 /** @param {string[]} rows */
-const monoBlock = (rows) => `<div class="block">${rows.map(escapeHtml).join("\n")}</div>`;
+const monoBlock = (rows) => `<div class="block">${rows.map((row) => linkedTextHtml(row, "press")).join("\n")}</div>`;
 
 // The agent's markdown as Reader prose: paragraphs (its soft wraps joined),
 // hanging list items, bold headings, 1px rules, and code blocks and tables in
@@ -102,12 +105,12 @@ export function markdownHtml(text) {
 const userHtml = (text) =>
   text
     .split("\n")
-    .map((line) => (line.trim() ? `<p class="p">${escapeHtml(line)}</p>` : ""))
+    .map((line) => (line.trim() ? `<p class="p">${linkedTextHtml(line)}</p>` : ""))
     .join("");
 
 /** @param {{ name: string, summary: string }} block */
 const toolRowHtml = ({ name, summary }) =>
-  `<div class="line"><span class="a-b">${escapeHtml(name)}</span>${summary ? ` ${escapeHtml(summary)}` : ""}</div>`;
+  `<div class="line"><span class="a-b">${escapeHtml(name)}</span>${summary ? ` ${linkedTextHtml(summary)}` : ""}</div>`;
 
 // One message: the user's on the "you" band, the agent's as prose with its tool
 // calls on the tool band, one line each.

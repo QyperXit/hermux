@@ -1,6 +1,7 @@
 // The page's Terminal session (D26): the roster (one copy of the panes), the
 // route and its open Terminal, that Terminal's Live screen text, when each of
-// them is read again, the live stream with its poll fallback, and every guard
+// them is read again, the live stream with its poll fallback, the open
+// Terminal's streamed output (D30) with its poll fallback, and every guard
 // that drops an answer for a screen that was left. No DOM here, so the tests
 // can import it: the page passes in its client, an EventSource factory, its
 // timers and the store of opened completions, reads `snapshot()` after each
@@ -141,6 +142,17 @@ export function createSession({ client, openStream, timers, opened }) {
   // The server's event stream is healthy (D20): no list poll, and "Live".
   let streaming = false;
   let visible = false;
+  // Live output (D30): the name the server gave this page's stream, the pane
+  // this page asked it to stream on it, and whether the server says it is
+  // streaming that pane now. While it is, its output arrives as it changes
+  // and isn't polled; otherwise it is polled as before.
+  /** @type {string | null} */
+  let streamId = null;
+  /** @type {string | null} */
+  let watched = null;
+  let streamed = false;
+  // Counts the outputs pushed, so a read that began before one is dropped.
+  let pushes = 0;
   /** @type {Set<(change: Change) => void>} */
   const listeners = new Set();
 
@@ -297,12 +309,13 @@ export function createSession({ client, openStream, timers, opened }) {
   async function refreshOutputNow() {
     const { paneId } = route;
     if (!paneId) return;
+    const pushed = pushes;
     try {
       const text = await client.readOutput(paneId);
-      if (route.paneId !== paneId) return;
+      if (route.paneId !== paneId || pushes !== pushed) return;
       output = { paneId, text, error: null };
     } catch (error) {
-      if (route.paneId !== paneId) return;
+      if (route.paneId !== paneId || pushes !== pushed) return;
       output = { ...output, error: describeError(error, "Couldn't read this agent's output.").message };
     }
     changed("output");
@@ -323,8 +336,11 @@ export function createSession({ client, openStream, timers, opened }) {
     refreshOutput();
   }
 
+  // The open Terminal's output is streamed to this page now (D30).
+  const outputStreamed = () => streamed && route.name === "agent" && watched === route.paneId;
+
   const listPollRuns = () => !streaming || Boolean(listError) || (Boolean(lookupError) && READS_TERMINALS.has(route.name));
-  const outputTimerRuns = () => route.name === "agent" && (!streaming || !AT_REST.has(openTerminal()?.status ?? "") || Boolean(output.error));
+  const outputTimerRuns = () => route.name === "agent" && !outputStreamed() && (!streaming || !AT_REST.has(openTerminal()?.status ?? "") || Boolean(output.error));
 
   /**
    * @param {number} ms
@@ -337,16 +353,63 @@ export function createSession({ client, openStream, timers, opened }) {
     }, ms);
   }
 
+  // The Terminal the server should stream to this page (D30): the open one,
+  // while the page is shown and its stream is open. Asking for another moves
+  // the watch; asking for none ends it. A request that fails leaves the page
+  // polling that Terminal.
+  function syncWatch() {
+    const wanted = visible && streamId !== null && route.name === "agent" ? route.paneId : null;
+    if (wanted === watched) return;
+    const previous = watched;
+    watched = wanted;
+    streamed = false;
+    if (streamId === null) return;
+    if (wanted !== null) client.watchOutput(wanted, streamId).catch(() => {});
+    else if (previous !== null) client.unwatchOutput(previous, streamId).catch(() => {});
+  }
+
+  // The stream was named, or is gone and its watch with it (the server drops
+  // the watches of a closed stream): the page polls until a new one streams.
+  // A name only ever follows a gone stream (web/live.js), so the open
+  // Terminal is watched afresh on it. A healthy stream that drops reads the
+  // output itself (onStreamHealth).
+  /** @param {string | null} id */
+  function onStreamName(id) {
+    const wasStreamed = outputStreamed();
+    streamId = id;
+    syncWatch();
+    if (wasStreamed && visible && !streaming) refreshOutput();
+  }
+
   // Live updates (D20). A change re-reads the list (and with it the open
   // screen's terminals) at once, after showing any new status straight away; an
-  // output event for the open terminal re-reads its output.
+  // output event for the open terminal re-reads its output, unless it is
+  // streamed: then its output arrives as it is (D30). A `watch` event says
+  // whether it is streamed; when streaming stops, it is read at once and
+  // polled again.
   /**
-   * @param {"change" | "output"} type
+   * @param {"change" | "output" | "watch"} type
    * @param {StreamEvent} data
    */
   function onStreamEvent(type, data) {
+    const open = route.name === "agent" && route.paneId === data.pane_id;
+    if (type === "watch") {
+      if (!open || watched !== data.pane_id) return;
+      const wasStreamed = streamed;
+      streamed = data.streaming === true;
+      if (wasStreamed && !streamed) refreshOutput();
+      return;
+    }
     if (type === "output") {
-      if (route.name === "agent" && route.paneId === data.pane_id) refreshOutput();
+      if (!open) return;
+      if (typeof data.text !== "string") {
+        if (!outputStreamed()) refreshOutput();
+        return;
+      }
+      if (watched !== data.pane_id) return;
+      pushes += 1;
+      output = { paneId: route.paneId ?? null, text: data.text, error: null };
+      changed("output");
       return;
     }
     if (data.changed?.length) {
@@ -368,7 +431,7 @@ export function createSession({ client, openStream, timers, opened }) {
   }
 
   // The sample data has no stream.
-  const stream = client.isSample ? null : createLiveStream({ open: openStream, onHealth: onStreamHealth, onEvent: onStreamEvent });
+  const stream = client.isSample ? null : createLiveStream({ open: openStream, onHealth: onStreamHealth, onEvent: onStreamEvent, onStream: onStreamName });
 
   /**
    * @param {Terminal} terminal
@@ -448,11 +511,13 @@ export function createSession({ client, openStream, timers, opened }) {
         forgetUnlisted();
         refreshTerminals();
       }
+      syncWatch();
     },
 
-    // A hidden page closes the stream, and runs no timer.
+    // A hidden page ends its watch and closes the stream, and runs no timer.
     hidden() {
       visible = false;
+      syncWatch();
       stream?.stop();
     },
 

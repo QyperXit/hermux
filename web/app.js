@@ -3,9 +3,11 @@ import { allAgents, homeLists, memoryStorage, recordOpened, summaryLine } from "
 import { find, fitField, need } from "./dom.js";
 import { createKeyBar } from "./key-bar.js";
 import { escapeHtml, icon } from "./html.js";
+import { bindCopy } from "./links.js";
 import { listRenderer } from "./list-render.js";
 import { freshnessText } from "./live.js";
-import { readerHtml, shellHtml } from "./reader.js";
+import { drawLive } from "./live-render.js";
+import { readerParts, shellParts } from "./reader.js";
 import { allRowHtml, duration, homeBodyHtml, sectionHtml, shellRowHtml, terminalHref } from "./rows.js";
 import {
   STATE_WORDS,
@@ -312,7 +314,8 @@ function renderOutput({ output: { text, error }, terminal }) {
   const before = renderedText.get(live);
   if (before && before.text === text && before.shell === shell) return;
   renderedText.set(live, { text, shell });
-  live.innerHTML = shell ? shellHtml(text) : readerHtml(text);
+  // Only what changed is drawn again, so a block scrolled sideways stays where it is (D29).
+  drawLive(live, shell ? shellParts(text) : readerParts(text));
   if (atBottom || !output.dataset.seen) {
     output.scrollTop = output.scrollHeight;
     output.dataset.seen = "1";
@@ -369,6 +372,8 @@ function bindTerminalScreen() {
   output.addEventListener("scroll", () => {
     if (isAtBottom(output)) latest.hidden = true;
   });
+  // A laptop path in the output is copied with its copy key or a long-press (D29).
+  bindCopy(output, { writeText: async (text) => navigator.clipboard.writeText(text), announce: notify });
   latest.addEventListener("click", () => {
     output.scrollTo({ top: output.scrollHeight, behavior: "smooth" });
     latest.hidden = true;
@@ -489,3 +494,6 @@ document.addEventListener("visibilitychange", () => {
 
 onRouteChange();
 session.start(document.visibilityState === "visible");
+
+// The service worker keeps the app's own files, so it opens at once (D29, web/sw.js).
+navigator.serviceWorker?.register("sw.js", { type: "module" }).catch(() => {});

@@ -794,6 +794,41 @@ button {
   font-size: var(--text-s);
 }
 
+/* A laptop path's copy key (D29): a quiet 13px word after the path, a 48px
+   target whose negative margin keeps the line's own height. */
+.copy-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--key);
+  height: var(--key);
+  margin: calc((var(--key) - 22px) / -2) 0;
+  vertical-align: top;
+  padding: 0 var(--unit);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: var(--text-s);
+  font-weight: 600;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+.copy-key:active {
+  color: var(--ink);
+}
+
+/* In a box-drawn block a path is long-pressed to copy; a dotted grey
+   underline says so without moving a column. */
+.path {
+  text-decoration: underline dotted var(--ink-soft);
+  text-underline-offset: 3px;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
 .output-empty {
   font-family: var(--sans);
   font-size: var(--text-m);

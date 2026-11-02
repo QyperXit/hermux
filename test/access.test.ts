@@ -1,7 +1,13 @@
 // Who may use the server and from where: the login check, pane targets,
 // cross-site requests and the static files.
 import { afterAll, describe, expect, test } from "bun:test";
-import { disposeFakes } from "./support/http";
+import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createApp } from "../server/app";
+import { createHerdr } from "../server/herdr";
+import { ALLOWED_LOGIN, disposeFakes } from "./support/http";
+import { WEB } from "./support/agents";
 import { PI, SHELL_PANE, keys, path as paneRoute, prompt, setup } from "./support/terminals";
 
 afterAll(disposeFakes);
@@ -12,6 +18,7 @@ describe.concurrent("access control", () => {
     ["GET", "/index.html"],
     ["GET", "/manifest.webmanifest"],
     ["GET", "/app.js"],
+    ["GET", "/sw.js"],
     ["GET", "/no-such-file"],
     ["GET", "/api/agents"],
     ["GET", "/api/terminals"],
@@ -221,6 +228,53 @@ describe.concurrent("static files", () => {
     const { request } = setup();
     for (const path of ["/../package.json", "/%2e%2e/package.json", "/..%2fpackage.json", "/%2e%2e%2fserver%2fmain.ts", "/fonts", "/missing.js", "/%E0%A4%A"]) {
       expect([path, (await request("GET", path)).status]).toEqual([path, 404]);
+    }
+  });
+
+  // The service worker's stamp (D29), as served.
+  const stampOf = (text: string): { version: string; files: string[] } => {
+    const match = text.match(/const STAMP = \/\*\* @type \{unknown\} \*\/ \((.*)\);/);
+    expect(match).not.toBeNull();
+    return JSON.parse(match?.[1] ?? "null");
+  };
+
+  test("serves the service worker stamped with the shell's version and files, revalidated on every load", async () => {
+    const { request, calls } = setup();
+    const response = await request("GET", "/sw.js");
+    expect([response.status, response.headers.get("content-type"), response.headers.get("cache-control")]).toEqual([200, "text/javascript; charset=utf-8", "no-cache"]);
+    const { version, files } = stampOf(await response.text());
+    expect(version).toMatch(/^[0-9a-f]{16}$/);
+    for (const file of ["./", "app.js", "reader.js", "sample-data.js", "app.css", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "fonts/HankenGrotesk-latin-var.woff2", "fonts/JetBrainsMono-Regular.woff2", "fonts/JetBrainsMono-Bold.woff2"]) {
+      expect([file, files.includes(file)]).toEqual([file, true]);
+    }
+    // Not the worker itself, nor the page twice, the font licences, the design sketches or the API.
+    const outside = (file: string) => file !== "./" && file.includes("/") && !file.startsWith("fonts/");
+    expect(files.filter((file) => file === "sw.js" || file === "index.html" || file.endsWith(".txt") || file.startsWith("api/") || outside(file))).toEqual([]);
+    for (const file of files) expect([file, (await request("GET", `/${file === "./" ? "" : file}`)).status]).toEqual([file, 200]);
+    expect(stampOf(await (await request("GET", "/sw.js")).text()).version).toBe(version);
+    expect(calls()).toEqual([]);
+  });
+
+  test("a changed shell file gives the service worker a new version", async () => {
+    const root = mkdtempSync(join(tmpdir(), "web-shell-"));
+    try {
+      for (const entry of readdirSync(WEB, { withFileTypes: true })) {
+        if (entry.isFile() || entry.name === "fonts") cpSync(join(WEB, entry.name), join(root, entry.name), { recursive: true });
+      }
+      const app = createApp({ herdr: createHerdr("/nonexistent/herdr"), allowedLogin: ALLOWED_LOGIN, webRoot: root });
+      const version = async () => {
+        const response = await app(new Request("http://127.0.0.1:8787/sw.js", { headers: { "Tailscale-User-Login": ALLOWED_LOGIN } }));
+        return stampOf(await response.text()).version;
+      };
+      const first = await version();
+      expect(await version()).toBe(first);
+      writeFileSync(join(root, "app.css"), "body { color: red; }\n");
+      const second = await version();
+      expect(second).not.toBe(first);
+      writeFileSync(join(root, "fonts", "JetBrainsMono-Bold.woff2"), "changed");
+      expect(await version()).not.toBe(second);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

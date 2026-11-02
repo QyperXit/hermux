@@ -8,6 +8,7 @@ function setup(reopenMs = 20) {
   const sources: FakeSource[] = [];
   const health: boolean[] = [];
   const events: [string, unknown][] = [];
+  const names: (string | null)[] = [];
   const stream = createLiveStream({
     open: (path) => {
       const source = new FakeSource(path);
@@ -16,9 +17,10 @@ function setup(reopenMs = 20) {
     },
     onHealth: (healthy) => health.push(healthy),
     onEvent: (type, data) => events.push([type, data]),
+    onStream: (id) => names.push(id),
     reopenMs,
   });
-  return { stream, sources, health, events, last: () => sources[sources.length - 1] };
+  return { stream, sources, health, events, names, last: () => sources[sources.length - 1] };
 }
 
 test("the stream is healthy only once the server says herdr's events reach it; until then the page polls", () => {
@@ -49,6 +51,28 @@ test("changes and output activity are handed to the page", () => {
     ["output", { pane_id: "w1:p1" }],
     ["change", { refetch: true }],
   ]);
+});
+
+test("live output (D30): the stream's name is handed over, and taken back when it errors or closes; output and watch events reach the page", () => {
+  const { stream, last, events, names } = setup();
+  stream.start();
+  last().fire("stream", { id: "first" });
+  last().fire("watch", { pane_id: "w1:p1", streaming: true });
+  last().fire("output", { pane_id: "w1:p1", text: "screen" });
+  expect(events).toEqual([
+    ["watch", { pane_id: "w1:p1", streaming: true }],
+    ["output", { pane_id: "w1:p1", text: "screen" }],
+  ]);
+  // The browser reconnects: a new connection, with a new name.
+  last().fail(CONNECTING);
+  last().fire("stream", { id: "second" });
+  // A name that isn't a string is no name.
+  last().fire("stream", { id: 7 });
+  stream.stop();
+  expect(names).toEqual(["first", null, "second", null]);
+  // Closed: a second stop says nothing more.
+  stream.stop();
+  expect(names).toHaveLength(4);
 });
 
 test("a stream error falls back to polling at once; the browser's own reconnect brings the stream back", () => {

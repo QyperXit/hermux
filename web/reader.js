@@ -2,19 +2,28 @@
 // keeps Atomic's highlighting as SGR escape codes; they become a fixed set of
 // classes, and every piece of text is HTML-escaped, so the output can never
 // add markup. Plain text (the server's fallback) renders the same way, in ink.
+// Web addresses in the agent's output are links and laptop paths copyable
+// (web/links.js); Atomic's chrome and a plain shell's output stay as printed.
 // No DOM here, so the tests can import it.
 import { leading, readScreen, shellRows, trimStart } from "./screen.js";
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
+import { linkedRunsHtml } from "./links.js";
 
 /**
  * @typedef {import("./screen.js").Run} Run
  * @typedef {import("./screen.js").Line} Line
  * @typedef {import("./screen.js").Row} Row
  * @typedef {import("./screen.js").DialogRow} DialogRow
+ * @typedef {import("./links.js").CopyMode} CopyMode
  */
 
-/** @param {Run[]} runs */
-const runsHtml = (runs) => runs.map(({ text, cls }) => (cls ? `<span class="${cls}">${escapeHtml(text)}</span>` : escapeHtml(text))).join("");
+// Runs as HTML; with a copy mode, addresses become links and paths copyable.
+/**
+ * @param {Run[]} runs
+ * @param {CopyMode | null} [copy]
+ */
+const runsHtml = (runs, copy = "key") =>
+  copy ? linkedRunsHtml(runs, copy) : runs.map(({ text, cls }) => (cls ? `<span class="${cls}">${escapeHtml(text)}</span>` : escapeHtml(text))).join("");
 
 /**
  * @param {number} ch
@@ -26,17 +35,20 @@ const indentStyle = (ch, property = "padding-left") => (ch > 0 ? ` style="${prop
 /**
  * @param {Line} line
  * @param {string} [extraClass]
+ * @param {CopyMode | null} [copy]
  */
-const monoLineHtml = (line, extraClass = "") =>
-  `<div class="line${extraClass}"${indentStyle(leading(line))}>${runsHtml(trimStart(line).runs) || " "}</div>`;
+const monoLineHtml = (line, extraClass = "", copy = "key") =>
+  `<div class="line${extraClass}"${indentStyle(leading(line))}>${runsHtml(trimStart(line).runs, copy) || " "}</div>`;
 
 // A box-drawn region (a workflow graph, panel or table) keeps its terminal
-// layout: one mono block with every line as drawn, scrolled sideways, never wrapped.
+// layout: one mono block with every line as drawn, scrolled sideways, never
+// wrapped. A path in it is copied with a long-press, so no key moves its columns.
 /**
  * @param {{ runs: Run[] }[]} rows
  * @param {string} [extraClass]
+ * @param {CopyMode | null} [copy]
  */
-const blockHtml = (rows, extraClass = "") => `<div class="block${extraClass}">${rows.map((row) => runsHtml(row.runs)).join("\n")}</div>`;
+const blockHtml = (rows, extraClass = "", copy = "press") => `<div class="block${extraClass}">${rows.map((row) => runsHtml(row.runs, copy)).join("\n")}</div>`;
 /**
  * @param {Line} line
  * @returns {Line}
@@ -69,10 +81,11 @@ const hidden = (text) => `<span class="visually-hidden">${text}</span>`;
 /** @param {DialogRow} row */
 function optionHtml(row) {
   // The cursor row and an answered row are in Atomic's orange and bold; that styling is dropped.
+  // A picker run's other rows (its name row) follow its first on the same label.
   const plain = row.selected || row.ticked === true;
   const label = plain
     ? escapeHtml(row.parts.map((part) => part.text.trim()).join(" "))
-    : runsHtml(row.parts[0].runs);
+    : row.parts.map((part) => runsHtml(part.runs)).join(" ");
   const classes = ["opt", row.selected && "is-selected", row.ticked === true && "is-ticked", row.ticked === false && "is-unticked"].filter(Boolean);
   return (
     `<div class="${classes.join(" ")}">` +
@@ -86,20 +99,31 @@ function optionHtml(row) {
 // A plain shell's output. It isn't Atomic's layout, so nothing is joined,
 // boxed or dimmed: every row stays one mono row as the shell printed it (a
 // listing's columns, a long command), with the same colours and escaping.
+// One HTML string per element, so the page can redraw only what changed.
 /** @param {string} text */
-export function shellHtml(text) {
+export function shellParts(text) {
   const lines = shellRows(text);
   while (lines.length && isBlank(lines[lines.length - 1])) lines.pop();
-  return lines.map((line) => (isBlank(line) ? `<div class="gap"></div>` : monoLineHtml(line))).join("");
+  return lines.map((line) => (isBlank(line) ? `<div class="gap"></div>` : monoLineHtml(line, "", null)));
 }
+
+/** @param {string} text */
+export const shellHtml = (text) => shellParts(text).join("");
 
 const LIST_ITEM = /^(?:[-•*]|\d+[.)])\s/;
 
 // Reader HTML for herdr's output text (ANSI or plain), read by web/screen.js.
 /** @param {string} text */
-export function readerHtml(text) {
+export const readerHtml = (text) => readerParts(text).join("");
+
+// The same, one HTML string per element, so the page can redraw only what changed.
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function readerParts(text) {
   const screen = readScreen(text);
-  if (screen.graph) return graphHtml(screen.rows);
+  if (screen.graph) return [graphHtml(screen.rows)];
   const { rows, chromeStart, options } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
   /** @type {string[]} */
@@ -155,10 +179,10 @@ export function readerHtml(text) {
       /** @type {Line[]} */
       const box = [];
       while (i < rows.length && rows[i].kind === "box") box.push(withoutColours(rows[i++]));
-      html.push(blockHtml(box, " is-chrome"));
+      html.push(blockHtml(box, " is-chrome", null));
     } else {
-      html.push(monoLineHtml(withoutColours(rows[i++]), " is-chrome"));
+      html.push(monoLineHtml(withoutColours(rows[i++]), " is-chrome", null));
     }
   }
-  return html.join("");
+  return html;
 }

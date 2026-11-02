@@ -1,10 +1,12 @@
 // HTML escaping: escapeHtml itself (web/html.js) with hostile inputs, and
 // hostile server text pushed through the page's own renderers for the home
-// and All rows, the switcher sheet and the key bar. None of them may let a
-// tag or an attribute through.
+// and All rows, the switcher sheet, the Reader's links and copy keys, Earlier
+// messages and the key bar. None of them may let a tag or an attribute through.
 import { describe, expect, test } from "bun:test";
 import { memoryStorage } from "../web/home.js";
 import { escapeHtml } from "../web/html.js";
+import { messageHtml } from "../web/history.js";
+import { readerHtml } from "../web/reader.js";
 import { allRowHtml, homeBodyHtml, rowHtml, shellRowHtml } from "../web/rows.js";
 import { lineErrorHtml, sheetRowsHtml, switcherRows } from "../web/terminals.js";
 import type { FakeElement } from "./support/fake-dom";
@@ -94,6 +96,13 @@ describe("the page's renderers with hostile server text", () => {
       expectInert(html);
       expectInert(lineErrorHtml(failed(value)));
       expect(lineErrorHtml(failed(value))).toContain(escapeHtml(value));
+    });
+
+    test(`Reader links, copy keys and Earlier messages keep ${JSON.stringify(value)} as text (D29)`, () => {
+      const text = `See https://example.com/${value} and /tmp/${value} or ~/${value}.`;
+      expectInert(readerHtml(` ${text}\n╭ BOX ─╮\n│ ${text} │\n╰──────╯`));
+      expectInert(messageHtml({ seq: 1, role: "assistant", blocks: [{ kind: "text", text: `${text} [${value}](https://example.com/${value}) \`${text}\`` }] }));
+      expectInert(messageHtml({ seq: 2, role: "user", blocks: [{ kind: "text", text }] }));
     });
   }
 

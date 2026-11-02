@@ -317,5 +317,9 @@ export function createSampleClient() {
         setStatus(agent, "idle");
       }
     },
+
+    // The sample data has no event stream, so nothing is ever watched (D30).
+    async watchOutput() {},
+    async unwatchOutput() {},
   };
 }

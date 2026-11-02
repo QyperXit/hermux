@@ -23,6 +23,9 @@ test("the fake herdr refuses every command outside the allowlist", () => {
       ["server", "stop"],
       ["tab", "close", "w9:t2"],
       ["workspace", "create"],
+      ["terminal", "session", "control", SHELL_PANE],
+      ["terminal", "attach", SHELL_PANE],
+      ["terminal", "session", "observe", SHELL_PANE],
     ]) {
       const result = Bun.spawnSync([fake.bin, ...argv]);
       expect([argv.join(" "), result.exitCode]).toEqual([argv.join(" "), 2]);

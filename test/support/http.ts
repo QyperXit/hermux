@@ -16,7 +16,7 @@ export const ALLOWED_LOGIN = "you@example.com";
 // The herdr commands the server may ever run, and the ones the /api/agents
 // list runs: the list and the latest lines' reads (`pane read` for an agent
 // with no named kind), never a send.
-export const HERDR_COMMANDS = ["agent list", "agent get", "agent read", "agent prompt", "agent send-keys", "pane list", "pane get", "pane read", "pane send-text", "pane send-keys", "workspace list", "tab list"];
+export const HERDR_COMMANDS = ["agent list", "agent get", "agent read", "agent prompt", "agent send-keys", "pane list", "pane get", "pane read", "pane send-text", "pane send-keys", "workspace list", "tab list", "terminal session"];
 export const AGENT_LIST_COMMANDS = ["agent list", "agent read", "pane read"];
 const SENDS = ["agent prompt", "agent send-keys", "pane send-text", "pane send-keys"];
 
@@ -36,6 +36,8 @@ export function auditCalls(calls: string[][], allowed: readonly string[] = HERDR
     if (command === "agent read" || command === "pane read") {
       expect([[], ["--format", "ansi"]]).toContainEqual(call.slice(3, 7).join(" ") === "--source recent-unwrapped --lines 200" ? call.slice(7) : call);
     }
+    // The one terminal command is the read-only observe stream (D30).
+    if (command === "terminal session") expect([call[2], call[4], call[6], call.length]).toEqual(["observe", "--cols", "--rows", 8]);
     if (!SENDS.includes(command)) return;
     const previous = calls[index - 1] ?? [];
     const afterText = command === "pane send-keys" && call[3] === "enter" && previous.slice(0, 3).join(" ") === `pane send-text ${call[2]}`;

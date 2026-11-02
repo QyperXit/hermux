@@ -382,6 +382,103 @@ describe("question dialogs", () => {
   });
 });
 
+// Atomic's `/workflow connect` picker as herdr's `--format ansi` read shows it,
+// escape for escape as captured from a real pane (D29), with generic run ids
+// and names and the inner width cut to 60. Each run is an id row and a name
+// row; the run under the cursor is one bold run on the accent shade.
+const PICKER_INNER = 60;
+const P = { reset: sgr("0"), border: sgr("38;2;108;112;134"), panel: sgr("48;2;30;30;46") };
+const cell = (fg: string, text: string) => `${P.reset}${sgr(fg)}${P.panel}${text}${P.reset}${P.panel}`;
+const pickerRow = (content: string) => `${P.reset}${P.border}│${P.reset}${content}${P.reset}${P.border}│${P.reset}\r`;
+const pad = (text: string) => text + " ".repeat(PICKER_INNER - text.length);
+const pickerRun = (id: string, name: string, elapsed: string, selected: boolean) => {
+  const right = `${elapsed.padStart(8)}   ${"0/0 stages".padStart(10)} `;
+  const gap = " ".repeat(PICKER_INNER - 3 - name.length - right.length);
+  if (selected) {
+    const bar = `${sgr("1")}${sgr("38;2;49;50;68")}${sgr("48;2;137;180;250")}`;
+    return [pickerRow(`${bar}${pad(` ● ${id}`)}`), pickerRow(`${bar}${pad(`   ${name}${gap}${right}`)}`)];
+  }
+  return [
+    pickerRow(`${P.panel} ${cell("38;2;249;226;175", "●")} ${cell("38;2;127;132;156", id)}${" ".repeat(PICKER_INNER - 3 - id.length)}`),
+    pickerRow(`${P.panel}   ${cell("38;2;205;214;244", name)}${gap}${cell("38;2;166;173;200", elapsed.padStart(8))}   ${cell("38;2;127;132;156", "0/0 stages".padStart(10))} `),
+  ];
+};
+const blankPickerRow = pickerRow(`${P.panel}${" ".repeat(PICKER_INNER)}`);
+const sectionRow = (label: string) =>
+  pickerRow(`${P.panel} ${cell("38;2;203;166;247", " ")} ${P.reset}${sgr("1")}${sgr("38;2;166;173;200")}${P.panel}${label}${P.reset}${P.panel}${" ".repeat(PICKER_INNER - 3 - label.length)}`);
+const PICKER_TOP = `${P.reset}${P.border}╭──${P.reset}${sgr("38;2;137;180;250")} Connect to workflow run ${P.reset}${P.border}${"─".repeat(PICKER_INNER - 27)}╮${P.reset}\r`;
+const PICKER_FILTER = pickerRow(
+  `${P.panel} ${cell("38;2;203;166;247", " ")} ${cell("38;2;166;173;200", "filter")}  ${cell("38;2;166;173;200", "(type to filter by name or id)")}${" ".repeat(PICKER_INNER - 41)}`,
+);
+const PICKER_BOTTOM = `${P.reset}${P.border}╰${"─".repeat(PICKER_INNER)}╯${P.reset}\r`;
+const PICKER_HINT = `  ${P.reset}${sgr("38;2;205;214;244")}up/down${P.reset} ${P.reset}${sgr("38;2;166;173;200")}Navigate${P.reset}${sgr("38;2;127;132;156")} · ${P.reset}${sgr("38;2;205;214;244")}enter${P.reset} ${P.reset}${sgr("38;2;166;173;200")}Connect${P.reset}\r`;
+const RUN_A = "11111111-2222-3333-4444-555555555555";
+const RUN_B = "66666666-7777-8888-9999-000000000000";
+// The picker with run `selected` (0 or 1, -1 for none) under the cursor, and a TERMINAL group when `finished` is set.
+const picker = (selected: number, finished = false) =>
+  [
+    " Both runs are going.",
+    "",
+    PICKER_TOP,
+    blankPickerRow,
+    PICKER_FILTER,
+    blankPickerRow,
+    sectionRow("ACTIVE"),
+    ...pickerRun(RUN_A, "docs-build", "14s", selected === 0),
+    ...(finished ? [sectionRow("TERMINAL")] : []),
+    ...pickerRun(RUN_B, "nightly-review", "19s", selected === 1),
+    blankPickerRow,
+    PICKER_BOTTOM,
+    PICKER_HINT,
+  ].join("\n");
+
+describe("Atomic's /workflow connect picker", () => {
+  test("D29: the picker's selected run gets the D17 selection bar and the other run is a plain row", () => {
+    for (const selected of [0, 1]) {
+      const html = readerHtml(picker(selected));
+      const rows = optionRowsOf(html);
+      expect(rows.map((row) => row.cls)).toEqual(selected === 0 ? ["opt is-selected", "opt"] : ["opt", "opt is-selected"]);
+      // Both of a run's rows are on its row: the id, then the name, elapsed time and stages.
+      expect(rows.map((row) => visibleText(row.inner).replace(/\s+/g, " "))).toEqual([`● ${RUN_A} docs-build 14s 0/0 stages`, `● ${RUN_B} nightly-review 19s 0/0 stages`]);
+      expect(rows[selected].inner).toContain(`<span class="opt-mark"><span class="visually-hidden">selected</span></span>`);
+      // No run is left in a box block, and Atomic's accent shade and bold never reach the page.
+      expect(blocks(html).join("\n")).not.toContain(RUN_A);
+      expect(blocks(html).join("\n")).not.toContain(RUN_B);
+      expect(rows[selected].inner).not.toContain("a-b");
+      expect(html).not.toContain("a-link");
+      // The box's title, filter and group rows and its bottom edge stay drawn; the prose stays prose.
+      expect(blocks(html)[0]).toContain("Connect to workflow run");
+      expect(blocks(html)[0]).toContain("ACTIVE");
+      expect(blocks(html).at(-1)).toContain("╰");
+      expect(html).toContain(`<p class="p">Both runs are going.</p>`);
+    }
+  });
+
+  test("D29: a TERMINAL heading between the groups stays a heading, not part of the run above it", () => {
+    const html = readerHtml(picker(1, true));
+    const rows = optionRowsOf(html);
+    expect(rows.map((row) => row.cls)).toEqual(["opt", "opt is-selected"]);
+    expect(visibleText(rows[0].inner)).not.toContain("TERMINAL");
+    expect(blocks(html).join("\n")).toContain("TERMINAL");
+  });
+
+  test("D29: a picker with no run under the cursor, and Atomic's BACKGROUND panel of runs, are left as drawn", () => {
+    const none = readerHtml(picker(-1));
+    expect(none).not.toContain('class="opt');
+    expect(blocks(none).join("\n")).toContain(RUN_A);
+    const panel = ["╭ BACKGROUND  1 run  ● 1 running ──────────────╮", `│   ●  ${RUN_A} │`, `│     ${sgr("1")}docs-build${RESET} · single · 14s       │`, "╰───────────────────────────────────────────────╯"].join("\n");
+    expect(readerHtml(panel)).not.toContain('class="opt');
+  });
+
+  test("D29: picker text is escaped", () => {
+    const html = readerHtml(picker(0).replace("docs-build", `<b x="1">&`).replace("nightly-review", "<i>"));
+    expect(html).not.toContain("<b ");
+    expect(html).not.toContain("<i>");
+    expect(html).toContain("&lt;b x=&quot;1&quot;&gt;&amp;");
+    expect(html).toContain("&lt;i&gt;");
+  });
+});
+
 describe("plain shells", () => {
   // A plain shell's output is shown as printed.
   test("a shell's rows stay one mono row each: nothing is joined, boxed or dimmed, and colours and escaping are kept", () => {

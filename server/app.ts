@@ -1,8 +1,10 @@
 import { extname, resolve, sep } from "node:path";
-import { HerdrError, type Herdr } from "./herdr";
+import { HerdrError, checkTarget, type Herdr } from "./herdr";
 import type { LiveEvent, LiveEvents } from "./events";
 import { parseHistoryQuery, type createHistory } from "./history";
 import { createRoster } from "./roster";
+import { stampedWorker } from "./shell";
+import type { Viewer, WatchEvent, Watcher } from "./watch";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -45,9 +47,14 @@ const errorResponse = (code: string, message: string) => json({ error: { code, m
 const RETRY_MS = 2_000;
 const HEARTBEAT_MS = 5_000;
 
-const sseFrame = ({ type, ...data }: LiveEvent) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+// What the page's stream carries: herdr's events (D20) to every page, and
+// (D30) its own name first, then the output of the Terminal it watches.
+type StreamEvent = LiveEvent | WatchEvent | { type: "stream"; id: string };
 
-function eventStream(request: Request, events: LiveEvents): Response {
+const sseFrame = ({ type, ...data }: StreamEvent) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+
+// `attach` hooks a connection up to more than herdr's events; it answers how to let go.
+function eventStream(request: Request, events: LiveEvents, attach?: (send: (event: StreamEvent) => void) => () => void): Response {
   const encoder = new TextEncoder();
   let cleanup = () => {};
   const body = new ReadableStream<Uint8Array>({
@@ -62,10 +69,13 @@ function eventStream(request: Request, events: LiveEvents): Response {
         }
       };
       send(`retry: ${RETRY_MS}\n\n`);
+      const detach = attach?.((event) => send(sseFrame(event)));
       const unsubscribe = events.subscribe((event) => send(sseFrame(event)));
       const heartbeat = setInterval(() => send(": keep-alive\n\n"), HEARTBEAT_MS);
       cleanup = () => {
+        if (!open) return;
         open = false;
+        detach?.();
         unsubscribe();
         clearInterval(heartbeat);
       };
@@ -137,6 +147,7 @@ export function createApp({
   now = Date.now,
   history,
   events,
+  watcher,
 }: {
   herdr: Herdr;
   webRoot: string;
@@ -147,9 +158,41 @@ export function createApp({
   history?: ReturnType<typeof createHistory>;
   // herdr's events for the page's stream (D20); without it there is no stream.
   events?: LiveEvents;
+  // Live output (D30); without it the page polls the open Terminal's output.
+  watcher?: Watcher;
 }) {
   const root = resolve(webRoot);
   const roster = createRoster(herdr, now);
+  // Each open event stream by the name it told its page (D30).
+  const streams = new Map<string, Viewer>();
+  // The latest watch request of each open stream, counted: a request that
+  // waits on herdr acts only if it is still the latest, and only while its
+  // stream is open (a closed stream is dropped here).
+  const requests = new Map<Viewer, number>();
+
+  // A stream is named in its first event, so its page can ask, by that name,
+  // for its open Terminal's output on it. When it closes, its watch goes too.
+  const nameStream = (send: (event: StreamEvent) => void) => {
+    if (!watcher) return () => {};
+    const id = crypto.randomUUID();
+    const viewer: Viewer = (event) => send(event);
+    streams.set(id, viewer);
+    requests.set(viewer, 0);
+    send({ type: "stream", id });
+    return () => {
+      streams.delete(id);
+      requests.delete(viewer);
+      watcher.unwatch(viewer);
+    };
+  };
+
+  // The open stream a watch request names in its JSON body: `{ stream }`.
+  async function streamOf(request: Request): Promise<{ watcher: Watcher; viewer: Viewer }> {
+    const body = await readBody(request);
+    const viewer = typeof body.stream === "string" ? streams.get(body.stream) : undefined;
+    if (!watcher || !viewer) throw new HerdrError("not_found", "No such event stream: open /api/events first.");
+    return { watcher, viewer };
+  }
 
   async function serveStatic(request: Request, pathname: string): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed\n", { status: 405 });
@@ -164,6 +207,10 @@ export function createApp({
     const file = Bun.file(path);
     if (!path.startsWith(root + sep) || !type || !(await file.exists())) {
       return new Response("Not found\n", { status: 404 });
+    }
+    // The service worker carries the shell's version and files (D29).
+    if (path === resolve(root, "sw.js")) {
+      return new Response(await stampedWorker(root, await file.text()), { headers: { "content-type": type, "cache-control": "no-cache" } });
     }
     return new Response(file, { headers: { "content-type": type, "cache-control": "no-cache" } });
   }
@@ -248,6 +295,29 @@ export function createApp({
             return json({ ok: true });
           },
         },
+        // Live output (D30): the page's stream named in the body gets this
+        // pane's output pushed as it changes (POST), until it asks no more
+        // (DELETE), watches another pane, or closes.
+        watch: {
+          POST: async (paneId) => {
+            const { watcher, viewer } = await streamOf(request);
+            const mine = (requests.get(viewer) ?? 0) + 1;
+            requests.set(viewer, mine);
+            await herdr.pane(paneId);
+            // The stream closed meanwhile: no page views this pane.
+            if (!requests.has(viewer)) throw new HerdrError("not_found", "No such event stream: open /api/events first.");
+            // A later watch or unwatch came in meanwhile and stands.
+            if (requests.get(viewer) === mine) watcher.watch(viewer, paneId);
+            return json({ ok: true });
+          },
+          DELETE: async (paneId) => {
+            const { watcher, viewer } = await streamOf(request);
+            checkTarget(paneId);
+            requests.set(viewer, (requests.get(viewer) ?? 0) + 1);
+            watcher.unwatch(viewer, paneId);
+            return json({ ok: true });
+          },
+        },
       },
     );
   }
@@ -263,7 +333,7 @@ export function createApp({
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
       const fetchSite = request.headers.get("sec-fetch-site");
       if (fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none") throw new HerdrError("cross_site_request", "Requests from other sites are refused.");
-      return eventStream(request, events);
+      return eventStream(request, events, nameStream);
     }
     if (resource === "workspaces" && target !== undefined && action === "terminals") {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");

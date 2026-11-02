@@ -54,6 +54,9 @@ export class FakeDocument {
   constructor(rootTag = "main") {
     this.root = new FakeElement(rootTag, this);
   }
+  createElement(tag: string) {
+    return new FakeElement(tag.toLowerCase(), this);
+  }
 }
 
 export class FakeElement {
@@ -62,6 +65,10 @@ export class FakeElement {
   readonly attributes = new Map<string, string>();
   readonly style = { height: "" };
   scrollHeight = 46;
+  // A scroll position, kept while the element stays in the page. A browser
+  // drops it when the element is taken out (moved or removed), and so does this.
+  scrollLeft = 0;
+  scrollTop = 0;
   pointerCaptures: number[] = [];
   private listeners = new Map<string, Listener[]>();
   private ownValue: string | undefined;
@@ -183,9 +190,31 @@ export class FakeElement {
   }
 
   replaceChildren(...nodes: FakeNode[]) {
-    for (const node of this.childNodes) node.parent = null;
-    for (const node of nodes) node.parent = this;
+    // A browser takes every old child out first, even one that is put back.
+    for (const node of this.childNodes) detach(node);
+    for (const node of nodes) {
+      if (node.parent && node.parent !== this) node.parent.childNodes = node.parent.childNodes.filter((other) => other !== node);
+      node.parent = this;
+    }
     this.childNodes = nodes;
+  }
+
+  // Takes `node` out of where it is and puts it before `before` (at the end for null).
+  insertBefore(node: FakeNode, before: FakeNode | null) {
+    if (node.parent) {
+      node.parent.childNodes = node.parent.childNodes.filter((other) => other !== node);
+      detach(node);
+    }
+    const at = before ? this.childNodes.indexOf(before) : -1;
+    node.parent = this;
+    this.childNodes = at < 0 ? [...this.childNodes, node] : [...this.childNodes.slice(0, at), node, ...this.childNodes.slice(at)];
+    return node;
+  }
+
+  remove() {
+    if (!this.parent) return;
+    this.parent.childNodes = this.parent.childNodes.filter((other) => other !== this);
+    detach(this);
   }
 
   // Every element under this one, in document order.
@@ -249,6 +278,13 @@ export class FakeElement {
     this.dispatchEvent(event);
     return event;
   }
+}
+
+// Takes `node` out of the page: it has no parent, and it and everything in it
+// lose their scroll positions.
+function detach(node: FakeNode) {
+  node.parent = null;
+  if (node instanceof FakeElement) for (const element of [node, ...node.descendants()]) element.scrollLeft = element.scrollTop = 0;
 }
 
 // Markup to nodes, the way a browser reads it in a tag's body: a stray end tag

@@ -2,8 +2,8 @@
 // records every argv it receives (one JSON line per call) and answers like herdr
 // 0.9.5 does: JSON on stdout on success, JSON error on stderr with exit 1.
 // It knows only the allowlist: `agent list/get/read/prompt/send-keys`,
-// `pane list/get/read/send-text/send-keys`, `workspace list` and `tab list`;
-// anything else is a usage error (exit 2).
+// `pane list/get/read/send-text/send-keys`, `workspace list`, `tab list` and
+// `terminal session observe` (D30); anything else is a usage error (exit 2).
 //
 // Its panes, as `pane list` gives them (shapes copied from herdr 0.9.5 on the
 // laptop, read-only, 2026-10-30): every agent's pane, with `agent` and
@@ -32,6 +32,10 @@ export type FakeConfig = {
   // "read --format ansi" and "pane read --format ansi" replace only the styled reads.
   // "read <pane>" and "pane read <pane>" replace the plain and styled reads of one pane.
   answers?: Record<string, { exit: number; stdout?: string; stderr?: string }>;
+  // What `terminal session observe <pane> --cols N --rows N` streams per pane:
+  // its frames, one JSON line each, then it exits with `exit` (and `stderr`),
+  // or, without `exit`, runs until it is killed. A pane not listed has gone.
+  observe?: Record<string, { frames: Record<string, unknown>[]; exit?: number; stderr?: string }>;
 };
 
 export function makeFakeHerdr(config: FakeConfig = {}) {
@@ -54,6 +58,11 @@ export function makeFakeHerdr(config: FakeConfig = {}) {
         .split("\n")
         .filter(Boolean)
         .map((line) => JSON.parse(line));
+    },
+    // The process IDs of the observe streams that ran until killed.
+    observers(): number[] {
+      const log = join(dir, "observers.jsonl");
+      return existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map(Number) : [];
     },
     // Removes its temporary directory. Call it once nothing will run the fake again.
     dispose: () => rmSync(dir, { recursive: true, force: true }),
@@ -93,7 +102,21 @@ export function runFakeHerdr(dir: string) {
 
   let answer: { exit: number; stdout?: string; stderr?: string };
   const unexpected = { exit: 2, stderr: `fake herdr: unexpected command ${argv.join(" ")}\n` };
-  if (group === "workspace" || group === "tab") {
+  if (group === "terminal") {
+    const [, , action, paneId, ...flags] = argv;
+    const stream = config.observe?.[paneId];
+    if (command !== "session" || action !== "observe" || flags.length !== 4 || flags[0] !== "--cols" || flags[2] !== "--rows") answer = unexpected;
+    else if (!panes.some((candidate) => candidate.pane_id === paneId) || !stream) answer = paneNotFound(paneId, "observe");
+    else {
+      for (const frame of stream.frames) process.stdout.write(`${JSON.stringify(frame)}\n`);
+      if (stream.exit === undefined) {
+        appendFileSync(join(dir, "observers.jsonl"), `${process.pid}\n`);
+        setInterval(() => {}, 60_000);
+        return;
+      }
+      answer = { exit: stream.exit, stderr: stream.stderr };
+    }
+  } else if (group === "workspace" || group === "tab") {
     if (command !== "list" || argv.length !== 2) answer = unexpected;
     else answer = config.answers?.[`${group} list`] ?? ok(group === "workspace" ? { type: "workspace_list", workspaces: config.workspaces ?? [] } : { type: "tab_list", tabs: config.tabs ?? [] });
   } else if (group === "pane") {

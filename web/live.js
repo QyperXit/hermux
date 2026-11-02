@@ -23,8 +23,10 @@ const CLOSED = 2;
 
 /**
  * A changed terminal as the server sends it: herdr's pane, status and kind.
+ * An `output` event with `text` is the watched Terminal's output (D30); a
+ * `watch` event says whether it is streamed (`streaming`) or to be polled.
  * @typedef {{ pane_id: string, agent_status: string, agent?: string | null }} ChangedTerminal
- * @typedef {{ changed?: ChangedTerminal[], refetch?: boolean, pane_id?: string }} StreamEvent
+ * @typedef {{ changed?: ChangedTerminal[], refetch?: boolean, pane_id?: string, text?: string, streaming?: boolean }} StreamEvent
  */
 
 /** @param {MessageEvent} event @returns {Record<string, unknown>} */
@@ -38,14 +40,17 @@ function dataOf(event) {
 }
 
 /**
+ * `onStream` hears the name the server gave this connection (D30), and null
+ * once it is gone (an error, or closed): a reconnect is a new connection.
  * @param {{
  *   open: (path: string) => EventSourceLike,
  *   onHealth: (healthy: boolean) => void,
- *   onEvent: (type: "change" | "output", data: StreamEvent) => void,
+ *   onEvent: (type: "change" | "output" | "watch", data: StreamEvent) => void,
+ *   onStream?: (id: string | null) => void,
  *   reopenMs?: number,
  * }} options
  */
-export function createLiveStream({ open, onHealth, onEvent, reopenMs = REOPEN_MS }) {
+export function createLiveStream({ open, onHealth, onEvent, onStream = () => {}, reopenMs = REOPEN_MS }) {
   /** @type {EventSourceLike | null} */
   let source = null;
   let healthy = false;
@@ -68,13 +73,18 @@ export function createLiveStream({ open, onHealth, onEvent, reopenMs = REOPEN_MS
     current.addEventListener("live", (event) => {
       if (source === current) setHealthy(dataOf(event).live === true);
     });
-    for (const type of /** @type {const} */ (["change", "output"])) {
+    current.addEventListener("stream", (event) => {
+      const { id } = dataOf(event);
+      if (source === current && typeof id === "string") onStream(id);
+    });
+    for (const type of /** @type {const} */ (["change", "output", "watch"])) {
       current.addEventListener(type, (event) => {
         if (source === current) onEvent(type, dataOf(event));
       });
     }
     current.addEventListener("error", () => {
       if (source !== current) return;
+      onStream(null);
       setHealthy(false);
       if (current.readyState !== CLOSED) return;
       source = null;
@@ -86,6 +96,7 @@ export function createLiveStream({ open, onHealth, onEvent, reopenMs = REOPEN_MS
   function stop() {
     clearTimeout(timer);
     timer = 0;
+    if (source) onStream(null);
     source?.close();
     source = null;
     setHealthy(false);

@@ -176,5 +176,15 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
     async sendKeys(paneId, keys, kind) {
       await post(terminalPath(paneId, "keys"), { keys, kind });
     },
+
+    // Live output (D30): the server pushes this pane's output on the page's
+    // event stream, named `stream`, until the page asks no more.
+    async watchOutput(paneId, stream) {
+      await post(terminalPath(paneId, "watch"), { stream });
+    },
+
+    async unwatchOutput(paneId, stream) {
+      await request(terminalPath(paneId, "watch"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ stream }) });
+    },
   };
 }

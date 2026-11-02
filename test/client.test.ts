@@ -170,6 +170,21 @@ describe("sends", () => {
   });
 });
 
+test("watchOutput and unwatchOutput send the stream's name as JSON to the pane's watch route; a refusal comes back as an error", async () => {
+  const client = createHttpClient();
+  const path = `api/terminals/${encodeURIComponent(SHELL_PANE)}/watch`;
+  // This app has no event stream, so no such stream exists.
+  for (const call of [() => client.watchOutput(SHELL_PANE, "s1"), () => client.unwatchOutput(SHELL_PANE, "s1")]) {
+    const error = await call().then(() => null, (thrown: Error & { code?: string }) => thrown);
+    expect(error?.code).toBe("not_found");
+  }
+  expect(sent).toEqual([
+    { method: "POST", path, type: "application/json", body: { stream: "s1" } },
+    { method: "DELETE", path, type: "application/json", body: { stream: "s1" } },
+  ]);
+  expect(fake.calls()).toEqual([]);
+});
+
 test("a request-level server_error keeps herdr's wording; only the latest-line row words it as the server's", () => {
   expect(errorMessage("server_error", "The server hit an unexpected error.", 500)).toBe("herdr said: The server hit an unexpected error. (server_error).");
   expect(errorMessage("herdr_odd", "boom", 502)).toBe("herdr said: boom (herdr_odd).");

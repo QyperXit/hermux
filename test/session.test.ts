@@ -94,6 +94,8 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
     readHistory: () => answer("history", () => ({ history: null, reason: "unavailable" as const })),
     sendPrompt: (paneId: string, text: string, kind: string) => answer(`prompt ${paneId} ${kind} ${text}`, () => undefined),
     sendKeys: (paneId: string, keys: string[], kind: string) => answer(`keys ${paneId} ${kind} ${keys.join(" ")}`, () => undefined),
+    watchOutput: (paneId: string, stream: string) => answer(`watch ${paneId} ${stream}`, () => undefined),
+    unwatchOutput: (paneId: string, stream: string) => answer(`unwatch ${paneId} ${stream}`, () => undefined),
   };
   const sources: FakeSource[] = [];
   let now = 0;
@@ -616,4 +618,156 @@ test("the sample data opens no stream, so its list is polled every 3 s, each ans
   expect(page.count("agents")).toBe(3);
   expect(page.changes).toEqual(["screen", "screen", "screen"]);
   expect(page.session.snapshot().updatedAt).toBe(9_000);
+});
+
+// Live output (D30): the open Terminal is watched on the page's named stream.
+async function streamedPage(paneId = "w9:pD") {
+  const page = setup({ route: { name: "agent", paneId } });
+  await flush();
+  await page.live();
+  page.stream().fire("stream", { id: "s1" });
+  await flush();
+  page.stream().fire("watch", { pane_id: paneId, streaming: true });
+  page.stream().fire("output", { pane_id: paneId, text: `pushed screen of ${paneId}` });
+  await flush();
+  return page;
+}
+
+test("live output: the open Terminal is watched on the page's named stream; once streamed, its output arrives by push and isn't polled", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pD" } });
+  await flush();
+  await page.live();
+  expect(page.calls).not.toContain("watch w9:pD s1");
+  page.stream().fire("stream", { id: "s1" });
+  await flush();
+  expect(page.calls).toContain("watch w9:pD s1");
+  // Watched but not yet streamed: still polled (it is working).
+  page.reset();
+  await page.advance(2_000);
+  expect(page.count("output w9:pD")).toBe(1);
+  page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
+  page.stream().fire("output", { pane_id: "w9:pD", text: "pushed one" });
+  await flush();
+  expect(page.session.snapshot().output).toEqual({ text: "pushed one", error: null });
+  page.reset();
+  // Working, yet no poll; an output hint without text reads nothing; each push is drawn.
+  await page.advance(10_000);
+  page.stream().fire("output", { pane_id: "w9:pD" });
+  page.stream().fire("output", { pane_id: "w9:pD", text: "pushed two" });
+  await flush();
+  expect(page.calls).toEqual([]);
+  expect(page.changes).toEqual(["output"]);
+  expect(page.session.snapshot().output).toEqual({ text: "pushed two", error: null });
+  // Output pushed for another pane is not drawn.
+  page.stream().fire("output", { pane_id: "w9:pE", text: "not this one" });
+  await flush();
+  expect(page.session.snapshot().output.text).toBe("pushed two");
+});
+
+test("live output: a pushed screen is the same text a poll would give, so the snapshot (and so the Reader) is the same", async () => {
+  const polled = setup({ route: { name: "agent", paneId: "w9:pD" } });
+  await flush();
+  const streamed = await streamedPage();
+  streamed.stream().fire("output", { pane_id: "w9:pD", text: "screen of w9:pD" });
+  await flush();
+  expect(streamed.session.snapshot().output).toEqual(polled.session.snapshot().output);
+});
+
+test("live output: when the server stops streaming it, or the stream drops, the output is read at once and polled again; a new stream watches again", async () => {
+  const page = await streamedPage();
+  page.reset();
+  page.stream().fire("watch", { pane_id: "w9:pD", streaming: false });
+  await flush();
+  expect(page.calls).toEqual(["output w9:pD"]);
+  page.reset();
+  await page.advance(4_000);
+  expect(page.count("output w9:pD")).toBe(2);
+  // Streamed again, then the stream drops: read at once, polled every 2 s.
+  page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
+  await flush();
+  page.reset();
+  await page.advance(4_000);
+  expect(page.calls).toEqual([]);
+  page.stream().fail(CONNECTING);
+  await flush();
+  expect(page.count("output w9:pD")).toBe(1);
+  page.reset();
+  await page.advance(4_000);
+  expect(page.count("output w9:pD")).toBe(2);
+  // The reconnected stream has a new name: the Terminal is watched on it, and streamed once the server says so.
+  page.stream().fire("stream", { id: "s2" });
+  await page.live();
+  expect(page.calls).toContain("watch w9:pD s2");
+  page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
+  await flush();
+  page.reset();
+  await page.advance(4_000);
+  expect(page.calls).toEqual([]);
+});
+
+test("live output: swapping Terminals moves the watch; leaving the screen or hiding the page ends it; a stale push is dropped", async () => {
+  const page = await streamedPage();
+  page.reset();
+  page.session.open({ name: "agent", paneId: "w9:pE" });
+  await flush();
+  expect(page.calls).toContain("watch w9:pE s1");
+  expect(page.calls).not.toContain("unwatch w9:pD s1");
+  // The old pane's push and streaming state are not this screen's.
+  page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
+  page.stream().fire("output", { pane_id: "w9:pD", text: "old pane" });
+  await flush();
+  expect(page.session.snapshot().output.text).toBe("screen of w9:pE");
+  page.reset();
+  page.session.open({ name: "home" });
+  await flush();
+  expect(page.calls).toContain("unwatch w9:pE s1");
+  // Back to a Terminal, then the page is hidden: the watch ends and the stream closes.
+  page.session.open({ name: "agent", paneId: "w9:pD" });
+  await flush();
+  page.reset();
+  page.session.hidden();
+  await flush();
+  expect(page.calls).toEqual(["unwatch w9:pD s1"]);
+  expect(page.stream().closed).toBe(true);
+  // Shown again: the new stream's name brings the watch back.
+  page.session.visible();
+  page.stream().fire("stream", { id: "s3" });
+  await flush();
+  expect(page.calls).toContain("watch w9:pD s3");
+});
+
+test("live output: a watch request that fails leaves the page polling", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pD" } });
+  await flush();
+  await page.live();
+  page.failing.set("watch w9:pD s1", failure("not_found", "No such event stream."));
+  page.stream().fire("stream", { id: "s1" });
+  await flush();
+  page.reset();
+  await page.advance(4_000);
+  expect(page.count("output w9:pD")).toBe(2);
+});
+
+test("live output: a read that began before a push is dropped, so an older screen never replaces a pushed one", async () => {
+  const page = await streamedPage();
+  // A send re-reads the output; the push lands while that read is on its way.
+  const read = page.hold("output w9:pD");
+  await page.session.sendKey("enter");
+  page.stream().fire("output", { pane_id: "w9:pD", text: "pushed after the key" });
+  await flush();
+  read.resolve();
+  await flush();
+  expect(page.session.snapshot().output).toEqual({ text: "pushed after the key", error: null });
+});
+
+test("live output: herdr's events down doesn't stop a streamed Terminal; if its stream then drops, the output is read at once", async () => {
+  const page = await streamedPage();
+  page.stream().fire("live", { live: false });
+  await flush();
+  page.reset();
+  await page.advance(4_000);
+  expect(page.count("output w9:pD")).toBe(0);
+  page.stream().fail(CONNECTING);
+  await flush();
+  expect(page.count("output w9:pD")).toBe(1);
 });

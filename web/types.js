@@ -55,6 +55,8 @@
  * @property {(paneId: string, query?: { before?: number | null, from?: number, limit?: number }) => Promise<HistoryPage>} readHistory
  * @property {(paneId: string, text: string, kind: string) => Promise<void>} sendPrompt
  * @property {(paneId: string, keys: string[], kind: string) => Promise<void>} sendKeys
+ * @property {(paneId: string, stream: string) => Promise<void>} watchOutput
+ * @property {(paneId: string, stream: string) => Promise<void>} unwatchOutput
  */
 
 export {};

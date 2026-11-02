@@ -4,6 +4,7 @@ import { createApp } from "./app";
 import { createLiveEvents, herdrSocketPath } from "./events";
 import { createHerdr } from "./herdr";
 import { createHistory, openSessionStore } from "./history";
+import { createWatcher } from "./watch";
 
 // The server drives the Herdr session it runs in, so it starts only inside a Herdr pane.
 if (process.env.HERDR_ENV !== "1") {
@@ -31,11 +32,14 @@ const herdr = createHerdr(herdrBin);
 const socketPath = herdrSocketPath();
 const events = createLiveEvents({ socketPath, panes: async () => (await herdr.panes()).map((pane) => pane.pane_id) });
 events.start();
+// Live output (D30): a read-only observe stream of each Terminal a page is
+// viewing, only while one is.
+const watcher = createWatcher({ herdr });
 
 const server = Bun.serve({
   hostname: HOSTNAME,
   port,
-  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events }),
+  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher }),
 });
 
 console.log(`Agents server listening on http://${HOSTNAME}:${server.port} (herdr: ${herdrBin}, events: ${socketPath}, sessions: ${sessionStore}, read-only)`);
