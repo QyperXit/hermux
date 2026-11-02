@@ -8,8 +8,8 @@ import { escapeHtml } from "../web/html.js";
 import { messageHtml } from "../web/history.js";
 import { readerHtml } from "../web/reader.js";
 import { allRowHtml, homeBodyHtml, rowHtml, shellRowHtml } from "../web/rows.js";
-import { lineErrorHtml, sheetRowsHtml, switcherRows } from "../web/terminals.js";
-import type { FakeElement } from "./support/fake-dom";
+import { lineErrorHtml, sheetRowsHtml, showTerminalName, switcherRows } from "../web/terminals.js";
+import { asPageElement, fakePage, type FakeElement } from "./support/fake-dom";
 import { keyBarScreen } from "./support/key-bar";
 
 // Markup, attribute breakers in both quote styles, entity-looking text and
@@ -72,7 +72,7 @@ describe("the page's renderers with hostile server text", () => {
     kind: "shell",
     status: null,
     workspace: { id: "w9", label: value },
-    tab: { id: "w9:t2", label: value },
+    tab: { id: "w9:t2", label: value, number: 2 },
     cwd: `/home/${value}`,
     title: value,
     latest_line: value,
@@ -91,11 +91,31 @@ describe("the page's renderers with hostile server text", () => {
       expect(rowHtml(row, { line: "" })).toContain(escapeHtml(value));
     });
 
+    test(`a row tagged by its tab's label (D31) keeps ${JSON.stringify(value)} as text`, () => {
+      const tabbed = { ...agent(value), terminal_title_stripped: "", tab: { id: "w9:tD", label: value, number: 4 } };
+      const tag = `>${escapeHtml(value)}</small>`;
+      for (const html of [rowHtml(tabbed, { line: "" }), allRowHtml(tabbed), homeBodyHtml({ blocked: [{ ...tabbed, agent_status: "blocked" }], finished: [], activity: [{ agent: tabbed, older: false }], working: [tabbed], olderCount: 0 }), shellRowHtml(shell(value))]) {
+        expectInert(html);
+        expect(html).toContain(tag);
+      }
+    });
+
     test(`the switcher sheet and a row's line error keep ${JSON.stringify(value)} as text`, () => {
-      const html = sheetRowsHtml(switcherRows([shell(value), failed(value), { ...agent(value), kind: "atomic", status: "working", workspace: { id: null, label: null }, tab: { id: "t", label: value }, title: null }], "w9:p2"), (paneId: string) => `#/agent/${encodeURIComponent(paneId)}`);
+      const html = sheetRowsHtml(switcherRows([shell(value), failed(value), { ...agent(value), kind: "atomic", status: "working", workspace: { id: null, label: null }, tab: { id: "t", label: value, number: 3 }, title: null }], "w9:p2"), (paneId: string) => `#/agent/${encodeURIComponent(paneId)}`);
       expectInert(html);
       expectInert(lineErrorHtml(failed(value)));
       expect(lineErrorHtml(failed(value))).toContain(escapeHtml(value));
+    });
+
+    test(`the screen header shows a tab labelled ${JSON.stringify(value)} as text, with the pane ID only as its title (D31)`, () => {
+      const { root } = fakePage(`<span class="identity-name"></span>`);
+      const name = root.querySelector(".identity-name") as FakeElement;
+      showTerminalName(asPageElement(name), shell(value));
+      expect(name.textContent).toBe(value);
+      expect(name.children).toEqual([]);
+      expect(name.textContent).not.toContain(" · ");
+      expect(name.textContent).not.toContain("w9:p2");
+      expect(asPageElement(name).title).toBe("w9:p2");
     });
 
     test(`Reader links, copy keys and Earlier messages keep ${JSON.stringify(value)} as text (D29)`, () => {

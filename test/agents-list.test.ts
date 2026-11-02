@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { RECENT_IDLE_READS } from "../server/roster";
 import { disposeFakes, sorted } from "./support/http";
 import { FOOTER } from "./support/screens";
-import { AGENTS, BLOCKED, CUSTOM, PANE, setup } from "./support/agents";
+import { AGENTS, BLOCKED, CUSTOM, PANE, TABS, setup } from "./support/agents";
 
 afterAll(disposeFakes);
 
@@ -17,17 +17,18 @@ describe.concurrent("agent list", () => {
     return (await response.json()).agents as Record<string, unknown>[];
   };
 
-  test("list passes herdr's agents through and adds `latest_line` for the active ones and the recent idle ones", async () => {
+  test("list passes herdr's agents through and adds each one's tab and `latest_line` for the active ones and the recent idle ones", async () => {
     const { request, calls } = setup({
       agents: AGENTS,
+      tabs: TABS,
       outputs: { [BLOCKED]: `Upload to which track?${FOOTER}`, [PANE]: `Running the chart tests\n ∀ Gestating...${FOOTER}`, [CUSTOM]: `idle words${FOOTER}` },
     });
     expect(await listAgents(request)).toEqual([
-      { ...AGENTS[0], latest_line: "Upload to which track?" },
-      { ...AGENTS[1], latest_line: "Running the chart tests" },
-      { ...AGENTS[2], latest_line: "idle words" },
+      { ...AGENTS[0], tab: { id: "w8:t3", label: "2", number: 3 }, latest_line: "Upload to which track?" },
+      { ...AGENTS[1], tab: { id: "w9:tD", label: "next work", number: 13 }, latest_line: "Running the chart tests" },
+      { ...AGENTS[2], tab: { id: "w9:tE", label: "5", number: 14 }, latest_line: "idle words" },
     ]);
-    expect(sorted(calls())).toEqual(sorted([["agent", "list"], read(BLOCKED), read(PANE), read(CUSTOM)]));
+    expect(sorted(calls())).toEqual(sorted([["agent", "list"], ["tab", "list"], read(BLOCKED), read(PANE), read(CUSTOM)]));
   });
 
   test("the list answers normally whatever `lines` holds", async () => {

@@ -1,6 +1,8 @@
 // What the terminal switcher sheet, the screen header and the All list say
-// about each terminal (web/terminals.js). No DOM: the page's own functions.
+// about each terminal (web/terminals.js), and the name tags of the home and
+// All rows (web/rows.js). No DOM: the page's own functions.
 import { expect, test } from "bun:test";
+import { allRowHtml, homeBodyHtml, shellRowHtml } from "../web/rows.js";
 import {
   allCountLine,
   closesOnSwipe,
@@ -23,7 +25,7 @@ type Terminal = {
   kind: string;
   status: string | null;
   workspace: { id: string | null; label: string | null };
-  tab: { id: string | null; label: string | null };
+  tab: { id: string | null; label: string | null; number: number | null };
   cwd: string | null;
   title: string | null;
   latest_line?: string | null;
@@ -36,47 +38,53 @@ const terminal = (pane_id: string, kind: string, over: Partial<Terminal> = {}): 
   kind,
   status: kind === "shell" ? null : "idle",
   workspace: hermux,
-  tab: { id: `${pane_id}-tab`, label: "1" },
+  tab: { id: `${pane_id}-tab`, label: "1", number: 1 },
   cwd: "/home/you/projects/hermux",
   title: kind === "shell" ? "you@laptop:~/hermux$" : "atomic - hermux",
   ...over,
 });
 
-test("a terminal is named by its tab's label; herdr's own tab number gives way to the agent's session, then to its kind", () => {
-  const named = terminal("wF:p1", "atomic", { tab: { id: "t", label: "new next" }, title: "atomic - other - hermux" });
-  expect(terminalName(named)).toBe("new next");
-  const session = terminal("wF:p1", "atomic", { title: "atomic - fix the build - hermux" });
-  expect(terminalName(session)).toBe("fix the build");
-  expect(terminalName(terminal("wF:p1", "atomic"))).toBe("atomic");
-  expect(terminalName(terminal("wF:pM", "shell", { tab: { id: "t", label: "term" } }))).toBe("term");
-  expect(terminalName(terminal("wF:pM", "shell"))).toBe("shell");
+test("a terminal's name (D31): an agent's session, else its tab's own label, else 'tab N', else its pane ID", () => {
+  const tab = (label: string | null, number: number | null) => ({ tab: { id: label === null && number === null ? null : "t", label, number } });
+  expect(terminalName(terminal("wF:p1", "atomic", { ...tab("new next", 4), title: "atomic - fix the build - hermux" }))).toBe("fix the build");
+  expect(terminalName(terminal("wF:p1", "atomic", tab("new next", 4)))).toBe("new next");
+  expect(terminalName(terminal("wF:pM", "shell", tab(" term ", 20)))).toBe("term");
   // A shell's title is its prompt: never a name.
-  expect(terminalName(terminal("wF:pM", "shell", { tab: { id: null, label: null } }))).toBe("shell");
+  expect(terminalName(terminal("wF:pM", "shell", { ...tab("1", 1), title: "fix the build - hermux" }))).toBe("tab 1");
+  // herdr names an unlabelled tab with a number: its own number, or its place
+  // in the workspace once an earlier tab has closed. Herdr shows that label.
+  expect(terminalName(terminal("wF:p1", "atomic", tab("1", 1)))).toBe("tab 1");
+  expect(terminalName(terminal("w8:p3", "atomic", tab("2", 3)))).toBe("tab 2");
+  expect(terminalName(terminal("w8:p3", "atomic", tab("", 3)))).toBe("tab 3");
+  expect(terminalName(terminal("w8:p3", "shell", tab("  ", 3)))).toBe("tab 3");
+  // Without a tab label or number, the pane ID still tells terminals apart.
+  expect(terminalName(terminal("w8:p3", "atomic", tab(null, null)))).toBe("w8:p3");
+  expect(terminalName(terminal("w8:p4", "shell", { tab: { id: "w8:t4", label: null, number: null } }))).toBe("w8:p4");
 });
 
 test("the Send key names an agent by its folder and a shell by its tab, or by its folder and 'shell' when the tab has only a number", () => {
   expect(sendTarget(terminal("wF:p1", "atomic"))).toBe("hermux");
-  expect(sendTarget(terminal("wF:pM", "shell", { tab: { id: "t", label: "term" } }))).toBe("term");
+  expect(sendTarget(terminal("wF:pM", "shell", { tab: { id: "t", label: "term", number: 2 } }))).toBe("term");
   expect(sendTarget(terminal("wF:pN", "shell"))).toBe("hermux shell");
 });
 
 test("the line beside a name gives the kind (unless the name is it) and an agent's state in words", () => {
-  expect(kindLine(terminal("wF:p1", "atomic", { status: "blocked", tab: { id: "t", label: "next work" } }))).toBe("atomic · Needs you");
-  expect(kindLine(terminal("wF:p1", "atomic", { status: "working" }))).toBe("Working");
-  expect(kindLine(terminal("wF:pM", "shell", { tab: { id: "t", label: "term" } }))).toBe("shell");
-  expect(kindLine(terminal("wF:pN", "shell"))).toBe("");
+  expect(kindLine(terminal("wF:p1", "atomic", { status: "blocked", tab: { id: "t", label: "next work", number: 2 } }))).toBe("atomic · Needs you");
+  expect(kindLine(terminal("wF:p1", "atomic", { status: "working", tab: { id: "t", label: "atomic", number: 2 } }))).toBe("Working");
+  expect(kindLine(terminal("wF:pM", "shell", { tab: { id: "t", label: "term", number: 3 } }))).toBe("shell");
+  expect(kindLine(terminal("wF:pN", "shell"))).toBe("shell");
 });
 
 test("the sheet has one row per pane in herdr's order, marks the one on screen 'here', and carries each last line", () => {
   const panes = [
-    terminal("wF:p1", "atomic", { status: "working", tab: { id: "t1", label: "Atomic" }, latest_line: "Writing web/app.css" }),
-    terminal("wF:pM", "shell", { tab: { id: "t2", label: "term" }, latest_line: "Agents server listening on http://127.0.0.1:8787" }),
-    terminal("wF:pN", "shell"),
+    terminal("wF:p1", "atomic", { status: "working", tab: { id: "t1", label: "Atomic", number: 1 }, latest_line: "Writing web/app.css" }),
+    terminal("wF:pM", "shell", { tab: { id: "t2", label: "term", number: 2 }, latest_line: "Agents server listening on http://127.0.0.1:8787" }),
+    terminal("wF:pN", "shell", { tab: { id: "t3", label: "3", number: 4 } }),
   ];
   expect(switcherRows(panes, "wF:pM")).toEqual([
     { pane_id: "wF:p1", shell: false, status: "working", name: "Atomic", kind: "atomic · Working", line: "Writing web/app.css", error: "", here: false },
     { pane_id: "wF:pM", shell: true, status: null, name: "term", kind: "shell", line: "Agents server listening on http://127.0.0.1:8787", error: "", here: true },
-    { pane_id: "wF:pN", shell: true, status: null, name: "shell", kind: "", line: "", error: "", here: false },
+    { pane_id: "wF:pN", shell: true, status: null, name: "tab 3", kind: "shell", line: "", error: "", here: false },
   ]);
   expect(sheetTitle({ id: "wF", label: "hermux" }, panes)).toBe("hermux · 3 terminals");
   expect(sheetTitle(null, panes)).toBe("hermux · 3 terminals");
@@ -91,8 +99,8 @@ test("the sheet's rows are escaped: a tab name or last line with markup is text,
   const html = sheetRowsHtml(
     switcherRows(
       [
-        terminal("wF:pM", "shell", { tab: { id: "t", label: '<img src=x onerror="alert(1)">' }, latest_line: `</a><script>alert('x')</script> & "quotes"` }),
-        terminal("wF:p1", "atomic", { status: "blocked", tab: { id: "t", label: "ok" } }),
+        terminal("wF:pM", "shell", { tab: { id: "t", label: '<img src=x onerror="alert(1)">', number: 1 }, latest_line: `</a><script>alert('x')</script> & "quotes"` }),
+        terminal("wF:p1", "atomic", { status: "blocked", tab: { id: "t", label: "ok", number: 2 } }),
       ],
       "wF:p1",
     ),
@@ -107,6 +115,22 @@ test("the sheet's rows are escaped: a tab name or last line with markup is text,
   expect(html).toContain('href="#/agent/wF%3ApM"');
 });
 
+test("home, All and shell rows and the sheet's rows show the terminal's name, never its pane ID; the pane ID is only a title (D31)", () => {
+  const row = { pane_id: "w8:p3", agent: "atomic", agent_status: "blocked", cwd: "/home/you/projects/hermux", terminal_title_stripped: "atomic - hermux", tab: { id: "w8:t3", label: "2", number: 3 } };
+  const named = { ...row, pane_id: "w8:p4", agent_status: "idle", tab: { id: "w8:t4", label: "notes", number: 4 } };
+  const session = { ...row, pane_id: "w8:p5", agent_status: "working", terminal_title_stripped: "atomic - fix the build - hermux", tab: { id: "w8:t5", label: "notes", number: 5 } };
+  const { tab, ...untabbed } = { ...row, pane_id: "w8:p6" };
+  const tags = (html: string) => [...html.matchAll(/<small class="row-tag"([^>]*)>([^<]*)<\/small>/g)].map((match) => [match[2], match[1]]);
+  const visible = (html: string) => html.replace(/<[^>]*>/g, "");
+  const home = homeBodyHtml({ blocked: [row], finished: [], activity: [{ agent: session, older: false }, { agent: named, older: true }], working: [session], olderCount: 0 });
+  expect(tags(home)).toEqual([["tab 2", ' title="w8:p3"'], ["fix the build", ' title="w8:p5"'], ["notes", ' title="w8:p4"']]);
+  expect(visible(home)).not.toMatch(/w8:p/);
+  const all = [allRowHtml(named), allRowHtml(untabbed), shellRowHtml(terminal("wF:pM", "shell", { tab: { id: "t", label: "term", number: 20 } })), shellRowHtml(terminal("wF:pN", "shell"))].join("");
+  expect(tags(all)).toEqual([["notes", ' title="w8:p4"'], ["w8:p6", ' title="w8:p6"'], ["term", ' title="wF:pM"'], ["tab 1", ' title="wF:pN"']]);
+  const sheet = sheetRowsHtml(switcherRows([terminal("wF:p1", "atomic", { tab: { id: "t", label: "2", number: 3 } }), terminal("wF:pM", "shell", { tab: { id: "t", label: "term", number: 20 } })], "wF:p1"), (paneId: string) => `#/agent/${paneId}`);
+  expect([...sheet.matchAll(/<span class="pane-name"([^>]*)>([^<]*)<\/span>/g)].map((match) => [match[2], match[1]])).toEqual([["tab 2", ' title="wF:p1"'], ["term", ' title="wF:pM"']]);
+  expect(visible(sheet)).not.toMatch(/wF:p/);
+});
 
 test("a row whose latest line couldn't be read says why in the line's place, escaped, in the quiet meta style", () => {
   const failing = terminal("wF:pM", "shell", { latest_line: null, latest_line_error: { code: "server_unreachable", message: `herdr <b>down</b> & "out"` } });

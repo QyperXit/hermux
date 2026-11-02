@@ -122,17 +122,44 @@ const agents = [
 // Plain shell terminals, in the workspaces above. A shell has no status.
 /** @type {Record<string, string>} */
 const WORKSPACES = { w8: "weather-app", w9: "usage-dashboard", wA: "todo-cli", wB: "recipe-book", wD: "budget-tracker", wE: "portfolio-site", wF: "hermux" };
-/** @type {Record<string, string>} */
-const TAB_LABELS = { "w9:pD": "new next", "w9:pF": "New agent", "wF:p1": "Atomic" };
+// Each pane's tab: its label and number. herdr labels an unnamed tab with its
+// place in the workspace, which can differ from its number.
+/** @type {Record<string, [label: string, number: number]>} */
+const TABS = {
+  "w8:p1": ["release", 1],
+  "w9:pD": ["new next", 13],
+  "w9:pE": ["review", 14],
+  "w9:pF": ["New agent", 15],
+  "w9:pG": ["3", 16],
+  "wA:pA": ["docs", 10],
+  "wA:pE": ["2", 14],
+  "wA:pF": ["questions", 15],
+  "wA:pG": ["chat", 16],
+  "wA:pH": ["idea", 17],
+  "wA:pK": ["5", 19],
+  "wA:pM": ["notes", 20],
+  "wA:pN": ["7", 21],
+  "wF:p1": ["Atomic", 1],
+  "wF:pM": ["term", 20],
+  "w9:pA": ["dev server", 10],
+  "w9:p9": ["tests", 9],
+  "wA:p5": ["qly", 5],
+};
+/** @param {string} paneId @returns {Terminal["tab"]} */
+function tabOf(paneId) {
+  const [label, number] = TABS[paneId] ?? ["1", 1];
+  return { id: paneId.replace(":p", ":t"), label, number };
+}
+
 /** @param {string} folder */
 const shellPrompt = (folder) => `you@laptop:~/${folder}$`;
 
 const shells = [
-  ["wF:pM", "term", "projects/hermux", "Agents server listening on http://127.0.0.1:8787"],
-  ["w9:pA", "dev server", "projects/usage-dashboard", "ready - started server on http://localhost:3000"],
-  ["w9:p9", "tests", "projects/usage-dashboard", "✓ 214 passed"],
-  ["wA:p5", "qly", "projects/todo-cli", shellPrompt("projects/todo-cli")],
-].map(([pane_id, tab, path, line]) => ({ pane_id, workspace_id: pane_id.split(":")[0], tab, cwd: `/home/you/${path}`, line }));
+  ["wF:pM", "projects/hermux", "Agents server listening on http://127.0.0.1:8787"],
+  ["w9:pA", "projects/usage-dashboard", "ready - started server on http://localhost:3000"],
+  ["w9:p9", "projects/usage-dashboard", "✓ 214 passed"],
+  ["wA:p5", "projects/todo-cli", shellPrompt("projects/todo-cli")],
+].map(([pane_id, path, line]) => ({ pane_id, workspace_id: pane_id.split(":")[0], cwd: `/home/you/${path}`, line }));
 
 /** @typedef {(typeof shells)[number]} Shell */
 
@@ -206,7 +233,7 @@ function sampleTerminals() {
     kind: "atomic",
     status: agent.agent_status,
     workspace: { id: agent.workspace_id ?? null, label: workspaceLabel(agent.workspace_id) },
-    tab: { id: `${agent.pane_id}:tab`, label: TAB_LABELS[agent.pane_id] ?? "1" },
+    tab: tabOf(agent.pane_id),
     cwd: agent.cwd,
     title: agent.terminal_title_stripped,
     state_change_seq: agent.state_change_seq,
@@ -219,7 +246,7 @@ function sampleTerminals() {
     kind: "shell",
     status: null,
     workspace: { id: shell.workspace_id, label: WORKSPACES[shell.workspace_id] },
-    tab: { id: `${shell.pane_id}:tab`, label: shell.tab },
+    tab: tabOf(shell.pane_id),
     cwd: shell.cwd,
     title: shellPrompt(folderOf(shell.cwd)),
     latest_line: shellLastLine(shell),
@@ -255,7 +282,7 @@ export function createSampleClient() {
 
     async listAgents() {
       await pause(120);
-      return agents.map((agent) => ({ agent: "atomic", ...agent }));
+      return agents.map((agent) => ({ agent: "atomic", ...agent, tab: tabOf(agent.pane_id) }));
     },
 
     async listTerminals() {

@@ -18,7 +18,7 @@ import {
   sendTarget,
   shellTerminals,
   retryingText,
-  terminalName,
+  showTerminalName,
   terminalsLabel,
 } from "./terminals.js";
 import { createEarlier } from "./earlier.js";
@@ -274,9 +274,7 @@ function updateTerminalScreen(view) {
   if (status) app.dataset.agentStatus = status;
   else delete app.dataset.agentStatus;
   need(app, ".identity-folder").textContent = folder;
-  // With the switcher, the terminals key says where the other panes are; the
-  // pane's ID is in the sheet's rows.
-  need(app, ".identity-name").textContent = [terminalName(terminal), ...(switcher ? [] : [terminal.pane_id])].join(" · ");
+  showTerminalName(need(app, ".identity-name"), terminal);
   const key = need(app, ".terminals-key");
   key.hidden = !switcher;
   if (switcher) {

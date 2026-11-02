@@ -2,7 +2,7 @@
 // agent screen's switcher sheet, the screen header and the All list show about
 // a terminal, and how a swipe on the sheet is read. The server's `Terminal`
 // record is { pane_id, kind ("shell" or the agent kind), status (null for a
-// shell), workspace: { id, label }, tab: { id, label }, cwd, title,
+// shell), workspace: { id, label }, tab: { id, label, number }, cwd, title,
 // latest_line? ... }. No DOM here, so the tests can import it.
 import { errorMessage } from "./api.js";
 import { describe } from "./home.js";
@@ -42,7 +42,7 @@ export function terminalOfAgent(agent) {
     kind: agent.agent ?? "agent",
     status: agent.agent_status ?? null,
     workspace: { id: agent.workspace_id ?? null, label: null },
-    tab: { id: null, label: null },
+    tab: agent.tab ?? { id: null, label: null, number: null },
     cwd: agent.cwd ?? null,
     title: agent.terminal_title_stripped ?? null,
     ...(agent.state_change_seq !== undefined ? { state_change_seq: agent.state_change_seq } : {}),
@@ -66,13 +66,35 @@ export function describeTerminal(terminal) {
   return { folder, session: isShell(terminal) ? null : session };
 }
 
-// The name of a terminal: its tab's label, unless that is herdr's own tab
-// number; else an agent's session; else "shell" (or the agent's kind).
+// A tab's own name: its label, unless that is only a number. herdr labels an
+// unnamed tab with a number (its place in the workspace), so that is no name.
+/** @param {Terminal["tab"] | undefined} tab */
+function tabName(tab) {
+  const label = (tab?.label ?? "").trim();
+  return label && !/^\d+$/.test(label) ? label : null;
+}
+
+// The name of a terminal (D31): an agent's session; else its tab's own name;
+// else "tab N", with the number herdr shows for the tab (its label, or its
+// number when the label is empty); else its pane ID.
 /** @param {Pick<Terminal, "pane_id" | "kind" | "cwd" | "title" | "tab">} terminal */
 export function terminalName(terminal) {
+  const name = describeTerminal(terminal).session ?? tabName(terminal.tab);
+  if (name) return name;
   const label = (terminal.tab?.label ?? "").trim();
-  if (label && !/^\d+$/.test(label)) return label;
-  return describeTerminal(terminal).session ?? terminal.kind;
+  const number = label || terminal.tab?.number;
+  return number ? `tab ${number}` : terminal.pane_id;
+}
+
+// Shows a terminal's name on the screen header (D31): the name as text, the
+// pane ID only as its title.
+/**
+ * @param {HTMLElement} element
+ * @param {Pick<Terminal, "pane_id" | "kind" | "cwd" | "title" | "tab">} terminal
+ */
+export function showTerminalName(element, terminal) {
+  element.textContent = terminalName(terminal);
+  element.title = terminal.pane_id;
 }
 
 // What the Send key names: an agent keeps its folder; a shell its tab's
@@ -81,8 +103,7 @@ export function terminalName(terminal) {
 export function sendTarget(terminal) {
   const { folder } = describeTerminal(terminal);
   if (!isShell(terminal)) return folder;
-  const name = terminalName(terminal);
-  return name === SHELL ? `${folder} shell` : name;
+  return tabName(terminal.tab) ?? `${folder} shell`;
 }
 
 // The small line next to a name: the kind, unless the name already is it, and
@@ -158,7 +179,7 @@ export function sheetRowsHtml(rows, hrefFor) {
       return `<li><a class="pane-row${row.here ? " is-here" : ""}" href="${escapeHtml(hrefFor(row.pane_id))}" data-pane="${escapeHtml(row.pane_id)}"${status}${row.here ? ' aria-current="true"' : ""}>
         ${mark}
         <span class="pane-text">
-          <span class="pane-head"><span class="pane-name">${escapeHtml(row.name)}</span>${row.kind ? ` <small class="pane-kind">${escapeHtml(row.kind)}</small>` : ""}</span>
+          <span class="pane-head"><span class="pane-name" title="${escapeHtml(row.pane_id)}">${escapeHtml(row.name)}</span>${row.kind ? ` <small class="pane-kind">${escapeHtml(row.kind)}</small>` : ""}</span>
           ${row.line ? `<span class="pane-line">${escapeHtml(row.line)}</span>` : row.error ? quietLineHtml(row.error) : ""}
         </span>
         ${row.here ? `<span class="pane-end">here</span>` : icon("i-chevron", " pane-end")}

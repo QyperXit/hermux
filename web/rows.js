@@ -3,7 +3,7 @@
 // import it.
 import { escapeHtml, icon } from "./html.js";
 import { calmLine, describe, olderKeyLabel } from "./home.js";
-import { STATE_WORDS, describeTerminal, lineErrorHtml, terminalName } from "./terminals.js";
+import { STATE_WORDS, describeTerminal, lineErrorHtml, terminalName, terminalOfAgent } from "./terminals.js";
 
 /**
  * @typedef {import("./types.js").Agent} Agent
@@ -26,26 +26,33 @@ export function terminalHref(paneId) {
   return `#/agent/${encodeURIComponent(paneId)}`;
 }
 
-// One agent row: lamp, folder with its session (or pane), a second line, and a
-// time only when the server saw the change (`since`). Idle rows show it only
-// in Activity, where a just-stopped agent says how long ago it stopped.
+// One agent row: lamp, folder with the terminal's name (its pane ID only as
+// the name's title), a second line, and a time only when the server saw the
+// change (`since`). Idle rows show it only in Activity, where a just-stopped
+// agent says how long ago it stopped.
 /**
  * @param {Agent} agent
  * @param {{ lamp?: string, line?: string, inbox?: boolean, idleTime?: boolean, older?: boolean }} options
  */
 export function rowHtml(agent, { lamp = agent.agent_status, line = "", inbox = false, idleTime = false, older = false }) {
-  const { folder, session } = describe(agent);
+  const { folder } = describe(agent);
   const time = agent.agent_status === "idle" && !idleTime ? "" : duration(agent.since);
   return `
     <a class="row ${inbox ? "row-inbox" : ""} ${older ? "is-older" : ""}" href="${terminalHref(agent.pane_id)}" data-status="${escapeHtml(lamp)}">
       <span class="lamp" aria-hidden="true"></span>
       <span class="row-text">
-        <span class="row-title"><span class="row-folder">${escapeHtml(folder)}</span> <small class="row-tag">${escapeHtml(session ?? agent.pane_id)}</small></span>
+        <span class="row-title"><span class="row-folder">${escapeHtml(folder)}</span> ${tagHtml(terminalName(terminalOfAgent(agent)), agent.pane_id)}</span>
         ${line}
       </span>
       ${time ? `<span class="row-time ${inbox ? "is-key" : ""}">${escapeHtml(time)}</span>` : ""}
     </a>`;
 }
+
+/**
+ * @param {string} name
+ * @param {string} paneId
+ */
+const tagHtml = (name, paneId) => `<small class="row-tag" title="${escapeHtml(paneId)}">${escapeHtml(name)}</small>`;
 
 /** @param {string | null | undefined} text */
 export const inboxLine = (text) => (text ? `<span class="row-line">${escapeHtml(text)}</span>` : "");
@@ -102,18 +109,17 @@ export const allRowHtml = (agent) =>
   rowHtml(agent, { line: latestLineHtml(agent) || lineErrorHtml(agent) || `<span class="row-meta">${escapeHtml(STATE_WORDS[agent.agent_status] ?? agent.agent_status)}</span>` });
 
 // A plain shell's row: the shell glyph where an agent has its lamp, the
-// folder and its tab's name (or the pane), and the last thing it printed.
+// folder and the terminal's name, and the last thing it printed.
 /** @param {Terminal} terminal */
 export function shellRowHtml(terminal) {
   const { folder } = describeTerminal(terminal);
-  const name = terminalName(terminal);
   const line = terminal.latest_line ? `<span class="row-tick">${escapeHtml(terminal.latest_line)}</span>` : lineErrorHtml(terminal) || `<span class="row-meta">Shell</span>`;
   return `
     <a class="row row-shell" href="${terminalHref(terminal.pane_id)}">
       ${icon("i-shell", " shell-glyph")}
       <span class="row-text">
         <span class="visually-hidden">Shell. </span>
-        <span class="row-title"><span class="row-folder">${escapeHtml(folder)}</span> <small class="row-tag">${escapeHtml(name === terminal.kind ? terminal.pane_id : name)}</small></span>
+        <span class="row-title"><span class="row-folder">${escapeHtml(folder)}</span> ${tagHtml(terminalName(terminal), terminal.pane_id)}</span>
         ${line}
       </span>
     </a>`;

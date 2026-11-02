@@ -94,6 +94,7 @@ function agentOf(terminal) {
   /** @type {Agent} */
   const agent = { pane_id: terminal.pane_id, agent: terminal.kind, agent_status: terminal.status ?? "", cwd: terminal.cwd ?? "", terminal_title_stripped: terminal.title ?? "" };
   if (terminal.workspace.id !== null) agent.workspace_id = terminal.workspace.id;
+  agent.tab = terminal.tab;
   if (typeof terminal.state_change_seq === "number") agent.state_change_seq = terminal.state_change_seq;
   if (typeof terminal.completion_seq === "number") agent.completion_seq = terminal.completion_seq;
   if (typeof terminal.since === "number") agent.since = terminal.since;
@@ -176,15 +177,15 @@ export function createSession({ client, openStream, timers, opened }) {
     return listing;
   }
 
-  // An agent list answer knows all of an Agent but its tab and its
-  // workspace's label, which only the terminal lists have: those stay as
-  // they last said.
+  // An agent list answer knows all of an Agent, its tab included, except its
+  // workspace's label, which only the terminal lists have: that stays as they
+  // last said.
   /** @param {Agent[]} agents */
   function rememberAgents(agents) {
     agentList = remember(agents.map(terminalOfAgent), (pane) => {
       const known = panes.get(pane.pane_id);
       if (!known) return pane;
-      return { ...pane, tab: known.tab, workspace: { id: pane.workspace.id, label: known.workspace.id === pane.workspace.id ? known.workspace.label : null } };
+      return { ...pane, workspace: { id: pane.workspace.id, label: known.workspace.id === pane.workspace.id ? known.workspace.label : null } };
     });
     forgetUnlisted();
   }

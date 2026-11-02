@@ -22,6 +22,7 @@
  * @property {string} cwd
  * @property {string} terminal_title_stripped
  * @property {string} [workspace_id]
+ * @property {import("../server/terminals").TerminalTab} [tab] its tab's ID, label and number
  * @property {number} [state_change_seq]
  * @property {number} [completion_seq]
  * @property {number} [since]

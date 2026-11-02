@@ -32,6 +32,8 @@ const wordsOf = (panes: { pane_id: string }[], tag = "") => Object.fromEntries(p
 const linesOf = (rows: { pane_id: string; latest_line?: string | null }[]) => Object.fromEntries(rows.map((row) => [row.pane_id, row.latest_line]));
 const sinceOf = (rows: { pane_id: string; since?: unknown }[]) => Object.fromEntries(rows.map((row) => [row.pane_id, row.since]));
 const agentRead = (paneId: string) => ["agent", "read", paneId, "--source", "recent-unwrapped", "--lines", "200"];
+// An agent's tab when `tab list` doesn't name it: its ID only.
+const unnamedTab = (row: Record<string, unknown>) => ({ id: typeof row.tab_id === "string" ? row.tab_id : null, label: null, number: null });
 const idleRun = (prefix: string, count: number, firstSeq = 100) => Array.from({ length: count }, (_, index) => agent(`${prefix}${index}`, "idle", firstSeq + index));
 
 describe.concurrent("the agents list", () => {
@@ -46,14 +48,14 @@ describe.concurrent("the agents list", () => {
     ];
     const { roster, calls } = setup({ agents, outputs: { "w1:p1": `Finished the release.${FOOTER}`, "w1:p6": `Upload to which track?${FOOTER}` } });
     expect(await roster.agents([])).toEqual([
-      { ...agents[0], latest_line: "Finished the release." },
-      { ...agents[1], latest_line: null },
-      { ...agents[2], latest_line: null },
-      { ...agents[3], latest_line: null },
-      { ...agents[4], latest_line: null },
-      { ...agents[5], latest_line: "Upload to which track?" },
+      { ...agents[0], tab: unnamedTab(agents[0]), latest_line: "Finished the release." },
+      { ...agents[1], tab: unnamedTab(agents[1]), latest_line: null },
+      { ...agents[2], tab: unnamedTab(agents[2]), latest_line: null },
+      { ...agents[3], tab: unnamedTab(agents[3]), latest_line: null },
+      { ...agents[4], tab: unnamedTab(agents[4]), latest_line: null },
+      { ...agents[5], tab: unnamedTab(agents[5]), latest_line: "Upload to which track?" },
     ]);
-    expect(sorted(calls())).toEqual(sorted([["agent", "list"], ...agents.map((row) => agentRead(row.pane_id))]));
+    expect(sorted(calls())).toEqual(sorted([["agent", "list"], ["tab", "list"], ...agents.map((row) => agentRead(row.pane_id))]));
   });
 
   test(`only the ${RECENT_IDLE_READS} most recently active idle agents are read, on every refresh; older idle ones never are`, async () => {
@@ -152,10 +154,10 @@ describe.concurrent("the agents list", () => {
       },
     });
     expect(await roster.agents([])).toEqual([
-      { ...agents[0], latest_line: "Which port should it use?" },
-      { ...agents[1], latest_line: null, latest_line_error: { code: "server_unreachable", message: "herdr server not running" } },
-      { ...agents[2], latest_line: null, latest_line_error: { code: "herdr_failed", message: "something broke" } },
-      { ...agents[3], latest_line: null },
+      { ...agents[0], tab: unnamedTab(agents[0]), latest_line: "Which port should it use?" },
+      { ...agents[1], tab: unnamedTab(agents[1]), latest_line: null, latest_line_error: { code: "server_unreachable", message: "herdr server not running" } },
+      { ...agents[2], tab: unnamedTab(agents[2]), latest_line: null, latest_line_error: { code: "herdr_failed", message: "something broke" } },
+      { ...agents[3], tab: unnamedTab(agents[3]), latest_line: null },
     ]);
     setClock(1_500);
     await roster.agents([]);
@@ -177,9 +179,9 @@ describe.concurrent("the agents list", () => {
         },
       };
       expect<unknown>(await createRoster(herdr, () => 0).agents([])).toEqual([
-        { ...working("w8:p1"), latest_line: "The tests pass." },
-        { ...working("w8:p2"), latest_line: null, latest_line_error: { code: "server_error", message: "The server hit an unexpected error." } },
-        { ...working("w8:p3"), latest_line: "The tests pass." },
+        { ...working("w8:p1"), tab: unnamedTab({}), latest_line: "The tests pass." },
+        { ...working("w8:p2"), tab: unnamedTab({}), latest_line: null, latest_line_error: { code: "server_error", message: "The server hit an unexpected error." } },
+        { ...working("w8:p3"), tab: unnamedTab({}), latest_line: "The tests pass." },
       ]);
       expect(logged).toHaveBeenCalledTimes(1);
     } finally {

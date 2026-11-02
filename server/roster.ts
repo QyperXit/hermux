@@ -1,7 +1,7 @@
 import { RECENT_ROWS } from "../web/activity.js";
-import { HerdrError, SHELL, type Agent, type Herdr, type Pane } from "./herdr";
+import { HerdrError, SHELL, type Agent, type Herdr, type Pane, type Tab } from "./herdr";
 import { latestLine, shellLatestLine } from "./latest-line";
-import { kindOf, toTerminals, type Terminal } from "./terminals";
+import { kindOf, tabsOf, toTerminals, type Terminal } from "./terminals";
 
 export const LATEST_LINE_STATUSES = new Set(["blocked", "working", "unknown", "done"]);
 // Of the idle agents, only the most recently active (highest state_change_seq)
@@ -22,6 +22,9 @@ const READ_REUSE_MS = 3_000;
 // recently before. After a longer gap (the page was closed), it is unknown when
 // the change happened.
 const OBSERVED_WITHIN_MS = 10_000;
+// Tab labels change rarely, so every list reuses the last `tab list` the
+// roster read while it is younger than this, instead of reading it again.
+const TABS_REUSE_MS = 10_000;
 
 type LineError = { code: string; message: string };
 type LatestLine = { latest_line: string | null; latest_line_error?: LineError };
@@ -68,6 +71,7 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
   const looks = new Map<string, Look>();
   const agentReads = new Map<string, AgentRead>();
   const shellReads = new Map<string, Read>();
+  let tabList: { at: number; tabs: Tab[] } | null = null;
 
   const isFresh = (read: Read) => now() - read.at < READ_REUSE_MS;
 
@@ -126,8 +130,22 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
     );
   }
 
+  // A tab list that fails leaves the tabs without labels or numbers; the lists still answer.
+  async function recentTabs(): Promise<Tab[]> {
+    if (tabList && now() - tabList.at < TABS_REUSE_MS) return tabList.tabs;
+    const at = now();
+    try {
+      const tabs = await herdr.tabs();
+      tabList = { at, tabs };
+      return tabs;
+    } catch (error) {
+      if (!(error instanceof HerdrError)) throw error;
+      return [];
+    }
+  }
+
   async function listing() {
-    const [panes, agents, workspaces, tabs] = await Promise.all([herdr.panes(), herdr.list(), herdr.workspaces(), herdr.tabs()]);
+    const [panes, agents, workspaces, tabs] = await Promise.all([herdr.panes(), herdr.list(), herdr.workspaces(), recentTabs()]);
     return { panes, agents, workspaces, tabs };
   }
 
@@ -150,9 +168,11 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
 
   return {
     async agents(named: string[]): Promise<Agent[]> {
-      const agents = stampListed(await herdr.list());
+      const [listed, tabs] = await Promise.all([herdr.list(), recentTabs()]);
+      const agents = stampListed(listed);
+      const tabOf = tabsOf(tabs);
       const lines = await linesOf(agentsToRead(agents, named), []);
-      return agents.map((agent) => ({ ...agent, ...lines.get(agent.pane_id) }));
+      return agents.map((agent) => ({ ...agent, tab: tabOf(agent.tab_id), ...lines.get(agent.pane_id) }));
     },
 
     async terminals(named: string[]): Promise<Terminal[]> {

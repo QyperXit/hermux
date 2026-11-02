@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { shellLatestLine } from "../server/latest-line";
 import { RECENT_IDLE_READS } from "../server/roster";
 import type { FakeConfig } from "./fake-herdr";
-import { FORMAT_REFUSALS, FORMAT_UNSUPPORTED, OTHER_READ_FAILURES, disposeFakes, sorted } from "./support/http";
+import { FORMAT_REFUSALS, FORMAT_UNSUPPORTED, OTHER_READ_FAILURES, disposeFakes, herdrError, sorted } from "./support/http";
 import { AGENTS, ATOMIC, CONFIG, OTHER_AGENT, OUTPUTS, PI, SERVER_SHELL, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
 
 afterAll(disposeFakes);
@@ -16,17 +16,17 @@ const paneRead = (paneId: string) => ["pane", "read", paneId, "--source", "recen
 const LISTS = [["pane", "list"], ["agent", "list"], ["workspace", "list"], ["tab", "list"]];
 
 describe.concurrent("terminal inventory", () => {
-  test("GET /api/terminals lists every pane once, in herdr's pane order, agents merged with their pane and labels", async () => {
+  test("GET /api/terminals lists every pane once, in herdr's pane order, agents merged with their pane, labels and tab numbers", async () => {
     const { request, calls } = setup();
     const response = await request("GET", "/api/terminals");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       terminals: [
-        { pane_id: SHELL_PANE, kind: "shell", status: null, workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:t2", label: "1" }, cwd: "/home/you/usage-dashboard", title: "you@laptop:~/usage-dashboard", latest_line: "you@laptop:~/usage-dashboard$" },
-        { pane_id: ATOMIC, kind: "atomic", status: "idle", workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:tD", label: "next work" }, cwd: "/home/you/usage-dashboard", title: "atomic - next work - usage-dashboard", state_change_seq: 30, completion_seq: 29, latest_line: "Finished the chart fix." },
-        { pane_id: PI, kind: "pi", status: "working", workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:tE", label: "3" }, cwd: "/home/you/usage-dashboard", title: "pi - usage-dashboard", state_change_seq: 40, latest_line: "Running the chart tests" },
-        { pane_id: OTHER_AGENT, kind: "atomic", status: "blocked", workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:t1", label: "1" }, cwd: "/home/you/hermux", title: "atomic - hermux", state_change_seq: 7, latest_line: "Which port should it use?" },
-        { pane_id: SERVER_SHELL, kind: "shell", status: null, workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:tM", label: "server" }, cwd: "/home/you/hermux", title: "bun server/main.ts", latest_line: "Agents server listening on http://127.0.0.1:8787" },
+        { pane_id: SHELL_PANE, kind: "shell", status: null, workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:t2", label: "1", number: 1 }, cwd: "/home/you/usage-dashboard", title: "you@laptop:~/usage-dashboard", latest_line: "you@laptop:~/usage-dashboard$" },
+        { pane_id: ATOMIC, kind: "atomic", status: "idle", workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:tD", label: "next work", number: 2 }, cwd: "/home/you/usage-dashboard", title: "atomic - next work - usage-dashboard", state_change_seq: 30, completion_seq: 29, latest_line: "Finished the chart fix." },
+        { pane_id: PI, kind: "pi", status: "working", workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:tE", label: "3", number: 3 }, cwd: "/home/you/usage-dashboard", title: "pi - usage-dashboard", state_change_seq: 40, latest_line: "Running the chart tests" },
+        { pane_id: OTHER_AGENT, kind: "atomic", status: "blocked", workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:t1", label: "1", number: 1 }, cwd: "/home/you/hermux", title: "atomic - hermux", state_change_seq: 7, latest_line: "Which port should it use?" },
+        { pane_id: SERVER_SHELL, kind: "shell", status: null, workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:tM", label: "server", number: 2 }, cwd: "/home/you/hermux", title: "bun server/main.ts", latest_line: "Agents server listening on http://127.0.0.1:8787" },
       ],
     });
     // Agents are read with `agent read` (Atomic's chrome is cut), shells with `pane read`.
@@ -55,12 +55,11 @@ describe.concurrent("terminal inventory", () => {
     expect(terminals.find((t) => t.pane_id === ATOMIC)).toMatchObject({ kind: "atomic", status: "idle" });
   });
 
-  test("pane, workspace and tab JSON in the wrong shape is 502 herdr_bad_output where it is parsed, never passed on", async () => {
+  test("pane and workspace JSON in the wrong shape is 502 herdr_bad_output where it is parsed, never passed on", async () => {
     const out = (result: unknown) => ({ exit: 0, stdout: JSON.stringify({ id: "cli:request", result }) });
     const cases: [string, string, FakeConfig["answers"]][] = [
       ["a pane list row without pane_id", "/api/terminals", { "pane list": out({ type: "pane_list", panes: [{ workspace_id: "w9" }] }) }],
       ["a workspace list row without workspace_id", "/api/terminals", { "workspace list": out({ type: "workspace_list", workspaces: [{ label: "x" }] }) }],
-      ["a tab list row that isn't an object", "/api/workspaces/w9/terminals", { "tab list": out({ type: "tab_list", tabs: [null] }) }],
       ["a pane get that isn't a pane", path(SHELL_PANE, "keys"), { "pane get": out({ pane: [], type: "pane_info" }) }],
     ];
     for (const [name, route, answers] of cases) {
@@ -69,6 +68,50 @@ describe.concurrent("terminal inventory", () => {
       const response = await request(send ? "POST" : "GET", route, send ? { body: { keys: ["enter"], kind: "shell" } } : {});
       expect([name, response.status, (await response.json()).error?.code]).toEqual([name, 502, "herdr_bad_output"]);
       expect(calls().filter((call) => call[1].startsWith("send"))).toEqual([]);
+    }
+  });
+});
+
+describe.concurrent("tab names (D31)", () => {
+  const tabLists = (calls: string[][]) => calls.filter((call) => call.join(" ") === "tab list").length;
+
+  test("GET /api/agents gives each agent its tab, the same as the terminal list gives its pane", async () => {
+    const { request } = setup();
+    const agents = (await (await request("GET", "/api/agents")).json()).agents as { pane_id: string; tab: unknown }[];
+    const terminals = (await (await request("GET", "/api/terminals")).json()).terminals as { pane_id: string; tab: unknown }[];
+    expect(agents.map(({ pane_id, tab }) => [pane_id, tab])).toEqual([
+      [ATOMIC, { id: "w9:tD", label: "next work", number: 2 }],
+      [PI, { id: "w9:tE", label: "3", number: 3 }],
+      [OTHER_AGENT, { id: "wF:t1", label: "1", number: 1 }],
+    ]);
+    for (const agent of agents) expect(agent.tab).toEqual(terminals.find((terminal) => terminal.pane_id === agent.pane_id)?.tab);
+  });
+
+  test("the agent list and the terminal lists share one `tab list` for 10 s, then read it again", async () => {
+    const { request, calls, setClock } = setup();
+    for (const route of ["/api/agents", "/api/terminals", "/api/workspaces/w9/terminals", "/api/agents", "/api/terminals"]) {
+      expect((await request("GET", route)).status).toBe(200);
+    }
+    setClock(10_999);
+    expect((await request("GET", "/api/agents")).status).toBe(200);
+    expect(tabLists(calls())).toBe(1);
+    setClock(11_000);
+    expect((await request("GET", "/api/terminals")).status).toBe(200);
+    expect((await request("GET", "/api/agents")).status).toBe(200);
+    expect(tabLists(calls())).toBe(2);
+  });
+
+  test("a `tab list` that fails or is the wrong shape leaves every tab without a label or number; the lists still answer", async () => {
+    const out = (result: unknown) => ({ exit: 0, stdout: JSON.stringify({ id: "cli:tab:list", result }) });
+    for (const answer of [herdrError("server_unreachable", "herdr server not running", "cli:tab:list"), out({ type: "tab_list", tabs: [null] })]) {
+      const { request } = setup({ ...CONFIG, answers: { "tab list": answer } });
+      for (const [route, field] of [["/api/agents", "agents"], ["/api/terminals", "terminals"], ["/api/workspaces/wF/terminals", "terminals"]]) {
+        const response = await request("GET", route);
+        expect([route, response.status]).toEqual([route, 200]);
+        const rows = (await response.json())[field] as { tab: { label: unknown; number: unknown } }[];
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) expect([route, row.tab.label, row.tab.number]).toEqual([route, null, null]);
+      }
     }
   });
 });

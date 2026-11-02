@@ -14,10 +14,10 @@ const WEB = resolve(import.meta.dir, "../../web");
 export const ALLOWED_LOGIN = "you@example.com";
 
 // The herdr commands the server may ever run, and the ones the /api/agents
-// list runs: the list and the latest lines' reads (`pane read` for an agent
-// with no named kind), never a send.
+// list runs: the list, the tab list for the agents' tabs, and the latest
+// lines' reads (`pane read` for an agent with no named kind), never a send.
 export const HERDR_COMMANDS = ["agent list", "agent get", "agent read", "agent prompt", "agent send-keys", "pane list", "pane get", "pane read", "pane send-text", "pane send-keys", "workspace list", "tab list", "terminal session"];
-export const AGENT_LIST_COMMANDS = ["agent list", "agent read", "pane read"];
+export const AGENT_LIST_COMMANDS = ["agent list", "tab list", "agent read", "pane read"];
 const SENDS = ["agent prompt", "agent send-keys", "pane send-text", "pane send-keys"];
 
 // Checks everything one fake herdr was asked to run: only allowed commands,

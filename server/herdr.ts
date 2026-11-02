@@ -4,7 +4,7 @@
 // binary (never a shell). Only these subcommands exist here:
 //   agent list, get, read, prompt, send-keys;
 //   pane list, get, read (every pane is a terminal that can be listed and read);
-//   workspace list, tab list (labels only);
+//   workspace list, tab list (labels and tab numbers only);
 //   pane send-text, pane send-keys, each straight after the re-check of the
 //     pane: `agent get` for an agent, `pane get` for a plain shell;
 //   terminal session observe (D30): a read-only stream of a pane's screen,

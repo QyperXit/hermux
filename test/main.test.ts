@@ -8,6 +8,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { makeFakeHerdr } from "./fake-herdr";
 import { makeFakeEvents, until } from "./support/fake-events";
+import { sorted } from "./support/http";
 import { CWD, makeStore, removeStores, type Entry } from "./support/session-store";
 
 const MAIN = resolve(import.meta.dir, "../server/main.ts");
@@ -126,8 +127,9 @@ test("with HERDR_ENV=1 it listens on 127.0.0.1 only and enforces the login check
     const allowed = await fetch(`${base}/api/agents`, { headers: { "Tailscale-User-Login": LOGIN } });
     expect(allowed.status).toBe(200);
     expect((await allowed.json()).agents.map((agent: { pane_id: string }) => agent.pane_id)).toEqual(["w1:p1"]);
-    // The blocked agent's latest line comes from one read of its recent output.
-    expect(fake.calls()).toEqual([["agent", "list"], ["agent", "read", "w1:p1", "--source", "recent-unwrapped", "--lines", "200"]]);
+    // The blocked agent's latest line comes from one read of its recent output;
+    // its tab from the tab list.
+    expect(sorted(fake.calls())).toEqual(sorted([["agent", "list"], ["tab", "list"], ["agent", "read", "w1:p1", "--source", "recent-unwrapped", "--lines", "200"]]));
   } finally {
     proc.kill();
     await proc.exited;

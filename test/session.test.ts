@@ -6,13 +6,14 @@ import { homeLists, memoryStorage } from "../web/home.js";
 import { createSession } from "../web/session.js";
 import { CONNECTING, FakeSource } from "./support/event-source";
 
-type Agent = { pane_id: string; agent: string; agent_status: string; cwd: string; terminal_title_stripped: string; workspace_id: string; state_change_seq: number; completion_seq?: number; latest_line: string };
+type Tab = { id: string; label: string; number: number };
+type Agent = { pane_id: string; agent: string; agent_status: string; cwd: string; terminal_title_stripped: string; workspace_id: string; tab: Tab; state_change_seq: number; completion_seq?: number; latest_line: string };
 type Terminal = {
   pane_id: string;
   kind: string;
   status: string | null;
   workspace: { id: string; label: string };
-  tab: { id: string; label: string };
+  tab: Tab;
   cwd: string;
   title: string;
   latest_line: string;
@@ -27,6 +28,7 @@ const agent = (pane_id: string, kind: string, agent_status: string, seq: number)
   cwd: "/home/you/usage-dashboard",
   terminal_title_stripped: `${kind} - ${pane_id} - usage-dashboard`,
   workspace_id: "w9",
+  tab: { id: `t-${pane_id}`, label: "1", number: 1 },
   state_change_seq: seq,
   latest_line: `list line of ${pane_id}`,
 });
@@ -39,13 +41,13 @@ function world() {
     kind: "shell",
     status: null,
     workspace: dashboard,
-    tab: { id: "w9:t2", label: "server" },
+    tab: { id: "w9:t2", label: "server", number: 2 },
     cwd: "/home/you/usage-dashboard",
     title: "you@laptop:~/usage-dashboard$",
     latest_line: "$ ls",
   };
   const terminals = (): Terminal[] => [
-    ...agents.map((row) => ({ pane_id: row.pane_id, kind: row.agent, status: row.agent_status, workspace: dashboard, tab: { id: `t-${row.pane_id}`, label: "1" }, cwd: row.cwd, title: row.terminal_title_stripped, latest_line: `workspace line of ${row.pane_id}` })),
+    ...agents.map((row) => ({ pane_id: row.pane_id, kind: row.agent, status: row.agent_status, workspace: dashboard, tab: row.tab, cwd: row.cwd, title: row.terminal_title_stripped, latest_line: `workspace line of ${row.pane_id}` })),
     shell,
   ];
   return { agents, terminals };
@@ -493,7 +495,7 @@ test("the All screen is drawn once its terminals answer, not when the list does"
   expect(page.session.snapshot().terminals).toHaveLength(3);
 });
 
-test("an agent list answer updates the one copy of a pane and keeps its tab and workspace label; a pane every list dropped is forgotten", async () => {
+test("an agent list answer updates the one copy of a pane, its tab included, and keeps its workspace label; a pane every list dropped is forgotten", async () => {
   const page = setup();
   await flush();
   await page.live();
@@ -502,12 +504,15 @@ test("an agent list answer updates the one copy of a pane and keeps its tab and 
   // The list answers while the workspace's own read is held.
   const workspace = page.hold("workspace w9");
   page.herdr.agents[1].agent_status = "working";
+  page.herdr.agents[1].tab = { id: "t-w9:pE", label: "renamed", number: 1 };
   page.stream().fire("change", { changed: [], refetch: true });
   await flush();
-  expect(page.session.snapshot().terminal).toMatchObject({ pane_id: "w9:pE", status: "working", tab: { id: "t-w9:pE", label: "1" }, workspace: dashboard });
+  expect(page.session.snapshot().terminal).toMatchObject({ pane_id: "w9:pE", status: "working", tab: { id: "t-w9:pE", label: "renamed", number: 1 }, workspace: dashboard });
+  // Home and All draw their rows, and the rows' names, from these.
+  expect(page.session.snapshot().agents.find((row) => row.pane_id === "w9:pE")?.tab).toEqual({ id: "t-w9:pE", label: "renamed", number: 1 });
   workspace.resolve();
   await flush();
-  // pD closes while home is open, and comes back: the tab it had is not kept.
+  // pD closes while home is open, and comes back: its workspace label is not kept.
   page.session.open({ name: "home" });
   const [pD] = page.herdr.agents.splice(0, 1);
   page.stream().fire("change", { changed: [], refetch: true });
@@ -516,7 +521,7 @@ test("an agent list answer updates the one copy of a pane and keeps its tab and 
   page.stream().fire("change", { changed: [], refetch: true });
   await flush();
   page.session.open({ name: "agent", paneId: "w9:pD" });
-  expect(page.session.snapshot().terminal).toMatchObject({ pane_id: "w9:pD", tab: { id: null, label: null }, workspace: { id: "w9", label: null } });
+  expect(page.session.snapshot().terminal).toMatchObject({ pane_id: "w9:pD", tab: { id: "t-w9:pD", label: "1", number: 1 }, workspace: { id: "w9", label: null } });
 });
 
 test("a send goes to the open Terminal as its kind, one message at a time, then re-reads its output and the list", async () => {
