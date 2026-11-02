@@ -1,15 +1,15 @@
-# Agents (phone supervisor for Herdr)
+# hermux
 
-A phone web app for watching and driving the Atomic agents and shells that run in Herdr panes on your laptop.
+The words hermux uses for the agents and shells it shows from Herdr panes.
 
 ## Terminals
 
 **Terminal**:
-Any Herdr pane the app shows: an Agent or a Shell.
+Any Herdr pane the app shows. A Terminal is either an Agent or a Shell.
 _Avoid_: pane (except when talking to herdr), tab, window
 
 **Agent**:
-A Terminal whose pane runs a coding agent that herdr recognises, with a status: working, blocked, done, idle or unclear.
+A Terminal running a coding agent that herdr recognises. It has a status: working, blocked, done, idle or unclear.
 _Avoid_: bot, session (a Session is something else, below)
 
 **Shell**:
@@ -17,7 +17,7 @@ A Terminal whose pane runs a plain shell or command, with no agent status.
 _Avoid_: console, plain pane
 
 **Workspace**:
-A Herdr workspace: the group of Terminals that the switcher lists together.
+A Herdr workspace. The switcher lists its Terminals together.
 _Avoid_: project, folder
 
 **Session**:
@@ -27,7 +27,7 @@ _Avoid_: chat, thread
 ## Agent screen
 
 **Live screen**:
-What the Terminal shows right now, read from herdr and redrawn as it changes.
+What the Terminal shows right now, streamed from herdr and redrawn as it changes.
 _Avoid_: output (in prose), viewport, scrollback
 
 **Earlier messages**:
