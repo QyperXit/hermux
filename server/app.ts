@@ -2,6 +2,8 @@ import { extname, resolve, sep } from "node:path";
 import { HerdrError, checkTarget, type Herdr } from "./herdr";
 import type { LiveEvent, LiveEvents } from "./events";
 import { parseHistoryQuery, type createHistory } from "./history";
+import { parseSubscription } from "./push-store";
+import type { Push } from "./push";
 import { createRoster } from "./roster";
 import { stampedWorker } from "./shell";
 import type { Viewer, WatchEvent, Watcher } from "./watch";
@@ -24,6 +26,7 @@ const STATUS: Record<string, number> = {
   key_not_allowed: 400,
   cross_site_request: 403,
   not_found: 404,
+  subscription_not_found: 404,
   agent_not_found: 404,
   pane_not_found: 404,
   workspace_not_found: 404,
@@ -34,6 +37,7 @@ const STATUS: Record<string, number> = {
   unsupported_media_type: 415,
   server_error: 500,
   herdr_unavailable: 503,
+  push_failed: 502,
 };
 
 const json = (body: unknown, status = 200) =>
@@ -107,6 +111,13 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   throw new HerdrError("bad_request", "The request body must be a JSON object.");
 }
 
+// A page of this app asks (an EventSource or a GET sends no body, so the global
+// rules for changes don't cover it); a request another site fired is refused.
+function refuseCrossSite(request: Request) {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none") throw new HerdrError("cross_site_request", "Requests from other sites are refused.");
+}
+
 // The kind the client saw (`kind` from the terminal list: an agent kind, or
 // "shell"), checked just before each send.
 function terminalKind(body: Record<string, unknown>): string {
@@ -148,6 +159,7 @@ export function createApp({
   history,
   events,
   watcher,
+  push,
 }: {
   herdr: Herdr;
   webRoot: string;
@@ -160,6 +172,8 @@ export function createApp({
   events?: LiveEvents;
   // Live output (D30); without it the page polls the open Terminal's output.
   watcher?: Watcher;
+  // Push notifications (D32); without it the push routes are unknown (404).
+  push?: Push;
 }) {
   const root = resolve(webRoot);
   const roster = createRoster(herdr, now);
@@ -322,6 +336,44 @@ export function createApp({
     );
   }
 
+  // Push notifications (D32). The key is the server's public VAPID key, for the
+  // page's subscribe. A subscription is saved and removed by its endpoint, and a
+  // test goes only to a subscription the server has saved.
+  async function pushApi(request: Request, name: string | undefined): Promise<Response> {
+    if (!push) throw new HerdrError("not_found", "No such API route.");
+    refuseCrossSite(request);
+    const method = request.method;
+    const endpointOf = (body: Record<string, unknown>) => {
+      if (typeof body.endpoint !== "string" || !body.endpoint) throw new HerdrError("bad_request", "`endpoint` must be the subscription's endpoint.");
+      return body.endpoint;
+    };
+    if (name === "key") {
+      if (method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
+      return json({ key: push.publicKey() });
+    }
+    if (name === "subscription") {
+      if (method === "POST") {
+        const subscription = parseSubscription((await readBody(request)).subscription);
+        if (!subscription) throw new HerdrError("bad_request", "`subscription` must be a push subscription with an https endpoint and its keys.");
+        push.subscribe(subscription);
+        return json({ ok: true });
+      }
+      if (method === "DELETE") {
+        push.unsubscribe(endpointOf(await readBody(request)));
+        return json({ ok: true });
+      }
+      throw new HerdrError("method_not_allowed", "Use POST or DELETE.");
+    }
+    if (name === "test") {
+      if (method !== "POST") throw new HerdrError("method_not_allowed", "Use POST.");
+      const delivery = await push.sendTo(endpointOf(await readBody(request)), { title: "Test notification", body: "Notifications are working.", pane_id: null, tag: "test" });
+      if (delivery === null || delivery === "gone") throw new HerdrError("subscription_not_found", "The server doesn't have this phone's subscription.");
+      if (delivery === "failed") throw new HerdrError("push_failed", "The push service didn't accept the test.");
+      return json({ ok: true });
+    }
+    throw new HerdrError("not_found", "No such API route.");
+  }
+
   async function api(request: Request, url: URL): Promise<Response> {
     const [, , resource, target, action, ...rest] = url.pathname.split("/");
     if (rest.length) throw new HerdrError("not_found", "No such API route.");
@@ -331,10 +383,10 @@ export function createApp({
     // EventSource sends no body, so the global POST rules don't cover it.
     if (resource === "events" && target === undefined && events) {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
-      const fetchSite = request.headers.get("sec-fetch-site");
-      if (fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none") throw new HerdrError("cross_site_request", "Requests from other sites are refused.");
+      refuseCrossSite(request);
       return eventStream(request, events, nameStream);
     }
+    if (resource === "push" && action === undefined) return pushApi(request, target);
     if (resource === "workspaces" && target !== undefined && action === "terminals") {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
       return json(await roster.workspace(decodeTarget(target)));

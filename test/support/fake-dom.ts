@@ -23,7 +23,7 @@ export class FakeText {
 
 export type FakeNode = FakeElement | FakeText;
 
-export type FakeEventInit = { button?: number; detail?: number; pointerId?: number };
+export type FakeEventInit = { button?: number; detail?: number; pointerId?: number; key?: string; shiftKey?: boolean };
 
 export class FakeEvent {
   target: FakeElement | null = null;
@@ -32,13 +32,17 @@ export class FakeEvent {
   button: number;
   detail: number;
   pointerId: number;
+  key: string;
+  shiftKey: boolean;
   constructor(
     public type: string,
-    { button = 0, detail = 1, pointerId = 1 }: FakeEventInit = {},
+    { button = 0, detail = 1, pointerId = 1, key = "", shiftKey = false }: FakeEventInit = {},
   ) {
     this.button = button;
     this.detail = detail;
     this.pointerId = pointerId;
+    this.key = key;
+    this.shiftKey = shiftKey;
   }
   preventDefault() {
     this.defaultPrevented = true;
@@ -234,6 +238,11 @@ export class FakeElement {
   closest(selector: string) {
     for (let element: FakeElement | null = this; element; element = element.parent) if (element.matches(selector)) return element;
     return null;
+  }
+
+  // This element or one inside it.
+  contains(node: FakeElement | null) {
+    return node !== null && (node === this || this.descendants().includes(node));
   }
 
   get isConnected() {

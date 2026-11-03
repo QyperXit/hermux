@@ -166,6 +166,26 @@ describe("the watcher", () => {
     expect(world.reads).toEqual(["w1:p1"]);
   });
 
+  test("viewed says whether a page views the pane now: not before, not another pane, and not during the grace period after the last one leaves (D32)", async () => {
+    const world = setup({ graceMs: 80 });
+    const first = world.viewer();
+    const second = world.viewer();
+    expect(world.watcher.viewed("w1:p1")).toBe(false);
+    world.watcher.watch(first, "w1:p1");
+    world.watcher.watch(second, "w1:p1");
+    expect([world.watcher.viewed("w1:p1"), world.watcher.viewed("w1:p2")]).toEqual([true, false]);
+    world.watcher.unwatch(first);
+    expect(world.watcher.viewed("w1:p1")).toBe(true);
+    world.watcher.unwatch(second);
+    // The stream is kept for the grace period, but nobody is looking.
+    expect(world.watcher.watched()).toEqual(["w1:p1"]);
+    expect(world.watcher.viewed("w1:p1")).toBe(false);
+    // A viewer that moves to another pane is no longer viewing the first.
+    world.watcher.watch(first, "w1:p1");
+    world.watcher.watch(first, "w1:p2");
+    expect([world.watcher.viewed("w1:p1"), world.watcher.viewed("w1:p2")]).toEqual([false, true]);
+  });
+
   test("the real default canvas is the wide one", () => {
     expect(OBSERVE_COLS).toBe(400);
   });

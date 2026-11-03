@@ -4,6 +4,10 @@ import { createApp } from "./app";
 import { createLiveEvents, herdrSocketPath } from "./events";
 import { createHerdr } from "./herdr";
 import { createHistory, openSessionStore } from "./history";
+import { createNotifier } from "./notifier";
+import { createPush, webPushSend } from "./push";
+import { createPushStore } from "./push-store";
+import { createRoster } from "./roster";
 import { createWatcher } from "./watch";
 
 // The server drives the Herdr session it runs in, so it starts only inside a Herdr pane.
@@ -26,6 +30,12 @@ const herdrBin = process.env.HERDR_BIN || "herdr";
 // Atomic's session store, opened read-only for earlier messages.
 const sessionStore = process.env.ATOMIC_SESSION_STORE || resolve(homedir(), ".atomic/workflows/journal.sqlite");
 
+// Push notifications (D32): the VAPID keys and the phones' subscriptions stay in
+// this folder (git-ignored), readable by the user only.
+const pushDir = process.env.AGENTS_PUSH_DIR || resolve(import.meta.dir, "../.push");
+// Web Push asks the sender to name itself with a mailto: or https: address.
+const pushSubject = process.env.AGENTS_PUSH_SUBJECT || undefined;
+
 const herdr = createHerdr(herdrBin);
 // Live updates (D20): herdr's events, read-only, from the socket of the Herdr
 // session the server runs in.
@@ -35,11 +45,16 @@ events.start();
 // Live output (D30): a read-only observe stream of each Terminal a page is
 // viewing, only while one is.
 const watcher = createWatcher({ herdr });
+const pushStore = createPushStore(pushDir);
+const push = createPush({ store: pushStore, send: webPushSend(pushStore, pushSubject) });
+// An Agent that needs you or finishes is pushed to the phones that opted in,
+// unless a page is viewing it.
+createNotifier({ events, herdr, roster: createRoster(herdr, Date.now), push, watcher }).start();
 
 const server = Bun.serve({
   hostname: HOSTNAME,
   port,
-  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher }),
+  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher, push }),
 });
 
-console.log(`Agents server listening on http://${HOSTNAME}:${server.port} (herdr: ${herdrBin}, events: ${socketPath}, sessions: ${sessionStore}, read-only)`);
+console.log(`Agents server listening on http://${HOSTNAME}:${server.port} (herdr: ${herdrBin}, events: ${socketPath}, sessions: ${sessionStore}, read-only, push keys: ${pushDir})`);

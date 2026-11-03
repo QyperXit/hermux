@@ -3,6 +3,7 @@
 // fake clock, memoryStorage() for the phone's storage, and records of what the
 // key bar asked the page to send and announce. Gestures go through the events
 // a phone or a keyboard would fire.
+import { composerHtml } from "../../web/composer.js";
 import { memoryStorage } from "../../web/home.js";
 import { createKeyBar } from "../../web/key-bar.js";
 import { asPageElement, fakePage, type FakeElement } from "./fake-dom";
@@ -41,10 +42,12 @@ export function fakeClock() {
   };
 }
 
-// The page's controls under the key bar, as the agent screen's template draws them.
+// The page's controls under the key bar, as the agent screen's template draws
+// them (the composer's own markup is the page's), under the output window.
 const CONTROLS = `
+    <div class="output" tabindex="0"></div>
     <div class="controls">
-      <form class="composer" autocomplete="off"><textarea id="message" name="message"></textarea></form>
+      ${composerHtml()}
       <p class="notice" role="status" aria-live="polite"></p>
     </div>`;
 
@@ -70,6 +73,12 @@ export function keyBarScreen({ storage = memoryStorage(), clock = fakeClock() }:
     if (found.length !== 1) throw new Error(`Expected one shown button named ${JSON.stringify(name)}, found ${found.length}: ${JSON.stringify(shownButtons().map(nameOf))}`);
     return found[0];
   };
+  // The popover of saved commands, open or not, by its accessible name.
+  const dialog = (name: string) => {
+    const found = root.querySelectorAll('[role="dialog"]').find((element) => element.getAttribute("aria-label") === name);
+    if (!found) throw new Error(`No dialog named ${JSON.stringify(name)}`);
+    return found;
+  };
   const group = (name: string) => {
     const found = root.querySelectorAll('[role="group"]').find((element) => element.getAttribute("aria-label") === name);
     if (!found) throw new Error(`No group named ${JSON.stringify(name)}`);
@@ -93,6 +102,7 @@ export function keyBarScreen({ storage = memoryStorage(), clock = fakeClock() }:
     sentTexts,
     notices,
     button,
+    dialog,
     group,
     field,
     // The names of the shown buttons in a group, in order.

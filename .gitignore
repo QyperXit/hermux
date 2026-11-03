@@ -16,3 +16,7 @@ docs/project/notes/*/
 .env*.local
 .impeccable/mocks/
 .atomic/
+
+# push notification keys and subscriptions: secrets of this laptop, never committed (D32)
+.push/
+web/round5/

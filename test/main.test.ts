@@ -3,7 +3,7 @@
 // ~/.atomic store is never opened.
 import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { makeFakeHerdr } from "./fake-herdr";
@@ -23,6 +23,8 @@ afterAll(() => {
 
 // A store path that doesn't exist, for runs that don't read history.
 const NO_STORE = join(scratch, "missing.sqlite");
+// Where every run keeps its push keys, so none writes into the repo (D32).
+const PUSH_DIR = join(scratch, "push");
 // A herdr socket that doesn't exist, so no run ever subscribes to the real herdr's events.
 const NO_SOCKET = join(scratch, "missing.sock");
 // The login every run allows unless a test says otherwise.
@@ -30,7 +32,7 @@ const LOGIN = "you@example.com";
 
 function env(overrides: Record<string, string | undefined>) {
   const next: Record<string, string> = {};
-  for (const [name, value] of Object.entries({ ...process.env, ATOMIC_SESSION_STORE: NO_STORE, HERDR_SOCKET_PATH: NO_SOCKET, AGENTS_ALLOWED_LOGIN: LOGIN, ...overrides })) if (value !== undefined) next[name] = value;
+  for (const [name, value] of Object.entries({ ...process.env, ATOMIC_SESSION_STORE: NO_STORE, AGENTS_PUSH_DIR: PUSH_DIR, HERDR_SOCKET_PATH: NO_SOCKET, AGENTS_ALLOWED_LOGIN: LOGIN, ...overrides })) if (value !== undefined) next[name] = value;
   return next;
 }
 
@@ -217,4 +219,38 @@ test("main.ts subscribes to herdr's events on the socket HERDR_SOCKET_PATH names
     await proc.exited;
     events.dispose();
   }
+});
+
+// Push notifications (D32): the real entry point makes its keys in the folder it is
+// told (never in the repo), keeps them across restarts, and serves the public one.
+test("makes its push keys on first start in AGENTS_PUSH_DIR, reuses them after a restart, and serves only the public key", async () => {
+  const fake = makeFakeHerdr();
+  fakes.push(fake);
+  const pushDir = join(scratch, "push-restart");
+  const keyOf = async () => {
+    const { proc, base, banner } = await startMain({ HERDR_BIN: fake.bin, AGENTS_PUSH_DIR: pushDir });
+    try {
+      const answer = await fetch(`${base}/api/push/key`, { headers: { "Tailscale-User-Login": LOGIN } });
+      expect(answer.status).toBe(200);
+      const anonymous = await fetch(`${base}/api/push/key`);
+      expect(anonymous.status).toBe(403);
+      const saved = await fetch(`${base}/api/push/subscription`, {
+        method: "POST",
+        headers: { "Tailscale-User-Login": LOGIN, "content-type": "application/json" },
+        body: JSON.stringify({ subscription: { endpoint: "https://push.example.com/send/phone", keys: { p256dh: "made-up-p256dh", auth: "made-up-auth" } } }),
+      });
+      expect(saved.status).toBe(200);
+      return { key: ((await answer.json()) as { key: string }).key, banner };
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  };
+  const first = await keyOf();
+  const vapid = JSON.parse(readFileSync(join(pushDir, "vapid.json"), "utf8")) as { publicKey: string; privateKey: string };
+  expect(first.key).toBe(vapid.publicKey);
+  expect(first.banner).not.toContain(vapid.privateKey);
+  expect([statSync(pushDir).mode & 0o777, statSync(join(pushDir, "vapid.json")).mode & 0o777, statSync(join(pushDir, "subscriptions.json")).mode & 0o777]).toEqual([0o700, 0o600, 0o600]);
+  expect((await keyOf()).key).toBe(first.key);
+  expect(JSON.parse(readFileSync(join(pushDir, "subscriptions.json"), "utf8"))).toHaveLength(1);
 });

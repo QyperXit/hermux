@@ -271,7 +271,10 @@ button {
   height: 16px;
 }
 
-/* The theme control, a 48px icon key at the right of the home and All headers. */
+/* The notifications bell and the theme control, 48px icon keys at the right of
+   the home and All headers. The bell is muted while the browser blocks push or
+   can't do it. */
+.bell-key,
 .theme-key {
   display: grid;
   place-items: center;
@@ -283,6 +286,20 @@ button {
   border: 0;
   border-radius: var(--radius);
   background: transparent;
+}
+
+.bell-key {
+  margin: -4px 0;
+}
+
+.bell-key.is-muted {
+  color: var(--ink-soft);
+}
+
+.bar-keys {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .summary {
@@ -410,8 +427,6 @@ button {
 .identity-meta,
 .identity-name,
 .key-label,
-.reply,
-.send-label,
 .switcher-title,
 .pane-line {
   overflow: hidden;
@@ -485,6 +500,39 @@ button {
 
 .all-key .icon {
   color: var(--ink-soft);
+}
+
+/* The notifications panel (D33), on the switcher sheet's layer: what it is now, its keys and the last result. */
+.notify-body {
+  display: grid;
+  gap: var(--unit);
+  border-top: 1px solid var(--rule);
+  padding: var(--unit) var(--gutter) calc(var(--unit) * 2);
+}
+
+.notify-line {
+  padding-top: var(--unit);
+  font-size: var(--text-m);
+}
+
+.notify-keys {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: var(--unit);
+}
+
+.notify-note {
+  font-size: var(--text-s);
+  color: var(--ink-soft);
+}
+
+.notify-note:empty {
+  display: none;
+}
+
+.notify-note.is-error {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 /* Activity: a stopped agent's line is quieter than an Inbox line. */
@@ -857,18 +905,32 @@ button {
   border-top: 1px solid var(--rule);
 }
 
+/* One row that never wraps (D34): every key is 48px tall and as wide as its
+   label, and the row swipes sideways, edge to edge, when there are more keys
+   than fit. The row's 4px of bottom padding keeps the key shade from being
+   clipped; the equal negative margin keeps the row's own height at 48px. */
 .keys {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  display: flex;
+  flex-wrap: nowrap;
   gap: var(--unit);
+  margin: 0 var(--bleed) -4px;
+  padding: 0 var(--unit) 4px var(--gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.keys::-webkit-scrollbar {
+  display: none;
 }
 
 .key {
   position: relative;
   display: grid;
+  flex: none;
   place-items: center;
+  min-width: var(--key);
   height: var(--key);
-  padding: 0;
+  padding: 0 4px;
   overflow: hidden;
   border: 0;
   border-radius: var(--radius);
@@ -929,6 +991,7 @@ button {
 
 .key-label.is-long {
   display: -webkit-box;
+  max-width: 80px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   font-size: var(--text-s);
@@ -988,14 +1051,12 @@ button {
 
 /* Outlined keys: a 1px rule, no face. */
 .act,
-.reply,
 .all-key {
   border: 1px solid var(--rule);
   border-radius: var(--radius);
 }
 
-.act,
-.reply {
+.act {
   background: transparent;
 }
 
@@ -1013,12 +1074,12 @@ button {
 }
 
 /* A pressed control takes the face colour, as does the switcher's own row. */
+.bell-key:active,
 .theme-key:active,
 .row:active,
 .all-key:active,
 .key-add:active,
 .act:active,
-.reply:active,
 .terminals-key:active,
 .pane-row:active,
 .pane-row.is-here {
@@ -1028,8 +1089,7 @@ button {
 /* Filled dark keys. */
 .act-dark,
 .latest,
-.link-key,
-.send {
+.link-key {
   background: var(--key-dark);
   color: var(--key-dark-ink);
 }
@@ -1131,8 +1191,7 @@ button {
 
 .field select:focus-visible,
 .field input:focus-visible,
-.command textarea:focus-visible,
-.composer textarea:focus-visible {
+.command textarea:focus-visible {
   outline-offset: 0;
 }
 
@@ -1167,11 +1226,9 @@ button {
   gap: var(--unit);
 }
 
-.app.is-editing-keys .replies,
 .app.is-editing-keys .composer,
 .app.is-editing-commands .keys,
 .app.is-editing-commands .key-menu,
-.app.is-editing-commands .replies,
 .app.is-editing-commands .composer {
   display: none;
 }
@@ -1193,37 +1250,55 @@ button {
   font-weight: 650;
 }
 
-.replies {
-  display: flex;
-  gap: var(--unit);
-  margin: 0 var(--bleed);
-  mask-image: linear-gradient(to right, transparent, #000 var(--gutter), #000 calc(100% - var(--gutter)), transparent);
-  padding: 2px var(--gutter);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.replies::-webkit-scrollbar {
-  display: none;
-}
-
-.reply {
-  flex: none;
-  max-width: 240px;
-  height: var(--key);
-  padding: 0 14px;
-  font-size: var(--text-m);
-}
-
-.reply-edit {
-  font-weight: 600;
-}
-
 .composer {
-  gap: var(--unit);
+  position: relative;
 }
 
-.composer textarea,
+/* The chat bar (D34): one rounded field with the "/" button and the round send
+   arrow inside it at the trailing edge, both bottom-aligned as the field grows.
+   The field is 48px tall and grows with its text to 160px, then scrolls inside
+   itself. The text box and the two buttons are 48px targets that cover the
+   field's full height, over its 1px border (a -1px margin); the buttons' 40px
+   round faces are drawn inset. */
+.composer-box {
+  display: flex;
+  align-items: flex-end;
+  min-height: var(--key);
+  border: 1px solid var(--rule);
+  border-radius: calc(var(--key) / 2);
+  background: var(--face);
+}
+
+.composer-box:has(textarea:focus-visible) {
+  outline: 2px solid var(--ink);
+}
+
+.composer textarea {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--key);
+  max-height: 160px;
+  margin: -1px 0;
+  padding: 13px 0 13px var(--gutter);
+  border: 0;
+  background: transparent;
+  font-size: var(--text-l);
+  line-height: 22px;
+  resize: none;
+}
+
+.composer textarea:focus-visible {
+  outline: none;
+}
+
+/* A long Terminal name ends the placeholder with an ellipsis; it never wraps. */
+.composer textarea::placeholder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .command textarea {
   display: block;
   width: 100%;
@@ -1238,21 +1313,150 @@ button {
   resize: none;
 }
 
+.slash,
 .send {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--key);
   height: var(--key);
-  padding: 0 var(--gutter);
+  margin: -1px;
+  padding: 0;
   border: 0;
-  border-radius: var(--radius);
-  font-weight: 650;
-  box-shadow: 0 1px 0 var(--key-edge), 0 2px 4px var(--key-shade);
+  border-radius: 50%;
+  background: transparent;
+  touch-action: manipulation;
+}
+
+.slash::before,
+.send::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
   transition: transform 80ms ease-out;
 }
 
-.send:active {
+.slash {
+  font-size: var(--text-l);
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.slash:active::before {
+  background: var(--body);
+}
+
+.slash[aria-expanded="true"]::before {
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
+.send {
+  color: var(--key-dark-ink);
+}
+
+.send::before {
+  background: var(--key-dark);
+}
+
+.send:active::before {
   transform: translateY(1px);
+}
+
+.send .icon {
+  position: relative;
+}
+
+.send-busy,
+.send[aria-busy="true"] .send-arrow {
+  display: none;
+}
+
+.send[aria-busy="true"] .send-busy {
+  display: block;
+  animation: send-spin 900ms linear infinite;
+}
+
+.send:disabled {
+  cursor: default;
+}
+
+.send:disabled::before {
+  opacity: 0.6;
+}
+
+@keyframes send-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The saved commands (D15, D34): a small popover anchored above the field, as
+   wide as it. The commands scroll inside it; Edit stays pinned under them. It
+   sits over the app like the switcher sheet, so it takes the sheet's shade. */
+.saved {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--unit));
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  max-height: min(50dvh, 304px);
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--face);
+  box-shadow: 0 -4px 16px var(--switcher-shade);
+}
+
+.saved[hidden] {
+  display: none;
+}
+
+.saved-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.saved-list:empty {
+  display: none;
+}
+
+.saved-item,
+.saved-edit {
+  display: block;
+  width: 100%;
+  min-height: var(--key);
+  padding: 0 var(--gutter);
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  font-size: var(--text-m);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+
+.saved-item + .saved-item {
+  border-top: 1px solid var(--rule);
+}
+
+.saved-edit {
+  flex: none;
+  border-top: 1px solid var(--rule);
+  font-weight: 600;
+}
+
+.saved-list:empty + .saved-edit {
+  border-top: 0;
+}
+
+.saved-item:active,
+.saved-edit:active {
+  background: var(--body);
 }
 
 .blocked-note {
@@ -1277,8 +1481,7 @@ button {
   font-weight: 600;
 }
 
-.app.is-composing .keys,
-.app.is-composing .replies {
+.app.is-composing .keys {
   display: none;
 }
 
@@ -1462,6 +1665,46 @@ button {
   color: var(--ink-soft);
 }
 
+.notify-panel {
+  overflow-y: auto;
+  animation: panel-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.notify-panel .switcher-head {
+  display: flex;
+  align-items: center;
+  padding-top: 0;
+}
+
+.notify-panel .switcher-title {
+  padding-bottom: 0;
+}
+
+.notify-panel:focus {
+  outline: none;
+}
+
+.notify-panel:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+#notify-root .switcher-dim {
+  animation: scrim-in 200ms ease-out;
+}
+
+@keyframes panel-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-status="working"] > .lamp,
   .lamp[data-status="working"] {
@@ -1471,5 +1714,14 @@ button {
   .switcher,
   .switcher-dim {
     transition: none;
+  }
+
+  .send[aria-busy="true"] .send-busy {
+    animation: none;
+  }
+
+  .notify-panel,
+  #notify-root .switcher-dim {
+    animation: none;
   }
 }

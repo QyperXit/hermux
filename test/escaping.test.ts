@@ -10,6 +10,7 @@ import { readerHtml } from "../web/reader.js";
 import { allRowHtml, homeBodyHtml, rowHtml, shellRowHtml } from "../web/rows.js";
 import { lineErrorHtml, sheetRowsHtml, showTerminalName, switcherRows } from "../web/terminals.js";
 import { asPageElement, fakePage, type FakeElement } from "./support/fake-dom";
+import { drawComposer } from "../web/composer.js";
 import { keyBarScreen } from "./support/key-bar";
 
 // Markup, attribute breakers in both quote styles, entity-looking text and
@@ -135,6 +136,8 @@ describe("the page's renderers with hostile server text", () => {
     const clean = keyBarScreen();
     clean.click(clean.button("Add a key"));
     clean.tap(clean.button("Edit Esc"));
+    clean.click(clean.root.querySelector("[data-picker-done]")!);
+    clean.click(clean.button("Saved commands"));
     clean.click(clean.button("Edit saved commands"));
     const drawn = shape(clean.root);
 
@@ -146,8 +149,10 @@ describe("the page's renderers with hostile server text", () => {
     storage.setItem("agents.commands", JSON.stringify(HOSTILE));
     const screen = keyBarScreen({ storage });
     expect(screen.names("Terminal keys").slice(6, -1)).toEqual(labels.map((label) => `Send ${label}`));
-    expect(screen.names("Saved commands").slice(1)).toEqual(HOSTILE);
-    for (const value of HOSTILE) screen.click(screen.button(value));
+    for (const value of HOSTILE) {
+      screen.click(screen.button("Saved commands"));
+      screen.click(screen.button(value));
+    }
     expect(screen.sentTexts).toEqual(HOSTILE);
 
     screen.click(screen.button("Add a key"));
@@ -157,10 +162,32 @@ describe("the page's renderers with hostile server text", () => {
     screen.click(screen.button("Add key"));
     screen.tap(screen.button(`Edit ${HOSTILE[1]}`));
     expect(screen.group(`Edit the ${HOSTILE[1]} key`).shown).toBe(true);
+    screen.click(screen.root.querySelector("[data-picker-done]")!);
+    screen.click(screen.button("Saved commands"));
     screen.click(screen.button("Edit saved commands"));
     expect(HOSTILE.map((_, index) => screen.field(`Command ${index + 1}`).value)).toEqual(HOSTILE);
 
     expect([...shape(screen.root)].filter((element) => !drawn.has(element))).toEqual([]);
+  });
+
+  // The composer names its target in the placeholder, the field's label, the
+  // arrow's label and the popover's label; a hostile name must stay text in all four.
+  test("the message box keeps a hostile Terminal name as text where it names the target", () => {
+    const shape = (root: FakeElement) => [root, ...root.descendants()].map((element) => [element.localName, ...element.attributes.keys()].join(" "));
+    const clean = keyBarScreen();
+    drawComposer(asPageElement(clean.root), { target: "weather-app", sending: false, blocked: false });
+    for (const value of HOSTILE) {
+      const screen = keyBarScreen();
+      const page = asPageElement(screen.root);
+      drawComposer(page, { target: value, sending: false, blocked: false });
+      expect(screen.field("Message").placeholder).toBe(`Message ${value}`);
+      expect(screen.root.querySelector('label[for="message"]')?.textContent).toBe(`Message ${value}`);
+      expect(screen.button(`Send to ${value}`).getAttribute("aria-label")).toBe(`Send to ${value}`);
+      expect(screen.dialog(`Send a saved command to ${value}`).getAttribute("role")).toBe("dialog");
+      expect(shape(screen.root)).toEqual(shape(clean.root));
+      drawComposer(page, { target: value, sending: true, blocked: false });
+      expect(screen.button(`Sending to ${value}`).disabled).toBe(true);
+    }
   });
 
   test("a hostile agent status stays inside its data-status attribute as text", () => {

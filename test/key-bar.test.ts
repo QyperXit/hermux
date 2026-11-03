@@ -3,12 +3,14 @@
 // to announce. The screen is a fake DOM, the clock a fake one and the phone's
 // storage memoryStorage() (test/support/key-bar.ts). No real DOM, no timers.
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { memoryStorage } from "../web/home.js";
 import { createKeyBar } from "../web/key-bar.js";
 import { keyBarScreen } from "./support/key-bar";
 
 const BAR = "Terminal keys";
-const COMMANDS = "Saved commands";
+const SLASH = "Saved commands";
 const DEFAULT_BAR_NAMES = ["Send Esc", "Send Tab", "Send Up", "Send Down", "Send Enter", "Hold to send Ctrl C"];
 const ANSWER_NAMES = ["Send 1", "Send 2", "Send 3", "Send 4", "Send Left", "Send Right"];
 
@@ -242,13 +244,98 @@ describe("editing the bar", () => {
   });
 });
 
+describe("the key row", () => {
+  // A phone is the only layout engine that counts, but the rules that keep the
+  // row to one line are in the stylesheet, so they are read from it.
+  const rule = (selector: string) => {
+    const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8");
+    const found = css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, "\\$&")} \\{([^}]*)\\}`));
+    if (!found) throw new Error(`No rule for ${selector}`);
+    return Object.fromEntries(found[1].split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2));
+  };
+
+  test("every key, the answer keys, the bar and + included, is in one row that swipes sideways instead of wrapping", () => {
+    const screen = keyBarScreen();
+    const rows = screen.root.querySelectorAll(".keys");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelectorAll("button")).toHaveLength(ANSWER_NAMES.length + DEFAULT_BAR_NAMES.length + 1);
+    expect(screen.root.querySelectorAll(".key-add").map((key) => key.parent)).toEqual([rows[0]]);
+    const row = rule(".keys");
+    expect([row.display, row["flex-wrap"], row["overflow-x"]]).toEqual(["flex", "nowrap", "auto"]);
+  });
+
+  test("a key keeps its 48px height and never shrinks, so a long bar scrolls instead of squeezing", () => {
+    const key = rule(".key");
+    expect([key.flex, key.height, key["min-width"]]).toEqual(["none", "var(--key)", "var(--key)"]);
+  });
+});
+
 describe("saved commands", () => {
   const command = `say "hi" and $HOME\nthen 'stop' & \`id\``;
+  type Screen = ReturnType<typeof keyBarScreen>;
+  const slash = (screen: Screen) => screen.button(SLASH);
+  const open = (screen: Screen) => screen.click(slash(screen));
+  const popover = (screen: Screen) => screen.root.querySelector(".saved")!;
+  // The shown buttons of the open popover, in order: the commands, then Edit.
+  const listed = (screen: Screen) => popover(screen).querySelectorAll("button").filter((candidate) => candidate.shown).map((candidate) => candidate.getAttribute("aria-label") ?? candidate.textContent.trim());
 
-  test("a saved command with quotes, $ and a newline is sent exactly as written", () => {
+  test("the / button opens the saved commands as a popover and Esc closes it, giving the focus back to /", () => {
+    const screen = keyBarScreen();
+    expect(popover(screen).shown).toBe(false);
+    expect(slash(screen).getAttribute("aria-expanded")).toBe("false");
+    open(screen);
+    expect(popover(screen).shown).toBe(true);
+    expect(slash(screen).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.focused()).toBe(screen.button("continue"));
+    expect(listed(screen)).toEqual(["continue", "yes, go ahead", "status?", "Edit saved commands"]);
+    expect(screen.sentTexts).toEqual([]);
+
+    screen.focused()!.dispatch("keydown", { key: "Escape" });
+    expect(popover(screen).shown).toBe(false);
+    expect(slash(screen).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.focused()).toBe(slash(screen));
+    expect(screen.sentTexts).toEqual([]);
+  });
+
+  test("a tap anywhere else closes the popover and the focus goes back to /; a second tap on / closes it too", () => {
+    const screen = keyBarScreen();
+    open(screen);
+    screen.click(screen.root.querySelector(".output")!);
+    expect(popover(screen).shown).toBe(false);
+    expect(screen.focused()).toBe(slash(screen));
+
+    open(screen);
+    expect(popover(screen).shown).toBe(true);
+    open(screen);
+    expect(popover(screen).shown).toBe(false);
+    expect(screen.focused()).toBe(slash(screen));
+    expect(screen.sentTexts).toEqual([]);
+  });
+
+  test("an empty command has no button, and the others keep sending their own text", () => {
+    const screen = keyBarScreen({ storage: storageWith({ commands: ["", "  ", "go"] }) });
+    open(screen);
+    expect(listed(screen)).toEqual(["go", "Edit saved commands"]);
+    screen.click(screen.button("go"));
+    expect(screen.sentTexts).toEqual(["go"]);
+  });
+
+  test("a tap inside the popover that isn't on a command leaves it open", () => {
+    const screen = keyBarScreen();
+    open(screen);
+    screen.click(screen.root.querySelector(".saved-list")!);
+    expect(popover(screen).shown).toBe(true);
+  });
+
+  test("a saved command with quotes, $, a newline and padding is sent exactly as written, and the popover closes", () => {
     const screen = keyBarScreen({ storage: storageWith({ commands: ["  /compact  ", command] }) });
-    expect(screen.names(COMMANDS)).toEqual(["Edit saved commands", "/compact", command]);
+    open(screen);
+    expect(listed(screen)).toEqual(["/compact", command, "Edit saved commands"]);
     screen.click(screen.button(command));
+    expect(screen.sentTexts).toEqual([command]);
+    expect(popover(screen).shown).toBe(false);
+    expect(screen.focused()).toBe(slash(screen));
+    open(screen);
     screen.click(screen.button("/compact"));
     expect(screen.sentTexts).toEqual([command, "  /compact  "]);
   });
@@ -256,23 +343,28 @@ describe("saved commands", () => {
   test("a command written in the editor is kept on the phone and sent as written after a reload", () => {
     const storage = memoryStorage();
     const screen = keyBarScreen({ storage });
+    open(screen);
     screen.click(screen.button("Edit saved commands"));
+    expect(popover(screen).shown).toBe(false);
     screen.click(screen.button("Add command"));
     expect(screen.focused()).toBe(screen.field("Command 4"));
     screen.type(screen.field("Command 4"), command);
     // Kept as it is typed, so leaving the screen without Done loses nothing.
-    expect(keyBarScreen({ storage }).names(COMMANDS)).toEqual(["Edit saved commands", "continue", "yes, go ahead", "status?", command]);
+    const reloaded = keyBarScreen({ storage });
+    open(reloaded);
+    expect(listed(reloaded)).toEqual(["continue", "yes, go ahead", "status?", command, "Edit saved commands"]);
     screen.click(screen.root.querySelector("[data-commands-done]")!);
 
     const again = keyBarScreen({ storage });
-    expect(again.names(COMMANDS)).toEqual(["Edit saved commands", "continue", "yes, go ahead", "status?", command]);
+    open(again);
     again.click(again.button(command));
     expect(again.sentTexts).toEqual([command]);
   });
 
-  test("the editor moves and deletes commands, and drops empty ones when it closes", () => {
+  test("the editor moves and deletes commands, and drops empty ones when it closes; Done gives the focus back to /", () => {
     const storage = memoryStorage();
     const screen = keyBarScreen({ storage });
+    open(screen);
     screen.click(screen.button("Edit saved commands"));
     expect(screen.pageHas("is-editing-commands")).toBe(true);
     expect(screen.field("Command 1").value).toBe("continue");
@@ -292,17 +384,28 @@ describe("saved commands", () => {
     screen.type(screen.field("Command 3"), "   ");
     screen.click(screen.root.querySelector("[data-commands-done]")!);
     expect(screen.pageHas("is-editing-commands")).toBe(false);
-    expect(screen.focused()).toBe(screen.button("Edit saved commands"));
-    expect(screen.names(COMMANDS)).toEqual(["Edit saved commands", "yes, go ahead", "continue"]);
+    expect(screen.focused()).toBe(slash(screen));
+    open(screen);
+    expect(listed(screen)).toEqual(["yes, go ahead", "continue", "Edit saved commands"]);
     expect(JSON.parse(storage.getItem("agents.commands") ?? "null")).toEqual(["yes, go ahead", "continue"]);
   });
 
-  test("while the Agent is blocked the saved commands are hidden", () => {
+  test("with no commands the popover holds only Edit, and opening the key picker closes it", () => {
+    const screen = keyBarScreen({ storage: storageWith({ commands: [] }) });
+    open(screen);
+    expect(listed(screen)).toEqual(["Edit saved commands"]);
+    expect(screen.focused()).toBe(screen.button("Edit saved commands"));
+    screen.click(screen.button("Add a key"));
+    expect(popover(screen).shown).toBe(false);
+    expect(slash(screen).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("while the Agent is blocked an open popover closes", () => {
     const screen = keyBarScreen();
+    open(screen);
     screen.keyBar.setBlocked(true);
-    expect(screen.group(COMMANDS).shown).toBe(false);
-    screen.keyBar.setBlocked(false);
-    expect(screen.group(COMMANDS).shown).toBe(true);
+    expect(popover(screen).shown).toBe(false);
+    expect(slash(screen).getAttribute("aria-expanded")).toBe("false");
   });
 });
 
@@ -314,6 +417,7 @@ test("making the key bar writes nothing to the phone and touches no page; attach
   expect(() => keyBar.setBlocked(true)).toThrow("The key bar isn't attached to a screen.");
   const screen = keyBarScreen({ storage });
   screen.tap(screen.button("Send Esc"));
+  screen.click(screen.button(SLASH));
   screen.click(screen.button("continue"));
   expect(storage.length).toBe(0);
 });

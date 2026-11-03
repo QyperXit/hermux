@@ -273,6 +273,9 @@ export function createWatcher({
     unwatch,
     // The panes with a stream, open or being opened again.
     watched: () => [...watched.keys()],
+    // Whether a page is viewing the pane now (not merely a stream kept for
+    // the grace period): the notifier stays quiet about a pane someone is looking at (D32).
+    viewed: (paneId: string) => (watched.get(paneId)?.viewers.size ?? 0) > 0,
     stop() {
       for (const entry of [...watched.values()]) close(entry);
       viewing.clear();

@@ -1,22 +1,24 @@
-import { createHttpClient } from "./api.js";
-import { allAgents, homeLists, memoryStorage, recordOpened, summaryLine } from "./home.js";
+import { createHttpClient, createPushClient } from "./api.js";
+import { homeLists, memoryStorage, recordOpened } from "./home.js";
 import { find, fitField, need } from "./dom.js";
+import { composerHtml, drawComposer } from "./composer.js";
 import { createKeyBar } from "./key-bar.js";
 import { escapeHtml, icon } from "./html.js";
 import { bindCopy } from "./links.js";
 import { listRenderer } from "./list-render.js";
+import { bellHtml, createNotifications, looksLikeBrave } from "./notifications.js";
+import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
 import { drawLive } from "./live-render.js";
 import { readerParts, shellParts } from "./reader.js";
-import { allRowHtml, duration, homeBodyHtml, sectionHtml, shellRowHtml, terminalHref } from "./rows.js";
+import { duration, terminalHref } from "./rows.js";
+import { allScreenHtml, homeScreenHtml } from "./screens.js";
 import {
   STATE_WORDS,
-  allCountLine,
   describeTerminal,
   hasSwitcher,
   isShell,
   sendTarget,
-  shellTerminals,
   retryingText,
   showTerminalName,
   terminalsLabel,
@@ -68,6 +70,16 @@ const sheet = createSheet({
 // Earlier messages above the live screen (web/earlier.js).
 const earlier = createEarlier({ client });
 
+// Push notifications (D32): the bell in the home and All headers and the panel
+// it opens (D33). The demo shows them but never subscribes.
+const notifications = createNotifications({
+  browser: { serviceWorker: navigator.serviceWorker, notification: globalThis.Notification, pushManager: "PushManager" in globalThis, isBrave: () => looksLikeBrave(navigator) },
+  api: demo ? null : createPushClient(),
+  demo,
+});
+
+const notifyPanel = createNotifyPanel({ page: app, root: find(document, "#notify-root"), keys: document, notifications });
+
 // The key bar, the key picker and the saved commands (web/key-bar.js).
 const keyBar = createKeyBar({ storage: localStorage });
 
@@ -83,11 +95,12 @@ function parseRoute() {
   return match ? { name: "agent", paneId: decodeURIComponent(match[1]) } : { name: "home" };
 }
 
-// The theme control on the home and All headers shows the current choice
+// The keys at the right of the home and All headers: the notifications bell,
+// which opens its panel, and the theme control, which shows the current choice
 // and switches to the next one.
-const themeButtonHtml = () => {
+const headerKeysHtml = () => {
   const theme = storedTheme(localStorage);
-  return `<button class="theme-key" type="button" aria-label="${themeLabel(theme)}">${icon(`i-theme-${theme}`)}</button>`;
+  return `${bellHtml(notifications.view(), notifyPanel.isOpen())}<button class="theme-key" type="button" aria-label="${themeLabel(theme)}">${icon(`i-theme-${theme}`)}</button>`;
 };
 
 // The page's <meta> tags, as applyTheme reads them.
@@ -122,34 +135,14 @@ function freshnessLine(view) {
   return `<span class="freshness">${freshnessText({ streaming: view.streaming, sample: client.isSample, time })}</span>`;
 }
 
-/** @param {Snapshot} view */
-function emptyListHtml(view) {
-  if (!view.loaded && !view.listError) return `<p class="empty">Looking for agents…</p>`;
-  if (view.agents.length) return "";
-  return view.listError
-    ? `<p class="empty">No agent list yet. This page retries every few seconds.</p>`
-    : `<p class="empty">No agents are running. Start one in Herdr on the laptop and it shows up here.</p>`;
-}
-
 // What home and All last drew, so an unchanged refresh draws nothing.
 const listView = listRenderer();
 
 /** @param {Snapshot} view */
 function renderHome(view) {
-  const anyBlocked = view.agents.some((agent) => agent.agent_status === "blocked");
   const home = homeLists(view.agents, openedStore);
   /** @param {string} freshness */
-  const page = (freshness) => `
-    <header class="masthead">
-      <div class="masthead-row">
-        <span class="lamp lamp-master" data-status="${anyBlocked ? "blocked" : "idle"}" aria-hidden="true"></span>
-        <h1 class="masthead-title">Agents</h1>
-        ${freshness}
-        ${themeButtonHtml()}
-      </div>
-      <p class="summary">${view.loaded ? summaryLine(home) : "&nbsp;"}</p>
-    </header>
-    <div class="list ${view.listError && view.agents.length ? "is-stale" : ""}">${emptyListHtml(view) || homeBodyHtml(home)}</div>`;
+  const page = (freshness) => homeScreenHtml({ view, home, freshness, keys: headerKeysHtml() });
   const freshness = freshnessLine(view);
   const change = listView.next({ screen: "home", shown: app.dataset.screen, html: page(""), freshness });
   if (change === "freshness") need(app, ".freshness").outerHTML = freshness;
@@ -160,31 +153,19 @@ function renderHome(view) {
 
 /** @param {Snapshot} view */
 function renderAll(view) {
-  const rows = allAgents(view.agents).map(allRowHtml);
-  const shells = shellTerminals(view.terminals).map(shellRowHtml);
-  const body = shells.length ? sectionHtml("Agents", rows) + sectionHtml("Shells", shells) : `<div class="section-body">${rows.join("")}</div>`;
-  const count = view.terminalsLoaded ? allCountLine(view.agents.length, shells.length) : `${view.agents.length} agents · newest activity first`;
-  const html = `
-    <header class="bar">
-      <a class="back" href="#/" aria-label="Back to agents">${icon("i-back")}</a>
-      <div class="identity">
-        <h1 class="identity-folder">All terminals</h1>
-        <p class="identity-meta">${view.listError ? escapeHtml(offlineReason(view.listError)) : view.loaded ? count : "&nbsp;"}</p>
-      </div>
-      ${themeButtonHtml()}
-    </header>
-    <div class="list ${view.listError && view.agents.length ? "is-stale" : ""}">${emptyListHtml(view) || body}</div>`;
+  const html = allScreenHtml({ view, keys: headerKeysHtml() });
   if (listView.next({ screen: "all", shown: app.dataset.screen, html }) !== "rebuild") return;
   app.dataset.screen = "all";
   app.innerHTML = html;
 }
 
 // The list is redrawn when a refresh changed it; the focused control (a row,
-// the theme key, Back or the older-sessions key) keeps its focus across it.
+// the bell or theme key, Back or the older-sessions key) keeps its focus across it.
 function renderList() {
   const focused = app.contains(document.activeElement) ? document.activeElement : null;
   const href = focused?.getAttribute("href");
-  const selector = href ? `[href="${CSS.escape(href)}"]` : focused?.classList.contains("theme-key") ? ".theme-key" : null;
+  const action = focused?.getAttribute("data-action");
+  const selector = href ? `[href="${CSS.escape(href)}"]` : focused?.classList.contains("theme-key") ? ".theme-key" : focused?.classList.contains("bell-key") ? ".bell-key" : action ? `[data-action="${action}"]` : null;
   const view = session.snapshot();
   if (view.route.name === "all") renderAll(view);
   else renderHome(view);
@@ -222,12 +203,7 @@ function renderTerminalScreen() {
       <button class="latest" type="button" hidden>${icon("i-latest")}Latest</button>
     </div>
     <div class="controls">
-      <form class="composer" autocomplete="off">
-        <label class="visually-hidden" for="message">Message</label>
-        <textarea id="message" name="message" rows="1" placeholder="Message" enterkeyhint="enter" spellcheck="true" autocapitalize="sentences"></textarea>
-        <button class="send" type="submit"><span class="send-label"></span></button>
-      </form>
-      <p class="blocked-note" hidden><span class="lamp" data-status="blocked" aria-hidden="true"></span><span>Waiting for your answer. Read the question above, then pick with the keys.</span></p>
+      ${composerHtml()}
       <p class="notice" role="status" aria-live="polite"></p>
     </div>`;
   bindTerminalScreen();
@@ -284,10 +260,8 @@ function updateTerminalScreen(view) {
   need(app, ".state").dataset.status = shell ? "shell" : String(status);
   const word = shell ? "Shell" : `${(status && STATE_WORDS[status]) ?? status}${terminal.since && status !== "idle" ? ` · ${duration(terminal.since)}` : ""}`;
   need(app, ".state-word").textContent = word;
-  need(app, ".send-label").textContent = view.sending ? "Sending…" : `Send to ${sendTarget(terminal)}`;
-  need(app, ".composer").hidden = blocked;
+  drawComposer(app, { target: sendTarget(terminal), sending: view.sending, blocked });
   keyBar.setBlocked(blocked);
-  need(app, ".blocked-note").hidden = !blocked;
 }
 
 // Only the live screen is redrawn by the refresh; earlier messages above it
@@ -455,6 +429,7 @@ session.subscribe((change) => {
 
 function onRouteChange() {
   sheet.close({ restoreFocus: false });
+  notifyPanel.close({ restoreFocus: false });
   earlier.leave();
   session.open(parseRoute());
   const view = session.snapshot();
@@ -480,18 +455,29 @@ window.addEventListener("touchmove", holdStill, { passive: true });
 window.addEventListener("scroll", holdStill, { passive: true });
 
 app.addEventListener("click", (event) => {
-  const button = event.target instanceof Element ? event.target.closest(".theme-key") : null;
-  if (button instanceof HTMLElement) switchTheme(button);
+  const target = event.target instanceof Element ? event.target : null;
+  const theme = target?.closest(".theme-key");
+  if (theme instanceof HTMLElement) switchTheme(theme);
+  const bell = target?.closest(".bell-key");
+  if (bell instanceof HTMLElement) notifyPanel.open(bell);
+});
+
+// A change of the notifications state redraws the bell where it is shown.
+notifications.subscribe(() => {
+  if (session.snapshot().route.name !== "agent") renderList();
 });
 
 window.addEventListener("hashchange", onRouteChange);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") session.visible();
-  else session.hidden();
+  if (document.visibilityState === "visible") {
+    session.visible();
+    notifications.refresh();
+  } else session.hidden();
 });
 
 onRouteChange();
 session.start(document.visibilityState === "visible");
+notifications.refresh();
 
 // The service worker keeps the app's own files, so it opens at once (D29, web/sw.js).
 navigator.serviceWorker?.register("sw.js", { type: "module" }).catch(() => {});

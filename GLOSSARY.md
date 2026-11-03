@@ -42,6 +42,12 @@ _Avoid_: seam (that word is reserved for the architecture meaning)
 The last line an Agent or Shell wrote, shown in lists, without Atomic's own screen furniture.
 _Avoid_: last output, preview
 
+## Notifications
+
+**Notification**:
+A push message to the phone when an Agent needs you (it is blocked) or has finished (it went from working to done). It names the Agent's folder and name, and tapping it opens that Terminal. Not the Inbox, which is a list inside the app.
+_Avoid_: alert, ping
+
 ## Home
 
 **Inbox**:

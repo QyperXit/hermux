@@ -18,6 +18,8 @@ const FRIENDLY = {
   not_an_agent: "That terminal is a plain shell, so it has no earlier messages.",
   enter_not_sent: "The message was typed, but Enter didn't go through. Check the agent before sending again.",
   herdr_unavailable: "The server couldn't run herdr on the laptop.",
+  subscription_not_found: "The laptop doesn't have this phone's subscription. Turn notifications off and on again.",
+  push_failed: "The push service didn't accept the test. Try again in a moment.",
 };
 
 class ApiError extends Error {
@@ -185,6 +187,32 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
 
     async unwatchOutput(paneId, stream) {
       await request(terminalPath(paneId, "watch"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ stream }) });
+    },
+  };
+}
+
+// Push notifications (D32): the server's public key, and this phone's
+// subscription saved, removed and tried. Only the real page has it; the sample
+// data never subscribes.
+export function createPushClient() {
+  const subscription = "api/push/subscription";
+  return {
+    async key() {
+      /** @type {{ key: string }} */
+      const answer = await request("api/push/key", { signal: AbortSignal.timeout(READ_TIMEOUT_MS) });
+      return answer.key;
+    },
+    /** @param {unknown} pushSubscription */
+    async subscribe(pushSubscription) {
+      await post(subscription, { subscription: pushSubscription });
+    },
+    /** @param {string} endpoint */
+    async unsubscribe(endpoint) {
+      await request(subscription, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint }) });
+    },
+    /** @param {string} endpoint */
+    async test(endpoint) {
+      await post("api/push/test", { endpoint });
     },
   };
 }

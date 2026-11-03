@@ -179,6 +179,16 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
       return terminalsIn(await listing(), () => true, (agents) => agentsToRead(agents, named));
     },
 
+    // One Terminal as the lists show it, with its Latest line if it is an agent
+    // (D32: the notifier looks at the pane that changed, and no other).
+    async terminal(paneId: string): Promise<Terminal | null> {
+      const { panes, agents, workspaces, tabs } = await listing();
+      const terminal = toTerminals(panes, agents, workspaces, tabs).find((candidate) => candidate.pane_id === paneId);
+      const agent = agents.find((candidate) => candidate.pane_id === paneId);
+      if (!terminal || !agent) return terminal ?? null;
+      return { ...terminal, ...(await agentLine(agent)) };
+    },
+
     async workspace(workspaceId: string) {
       const listed = await listing();
       const workspace = listed.workspaces.find((candidate) => candidate.workspace_id === workspaceId);

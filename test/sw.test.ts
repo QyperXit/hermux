@@ -2,6 +2,7 @@
 // worker scope: which requests it keeps and which it leaves to the network,
 // stale-while-revalidate, versions and the hand-over to a new version.
 import { describe, expect, test } from "bun:test";
+import { terminalHref } from "../web/rows.js";
 import { CACHE_PREFIX, SKIP_WAITING, start } from "../web/sw.js";
 
 const ORIGIN = "https://agents.example.com";
@@ -56,10 +57,24 @@ const allFiles = (version: string): Record<string, string> =>
 
 type Listener = (event: Parameters<Parameters<Parameters<typeof start>[0]["addEventListener"]>[1]>[0]) => void;
 
+type Shown = { title: string; options: { body?: string; tag?: string; icon?: string; data?: unknown; renotify: boolean } };
+// An open window of the app, as the worker's clients list it.
+function fakeWindow(url: string) {
+  const calls: string[] = [];
+  return { url, calls, focus: async () => void calls.push("focus"), navigate: async (to: string) => void calls.push(`navigate ${to}`) };
+}
+
 // One worker version: its scope, and its events as the browser fires them.
 function worker(version: string, caches = fakeCaches(), network = fakeNetwork(allFiles(version))) {
   const listeners = new Map<string, Listener>();
-  const registration: { scope: string; waiting: { postMessage(message: string): void; messages: string[] } | null } = { scope: SCOPE, waiting: null };
+  const shown: Shown[] = [];
+  const windows: ReturnType<typeof fakeWindow>[] = [];
+  const opened: string[] = [];
+  const registration: {
+    scope: string;
+    waiting: { postMessage(message: string): void; messages: string[] } | null;
+    showNotification(title: string, options: Shown["options"]): Promise<void>;
+  } = { scope: SCOPE, waiting: null, showNotification: async (title, options) => void shown.push({ title, options }) };
   let skipped = 0;
   start(
     {
@@ -67,16 +82,17 @@ function worker(version: string, caches = fakeCaches(), network = fakeNetwork(al
       caches,
       fetch: network.fetch,
       skipWaiting: async () => void skipped++,
+      clients: { matchAll: async () => windows, openWindow: async (url) => void opened.push(url) },
       addEventListener: (type, listener) => void listeners.set(type, listener),
     },
     { version, files: FILES },
   );
   // Fires one event; `responded` is what the worker answered with, or null
   // when it left the request to the network.
-  async function fire(type: string, { request = new Request(SCOPE), data }: { request?: Request; data?: unknown } = {}) {
+  async function fire(type: string, { request = new Request(SCOPE), data, notification }: { request?: Request; data?: unknown; notification?: { close(): void; data: unknown } } = {}) {
     const waits: Promise<unknown>[] = [];
     let responded: Promise<Response> | null = null;
-    listeners.get(type)?.({ request, data, waitUntil: (promise) => void waits.push(promise), respondWith: (response) => void (responded = response) });
+    listeners.get(type)?.({ request, data, notification, waitUntil: (promise) => void waits.push(promise), respondWith: (response) => void (responded = response) });
     const response: Response | null = await (responded as Promise<Response> | null);
     await Promise.all(waits);
     return response;
@@ -88,7 +104,7 @@ function worker(version: string, caches = fakeCaches(), network = fakeNetwork(al
     registration.waiting = { messages, postMessage: (message) => void messages.push(message) };
     return messages;
   };
-  return { caches, network, fire, get, open, newWaiting, registration, skipped: () => skipped };
+  return { caches, network, fire, get, open, newWaiting, registration, skipped: () => skipped, shown, windows, opened };
 }
 
 async function installed(version: string, caches = fakeCaches(), network?: ReturnType<typeof fakeNetwork>) {
@@ -153,6 +169,9 @@ describe("cache rules", () => {
     ["api/events", { headers: { accept: "text/event-stream" } }],
     ["api/terminals/w1%3Ap1/prompt", { method: "POST", body: "{}" }],
     ["api/terminals/w1%3Ap1/keys", { method: "POST", body: "{}" }],
+    ["api/push/key", {}],
+    ["api/push/subscription", { method: "POST", body: "{}" }],
+    ["api/push/test", { method: "POST", body: "{}" }],
     ["app.js", { method: "POST", body: "{}" }],
     ["app.js", { method: "HEAD" }],
     ["app.js?x=1", {}],
@@ -257,5 +276,96 @@ describe("picking up a new version", () => {
     sw.newWaiting();
     expect(await sw.get("concepts/a.html", { mode: "navigate" })).toBeNull();
     expect(await sw.get("api/events")).toBeNull();
+  });
+});
+
+describe("push notifications (D32)", () => {
+  const push = (payload: unknown) => ({ data: { json: () => payload } });
+  const payload = { title: "weather-app · tab 2 needs you", body: "Which database should I use?", pane_id: "w8:p1", tag: "pane-w8:p1" };
+
+  test("a push shows its title and body as a notification for that agent, replacing an older one, with the app's icon and its Terminal in the data", async () => {
+    const sw = await installed("v1");
+    await sw.fire("push", push(payload));
+    expect(sw.shown).toEqual([
+      { title: payload.title, options: { body: payload.body, tag: payload.tag, icon: `${SCOPE}icon-192.png`, data: { pane_id: "w8:p1" }, renotify: true } },
+    ]);
+  });
+
+  test("the worker is kept alive until the notification is shown", async () => {
+    const sw = await installed("v1");
+    let shown = false;
+    sw.registration.showNotification = async () => {
+      await Bun.sleep(5);
+      shown = true;
+    };
+    await sw.fire("push", push(payload));
+    expect(shown).toBe(true);
+  });
+
+  test("the test notification has no Terminal", async () => {
+    const sw = await installed("v1");
+    await sw.fire("push", push({ title: "Test notification", body: "Notifications are working.", pane_id: null, tag: "test" }));
+    expect(sw.shown[0].options.data).toEqual({ pane_id: null });
+  });
+
+  test("text is shown as text: markup in a title or body stays as typed", async () => {
+    const sw = await installed("v1");
+    await sw.fire("push", push({ ...payload, title: "<b>x</b> &amp; y", body: "<img src=x onerror=alert(1)>" }));
+    expect([sw.shown[0].title, sw.shown[0].options.body]).toEqual(["<b>x</b> &amp; y", "<img src=x onerror=alert(1)>"]);
+  });
+
+  test("a push it can't read still shows a notification, because a push must show something", async () => {
+    for (const data of [null, {}, { json: () => { throw new SyntaxError("bad"); } }, { json: () => null }, { json: () => "text" }, { json: () => ({ title: 1, body: "b", tag: "t" }) }, { json: () => ({ title: "t", body: "b" }) }]) {
+      const sw = await installed("v1");
+      await sw.fire("push", { data });
+      expect(sw.shown).toEqual([{ title: "Agents", options: { body: "Something changed.", tag: "agents", icon: `${SCOPE}icon-192.png`, data: { pane_id: null }, renotify: true } }]);
+    }
+  });
+
+  test("a push and a tap use no cache and no network", async () => {
+    const sw = await installed("v1");
+    const before = sw.network.calls.length;
+    await sw.fire("push", push(payload));
+    await sw.fire("notificationclick", { notification: { close() {}, data: { pane_id: "w8:p1" } } });
+    expect(sw.network.calls.length).toBe(before);
+    expect(await sw.caches.texts(`${CACHE_PREFIX}v1`)).toEqual(allFiles("v1"));
+  });
+
+  describe("tapping a notification", () => {
+    const tap = (sw: Awaited<ReturnType<typeof installed>>, data: unknown) => {
+      let closed = 0;
+      return sw.fire("notificationclick", { notification: { close: () => void closed++, data } }).then(() => closed);
+    };
+
+    test("closes it and opens the open app window on that Terminal, focused", async () => {
+      const sw = await installed("v1");
+      const app = fakeWindow(`${SCOPE}#/all`);
+      sw.windows.push(app);
+      expect(await tap(sw, { pane_id: "w8:p1" })).toBe(1);
+      expect(app.calls).toEqual(["focus", `navigate ${SCOPE}${terminalHref("w8:p1")}`]);
+      expect(sw.opened).toEqual([]);
+    });
+
+    test("opens a new window at that Terminal when the app isn't open", async () => {
+      const sw = await installed("v1");
+      sw.windows.push(fakeWindow("https://elsewhere.example.com/"));
+      expect(await tap(sw, { pane_id: "w8:p1" })).toBe(1);
+      expect(sw.opened).toEqual([`${SCOPE}${terminalHref("w8:p1")}`]);
+      expect(sw.windows[0].calls).toEqual([]);
+    });
+
+    test("a pane ID with odd characters is encoded the way the app's own links are", async () => {
+      const sw = await installed("v1");
+      await tap(sw, { pane_id: "w1:p/2 ?#" });
+      expect(sw.opened).toEqual([`${SCOPE}${terminalHref("w1:p/2 ?#")}`]);
+    });
+
+    test("the test notification, and one with no data, open the app's page", async () => {
+      for (const data of [{ pane_id: null }, null, undefined, {}]) {
+        const sw = await installed("v1");
+        await tap(sw, data);
+        expect(sw.opened).toEqual([SCOPE]);
+      }
+    });
   });
 });

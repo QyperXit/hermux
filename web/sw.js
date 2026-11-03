@@ -8,23 +8,30 @@
 // a new worker. It installs beside the old one and waits; the next open of the
 // app hands over to it and reloads once, and its activation deletes the older
 // caches.
+//
+// It also shows the server's push notifications and opens the Terminal a tap
+// names (D32). Neither touches the caching above.
 
 /**
  * @typedef {{ version: string, files: string[] }} Shell the version and the files, relative to the scope ("./" is the page)
  * @typedef {{ match(key: string): Promise<Response | undefined>, put(key: string, response: Response): Promise<void> }} ShellCache
  * @typedef {{ open(name: string): Promise<ShellCache>, keys(): Promise<string[]>, delete(name: string): Promise<boolean> }} ShellCaches
  * @typedef {{ postMessage(message: string): void }} WaitingWorker
- * @typedef {{ scope: string, waiting: WaitingWorker | null }} Registration
- * @typedef {object} WorkerEvent the parts of the install, activate, fetch and message events used here
+ * @typedef {{ scope: string, waiting: WaitingWorker | null, showNotification(title: string, options: NotificationOptions & { renotify: boolean }): Promise<void> }} Registration
+ * @typedef {{ url: string, focus(): Promise<unknown>, navigate(url: string): Promise<unknown> }} WindowClient
+ * @typedef {{ matchAll(options: { type: "window", includeUncontrolled: boolean }): Promise<WindowClient[]>, openWindow(url: string): Promise<unknown> }} WindowClients
+ * @typedef {object} WorkerEvent the parts of the install, activate, fetch, message, push and notificationclick events used here
  * @property {(promise: Promise<unknown>) => void} waitUntil
  * @property {Request} request
  * @property {(response: Promise<Response>) => void} respondWith
  * @property {unknown} data
+ * @property {{ close(): void, data: unknown }} [notification]
  * @typedef {object} WorkerScope the parts of the service worker's global scope used here
  * @property {Registration} registration
  * @property {ShellCaches} caches
  * @property {(input: string, init: RequestInit) => Promise<Response>} fetch
  * @property {() => Promise<void>} skipWaiting
+ * @property {WindowClients} clients
  * @property {(type: string, listener: (event: WorkerEvent) => void) => void} addEventListener
  */
 
@@ -61,6 +68,75 @@ export function shellKey(request, scope, shellUrls) {
   const page = new URL("./", base).href;
   if (request.mode === "navigate") return bare === page || bare === new URL("index.html", base).href ? page : null;
   return url.search === "" && shellUrls.has(bare) ? bare : null;
+}
+
+// What the server's push carries (server/push.ts): a title and body, the tag
+// that makes a newer notification replace an older one of the same Agent, and
+// the Terminal it is about (null for the test).
+/**
+ * @typedef {{ title: string, body: string, tag: string, pane_id: string | null }} PushPayload
+ */
+
+/**
+ * @param {unknown} data the event's data, as the browser gives it
+ * @returns {PushPayload | null}
+ */
+function pushPayload(data) {
+  if (typeof data !== "object" || data === null || !("json" in data) || typeof data.json !== "function") return null;
+  /** @type {unknown} */
+  let payload;
+  try {
+    payload = data.json();
+  } catch {
+    return null;
+  }
+  if (typeof payload !== "object" || payload === null) return null;
+  const { title, body, tag, pane_id: paneId } = /** @type {Record<string, unknown>} */ (payload);
+  if (typeof title !== "string" || typeof body !== "string" || typeof tag !== "string") return null;
+  return { title, body, tag, pane_id: typeof paneId === "string" ? paneId : null };
+}
+
+// A push must always show something: a browser that sees a push show nothing
+// may drop the subscription.
+/** @type {PushPayload} */
+const UNREADABLE = { title: "Agents", body: "Something changed.", tag: "agents", pane_id: null };
+
+// The page a notification opens: the app's own Terminal route (web/rows.js terminalHref).
+/**
+ * @param {string} base
+ * @param {unknown} paneId
+ */
+const notificationUrl = (base, paneId) => new URL(typeof paneId === "string" ? `#/agent/${encodeURIComponent(paneId)}` : "./", base).href;
+
+// Push notifications (D32): showing one, and opening its Terminal on a tap, in
+// the window the app already has open if there is one.
+/**
+ * @param {WorkerScope} scope
+ * @param {string} base
+ */
+function listenForNotifications(scope, base) {
+  scope.addEventListener("push", (event) => {
+    const { title, body, tag, pane_id: paneId } = pushPayload(event.data) ?? UNREADABLE;
+    event.waitUntil(scope.registration.showNotification(title, { body, tag, icon: new URL("icon-192.png", base).href, data: { pane_id: paneId }, renotify: true }));
+  });
+
+  scope.addEventListener("notificationclick", (event) => {
+    event.notification?.close();
+    const data = /** @type {{ pane_id?: unknown } | null | undefined} */ (event.notification?.data);
+    const url = notificationUrl(base, data?.pane_id);
+    event.waitUntil(
+      (async () => {
+        const windows = await scope.clients.matchAll({ type: "window", includeUncontrolled: true });
+        const open = windows.find((client) => client.url.startsWith(base));
+        if (!open) {
+          await scope.clients.openWindow(url);
+          return;
+        }
+        await open.focus();
+        await open.navigate(url);
+      })(),
+    );
+  });
 }
 
 /**
@@ -141,6 +217,7 @@ export function start(scope, { version, files }) {
   scope.addEventListener("message", (event) => {
     if (event.data === SKIP_WAITING) scope.skipWaiting();
   });
+  listenForNotifications(scope, base);
 }
 
 if ("ServiceWorkerGlobalScope" in globalThis && isShell(STAMP)) start(/** @type {WorkerScope} */ (/** @type {unknown} */ (globalThis)), STAMP);

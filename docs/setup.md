@@ -44,7 +44,7 @@ It prints `Agents server listening on http://127.0.0.1:8787`. Leave the pane ope
 - The server refuses to start outside Herdr, where `HERDR_ENV` isn't `1`, and without `AGENTS_ALLOWED_LOGIN`. Herdr sets `HERDR_ENV` in its panes.
 - `PORT=8790 scripts/start.sh` uses another port. If you change it, use the same port in step 3.
 - `HERDR_BIN=/path/to/herdr` picks a different herdr binary. The default is `herdr` on `PATH`.
-- `bun install` fetches the server's one runtime dependency and the two dev tools. The dependency is `@xterm/headless`, pinned at 6.0.0, the terminal emulator behind live output (see "Live output" below). There's no build step. When you pull a version that adds a dependency, run `bun install` again before restarting the server.
+- `bun install` fetches the server's two runtime dependencies and the two dev tools. The dependencies are `@xterm/headless`, pinned at 6.0.0, the terminal emulator behind live output (see "Live output" below), and `web-push`, pinned at 3.6.7, which sends push notifications (see "Push notifications" below). There's no build step. When you pull a version that adds a dependency, run `bun install` again before restarting the server.
 
 Check it from the laptop. Expect `403`, because curl sends no login header:
 
@@ -144,9 +144,43 @@ While the phone shows a Terminal, the server pushes that Terminal's output as it
 - If the observe stream fails or ends, the server tells the page to poll that Terminal every 2 s again, and the page reads it at once. The server reopens the stream after 0.5 s, then 1, 2, 4 and 8 s, then every 10 s, and logs "Live output: the stream of <pane> stopped (…). Retrying." Once the stream works again, the polling stops by itself.
 - There's nothing to set up beyond `bun install`. With an older herdr that lacks `terminal session observe`, the page keeps polling.
 
+## Push notifications
+
+The app can send your phone a notification when an agent needs you, or finishes. It is off until you turn it on.
+
+**Turn it on.** On the phone, open the app and tap the **bell** at the top right of the home screen, next to the theme key. (The All terminals screen has the same bell.) A small panel opens. Tap **Turn on** and allow notifications when the browser asks. The browser asks only after that tap. Then tap **Send test**: a "Test notification" should arrive within a few seconds. Do this once on each phone. **Turn off** in the same panel stops it again. The bell shows where things stand: a bell when notifications are on, a bell with a slash when they are off, and a grey bell with a slash when the browser blocks them or can't show them. `?demo` shows the bell and the panel but never turns anything on.
+
+**If the browser refuses.** The panel says so, in words, and names the fix.
+
+- **Brave:** "In Brave, turn on Settings → Privacy and security → Use Google services for push messaging, then try again." Brave ships with that setting off, and without it Brave can't register for push at all. Turn it on in Brave's settings, reopen the app, tap the bell and Turn on again.
+- **Other browsers:** "Your browser didn't allow push notifications. Allow notifications for this site in the browser's settings, then try again." In Chrome, that's the lock icon beside the address, then Permissions.
+- **Blocked:** if you refused the browser's prompt, the panel says the browser didn't allow push notifications and the Turn on key is off. Allow notifications for this site in the browser's settings (in Chrome, the lock icon, then Permissions), then reopen the app.
+- **Unsupported:** if the panel says this browser can't show push notifications, that browser has no Web Push; use Chrome on Android or Brave with the setting above.
+
+**What you get.**
+
+- An agent that becomes blocked: "‹folder› · ‹name› needs you", with the agent's question or latest line as the text. The name is the same one the app shows everywhere (the session title, else the tab's label, else "tab N").
+- An agent that goes from working to done: "‹folder› · ‹name› finished", with its latest line.
+- Tapping a notification opens that Terminal in the app.
+- Each change notifies once. The server waits 3 s before it sends, so an agent that flaps, or that you answer at once, sends nothing or one notification. A newer notification for the same agent replaces the older one.
+- No notification for a Terminal a page of the app is showing right now. Shells never notify. The text is plain text, cut at about 120 characters.
+- The server only reads from herdr to do this. It never sends anything to any pane.
+
+**What Google's push service sees.** Chrome on Android delivers push through Google's push service (Firebase Cloud Messaging). When you turn notifications on, the phone gets an address at that service, and the server keeps it. To notify you, the laptop sends each notification to that address over the internet (outbound HTTPS from the laptop; the tailnet isn't used), and Google's service passes it to the phone. The notification is encrypted with keys only your phone and the laptop have, so Google's service sees that your laptop sent your phone a message, when, and about how big it was. It can't read the title, the text, the folder or the agent's name. Browsers that aren't Chrome use their own push service, and see the same. Nothing is sent when notifications are off or no agent changes.
+
+**Where the keys live.** The first time the server starts, it makes a pair of VAPID keys (the laptop's identity to the push service) and saves them, with each phone's address and keys, in two files in the `.push/` folder at the repo root: `vapid.json` and `subscriptions.json`. The folder is readable by you only (the files are mode 600), Git ignores it, and it is never part of the public copy. The private key and the phones' addresses are never logged. `AGENTS_PUSH_DIR=/some/folder` keeps them somewhere else. `AGENTS_PUSH_SUBJECT` is the `mailto:` or `https:` address the server names itself with to the push service; it defaults to the placeholder `mailto:hermux@localhost`, so set it only if a push service refuses that.
+
+**Reset.** To forget one phone, turn Notifications off in the app on that phone. To start everything afresh (new keys, no phones), stop the server, delete the `.push/` folder, and start the server again. Then on each phone turn Notifications off and on again: a phone's old subscription belongs to the old key and stops working. A phone that the push service says is gone (it answers 404 or 410) is forgotten automatically.
+
+The page uses four routes, all with the usual login check (403), refusing other sites (403) and, for bodies, accepting only JSON (415): `GET /api/push/key` (the server's public key), `POST` and `DELETE /api/push/subscription` (`{"subscription": …}` and `{"endpoint": …}`) and `POST /api/push/test` (`{"endpoint": …}`, which sends the test to that one phone).
+
+A failed send is tried once more after 2 s. After that the server logs "Push: the push service didn't accept a notification (‹status›)." and carries on.
+
+Real delivery to a phone is the one thing the tests can't show. After turning it on, leave the app (or lock the phone), let an agent block, and check the notification arrives and opens the right Terminal.
+
 ## Type checking
 
-Run `bun install` once to fetch the two dev tools, `typescript` and `@types/bun`, and the runtime dependency `@xterm/headless`. Then:
+Run `bun install` once to fetch the two dev tools, `typescript` and `@types/bun`, and the runtime dependencies `@xterm/headless` and `web-push`. Then:
 
 ```bash
 bun run typecheck

@@ -367,3 +367,30 @@ describe.concurrent("the terminals", () => {
     expect(sinceOf(await roster.agents([]))["w9:pE"]).toBeUndefined();
   });
 });
+
+describe.concurrent("one terminal (D32)", () => {
+  const AGENT_TAB = { tab_id: "w1:t1", workspace_id: "w1", label: "next work", number: 4 };
+
+  test("an agent comes with its tab, its title and its latest line, and only its own pane is read", async () => {
+    const agents = [agent("w1:p1", "blocked", 9, { tab_id: "w1:t1", cwd: "/home/you/weather-app", terminal_title_stripped: "atomic - weather-app" }), agent("w1:p2", "working", 2)];
+    const { roster, readPanes } = setup({ agents, tabs: [AGENT_TAB], outputs: { ...wordsOf(agents), "w1:p1": `Which database?${FOOTER}` } });
+    expect(await roster.terminal("w1:p1")).toMatchObject({ pane_id: "w1:p1", kind: "atomic", status: "blocked", cwd: "/home/you/weather-app", title: "atomic - weather-app", tab: { id: "w1:t1", label: "next work", number: 4 }, latest_line: "Which database?" });
+    expect(readPanes()).toEqual(["w1:p1"]);
+  });
+
+  test("a plain shell comes without a status and is never read", async () => {
+    const { roster, readPanes } = setup({ shells: [{ pane_id: "w1:p3", workspace_id: "w1", tab_id: "w1:t1" }], tabs: [AGENT_TAB] });
+    expect(await roster.terminal("w1:p3")).toMatchObject({ pane_id: "w1:p3", kind: "shell", status: null });
+    expect(readPanes()).toEqual([]);
+  });
+
+  test("a pane herdr doesn't list is null", async () => {
+    const { roster } = setup({ agents: [agent("w1:p1", "idle", 1)] });
+    expect(await roster.terminal("w1:p9")).toBeNull();
+  });
+
+  test("a read that fails still answers the terminal, with the reason in place of a line", async () => {
+    const { roster } = setup({ agents: [agent("w1:p1", "blocked", 1)], answers: { read: herdrError("server_unreachable", "down") } });
+    expect(await roster.terminal("w1:p1")).toMatchObject({ status: "blocked", latest_line: null, latest_line_error: { code: "server_unreachable" } });
+  });
+});
