@@ -1,7 +1,3 @@
-// Reading an Atomic screen once (web/screen.js): its rows without the
-// scrollbar and jump hint, where Atomic's chrome starts, whether it shows a
-// workflow graph, and the joined prose. The shapes come from real Atomic panes
-// (read-only); the Latest line and the Reader both read the screen this way.
 import { describe, expect, test } from "bun:test";
 import { isRule, plainText, proseEndingAt, readScreen, shellRows } from "../web/screen.js";
 
@@ -41,7 +37,6 @@ describe("rows", () => {
   test("Atomic's jump hint is cut with the rest of its row: at the end, mid-row in an unwrapped read, or as the whole row", () => {
     expect(texts(` ### What I checked           ${TOOL} ↓ Jump to latest message · ctrl+end ${RESET}     `)).toEqual([" ### What I checked"]);
     expect(texts(" What a good design looks like ↓ Jump to latest message · ctrl+end :")).toEqual([" What a good design looks like"]);
-    // Deliberate (D22): a row that is only the hint is left blank; the Reader showed it as a paragraph before.
     expect(texts(" Done.\n↓ Jump to latest message · ctrl+end\n Next.")).toEqual([" Done.", "", " Next."]);
   });
 
@@ -53,8 +48,6 @@ describe("rows", () => {
 
   test("escape codes and control characters never reach the text; a broken escape is dropped up to where it stops", () => {
     expect(plainText(`${sgr("38;2;0;255;255")}cyan${RESET} ${ESC}]8;;https://x${ESC}\\link${ESC}]8;;${ESC}\\ bell\x07 tab\tkept`)).toBe("cyan link bell tab\tkept");
-    // Deliberate (D22): the page's screen-line key now drops two-character escapes and an
-    // unterminated OSC whole, as the Reader always has ("(B" and the OSC's text went into the key before).
     expect(plainText(`a${ESC}(Bb${ESC}[2Kc${ESC}]0;title`)).toBe("abc");
     expect(plainText(`x${ESC}[38;2;0;255;255"><b>m y`)).toBe("x><b>m y");
   });
@@ -92,9 +85,8 @@ describe("where Atomic's chrome starts", () => {
     expect(chrome([" Done.", USAGE, " not a rule under it"].join("\n"))).toEqual([]);
   });
 
-  test("a rule is at least 8 of ─━═-, as Atomic draws it; shorter runs and a labelled line elsewhere are text", () => {
+  test("a rule is at least 8 of ─━═-, as Atomic draws it; a run of 3 to 7 dashes and a labelled line elsewhere are text", () => {
     for (const rule of ["────────", "  ━━━━━━━━━━  ", "════════", "--------", RULE]) expect(isRule(rule)).toBe(true);
-    // Deliberate (D22): the Latest line counted 3 to 7 as a rule before; the Reader never did.
     for (const text of ["---", "───────", "[label] ────────", "── a ──", ""]) expect(isRule(text)).toBe(false);
     expect(chrome([" Done.", "───────", "❯", "───────", FOOTER].join("\n"))).toEqual([]);
   });
@@ -132,9 +124,8 @@ describe("Atomic's workflow graph", () => {
     expect(screen.rows.map((row) => row.text)).toEqual([...GRAPH, "", ""]);
   });
 
-  test("a pill further up is not a graph screen, and the graph is found on the rows as drawn", () => {
+  test("a pill further up is not a graph screen, and jump-hint rows after a graph don't make it one: the graph is found on the rows as drawn", () => {
     expect(readScreen([...GRAPH, " The graph above is from earlier.", " Then I", " went on."].join("\n")).graph).toBe(false);
-    // Deliberate (D22): the Latest line looked after cutting jump hints and found a graph here.
     const hint = `${" ".repeat(60)}↓ Jump to latest message · ctrl+end`;
     expect(readScreen([...GRAPH, hint, hint, hint].join("\n")).graph).toBe(false);
   });

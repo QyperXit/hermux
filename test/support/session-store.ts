@@ -1,16 +1,11 @@
-// Fixture copies of Atomic's session store: a temporary SQLite file with
-// Atomic's schema (session_sessions, session_entries) holding entries in the
-// real shapes, written here through the fixture's own connection. The server
-// opens them READ-ONLY.
 import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cleanupAfterTests } from "./cleanup";
 
-// The folder a session runs in unless it names another.
 export const CWD = "/home/you/weather-app";
 
-// Atomic's own schema (journal.sqlite, checked read-only on the laptop).
 const SCHEMA = `
 CREATE TABLE session_sessions (
   id TEXT PRIMARY KEY, cwd TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -40,12 +35,10 @@ const insertEntries = (db: Database, sessionId: string, firstSeq: number, entrie
     db.run("INSERT INTO session_entries (session_id, seq, entry_id, entry_json) VALUES (?, ?, ?, ?)", [sessionId, firstSeq + index, `e${firstSeq + index}`, JSON.stringify(entry)]),
   );
 
-const storeDirs: string[] = [];
-
 // A new store in WAL mode, as Atomic keeps it; returns its path.
 export function makeStore(sessions: Session[]) {
   const dir = mkdtempSync(join(tmpdir(), "atomic-store-"));
-  storeDirs.push(dir);
+  cleanupAfterTests(() => rmSync(dir, { recursive: true, force: true }));
   const path = join(dir, "journal.sqlite");
   const db = new Database(path, { create: true });
   db.run("PRAGMA journal_mode = WAL");
@@ -55,7 +48,6 @@ export function makeStore(sessions: Session[]) {
   return path;
 }
 
-// Atomic starting a session, or writing on, while the server has the store open.
 export function addSession(path: string, session: Session) {
   const db = new Database(path);
   insertSession(db, session);
@@ -66,9 +58,4 @@ export function addEntries(path: string, sessionId: string, firstSeq: number, en
   const db = new Database(path);
   insertEntries(db, sessionId, firstSeq, entries);
   db.close();
-}
-
-// Removes every store made so far; call it after a file's last test.
-export function removeStores() {
-  for (const dir of storeDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 }

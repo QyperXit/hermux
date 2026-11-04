@@ -1,7 +1,3 @@
-// The message box of a Terminal screen (web/composer.js), drawn into the same
-// fake page the key bar's tests use: what it says about its target, its send
-// arrow while a send is in flight, and what it does while the Agent is blocked
-// (D5, D34). The "/" popover is the key bar's (test/key-bar.test.ts).
 import { describe, expect, test } from "bun:test";
 import { drawComposer } from "../web/composer.js";
 import { asPageElement } from "./support/fake-dom";

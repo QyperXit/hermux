@@ -1,6 +1,3 @@
-// D29: web addresses in the Reader and Earlier messages are links that open in
-// a new tab, and laptop paths get a copy key (or a long-press in a box-drawn
-// block) instead of a link.
 import { describe, expect, test } from "bun:test";
 import { bindCopy } from "../web/links.js";
 import { messageHtml } from "../web/history.js";

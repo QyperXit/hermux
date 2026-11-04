@@ -1,7 +1,3 @@
-// Live output streaming (D30) through the real app: the page's event stream
-// names itself, a watch request for that name gets one pane's output pushed on
-// it (and only on it), every guard applies to the new endpoint, a closed
-// stream drops its watch, and streamed text renders exactly as polled text.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { createApp } from "../server/app";
 import { createLiveEvents, type LiveEvents } from "../server/events";
@@ -41,8 +37,6 @@ afterAll(() => {
 });
 
 async function setup() {
-  // `hold(pane)` makes the next `pane get` for that pane wait; `held` has its
-  // release once it does, so a test can decide what happens meanwhile.
   const holds: string[] = [];
   const held: { paneId: string; release: () => void }[] = [];
   const hold = (paneId: string) => void holds.push(paneId);
@@ -83,7 +77,6 @@ async function setup() {
   };
   const watch = (method: "POST" | "DELETE", paneId: string, stream: string) =>
     request(method, `/api/terminals/${encodeURIComponent(paneId)}/watch`, { body: JSON.stringify({ stream }), headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" } });
-  // A page's stream, read as it comes, and its name.
   async function open() {
     const response = await request("GET", "/api/events");
     expect(response.status).toBe(200);
@@ -104,7 +97,6 @@ async function setup() {
   return { fake, watcher, request, watch, open, hold, held };
 }
 
-// The server-sent events in a stream's text, after its retry line.
 const eventsOf = (text: string) =>
   text
     .split("\n\n")

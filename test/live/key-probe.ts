@@ -1,4 +1,4 @@
-// Key-name probe (D15 a): which logical key names herdr's `pane send-keys` and
+// Key-name probe: which logical key names herdr's `pane send-keys` and
 // `agent send-keys` accept, and the bytes each one delivers. Run it from inside
 // Herdr:
 //
@@ -7,13 +7,13 @@
 // KEY_PROBE_KEYS='["pageup", ["esc", "["], ...]' replaces the built-in candidate
 // list; an array entry is sent as several keys in one call.
 //
-// Safety: it creates ONE new tab (--no-focus) and runs the key recorder in it,
+// It creates ONE new tab (--no-focus) and runs the key recorder in it,
 // reporting itself as `pi` (a herdr built-in kind), so both `agent send-keys`
-// and `pane send-keys` can be tried on it. Keys go only to that pane. At the
-// end it closes only that tab and checks that the tab list is the same as before.
+// and `pane send-keys` can be tried on it.
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createdPanes } from "./created-panes";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const herdrBin = process.env.HERDR_BIN_PATH || "herdr";
@@ -25,8 +25,10 @@ if (process.env.HERDR_ENV !== "1" || !workspace) {
   process.exit(1);
 }
 
+const guard = createdPanes();
+
 function herdr(args: string[]) {
-  const result = Bun.spawnSync([herdrBin, ...args]);
+  const result = Bun.spawnSync([herdrBin, ...guard.herdrArgs(args)]);
   return { exit: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 const tabIds = () => (JSON.parse(herdr(["tab", "list"]).stdout).result.tabs as { tab_id: string }[]).map((tab) => tab.tab_id).sort();
@@ -96,7 +98,9 @@ try {
   const created = herdr(["tab", "create", "--workspace", workspace, "--cwd", ROOT, "--label", "agents-key-probe", "--no-focus"]);
   const { result } = JSON.parse(created.stdout);
   createdTab = result.tab.tab_id;
+  guard.addTab(result.tab.tab_id);
   const pane = result.root_pane.pane_id as string;
+  guard.addPane(pane);
   const launcher = join(dir, "pi");
   writeFileSync(launcher, `#!${process.execPath}\nimport ${JSON.stringify(join(ROOT, "test/live/key-recorder.ts"))};\n`);
   chmodSync(launcher, 0o755);

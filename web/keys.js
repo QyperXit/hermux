@@ -1,22 +1,16 @@
-// The agent screen's terminal keys and saved commands. The key bar and
-// the saved commands are kept on the phone in localStorage; these functions take
-// the store as an argument so tests can pass memoryStorage().
 import { isAllowedKey } from "./key-grammar.js";
 
 /**
- * One key of the bar: the key name the server accepts, and its label.
  * @typedef {{ key: string, label: string }} BarEntry
  */
 
 /**
- * The part of localStorage these functions use.
  * @typedef {{ getItem(key: string): string | null, setItem(key: string, value: string): void }} Store
  */
 
 export const BAR_STORE_KEY = "agents.keys";
 export const COMMANDS_STORE_KEY = "agents.commands";
 
-// Shown only while the agent is blocked, before the bar; never saved or edited.
 /** @type {BarEntry[]} */
 export const ANSWER_KEYS = [
   { key: "1", label: "1" },
@@ -27,7 +21,6 @@ export const ANSWER_KEYS = [
   { key: "right", label: "Right" },
 ];
 
-// The bar before the user changes it.
 /** @type {BarEntry[]} */
 export const DEFAULT_BAR = [
   { key: "esc", label: "Esc" },
@@ -40,13 +33,10 @@ export const DEFAULT_BAR = [
 
 const DEFAULT_COMMANDS = ["continue", "yes, go ahead", "status?"];
 
-// These interrupt, end or suspend what runs in the pane, so they send only
-// after a hold (or a second press from the keyboard), wherever they are.
-const HOLD_KEYS = ["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"];
+const INTERRUPT_KEYS = ["ctrl+c", "ctrl+d", "ctrl+z", "ctrl+\\"];
 /** @param {string} key */
-export const isHoldKey = (key) => HOLD_KEYS.includes(key);
+export const isHoldKey = (key) => INTERRUPT_KEYS.includes(key);
 
-// Keys drawn as icons when they carry their own label.
 /** @type {Record<string, string>} */
 export const KEY_ICONS = { left: "i-left", right: "i-right", tab: "i-tab", up: "i-up", down: "i-down", enter: "i-enter" };
 
@@ -54,24 +44,19 @@ export const LABEL_MAX = 12;
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 
-// The picker's key list. `mods` says which modifiers the key takes: a letter
-// takes Ctrl or Alt (one of them, and needs it), \ takes Ctrl (and needs it),
-// Tab may take Shift, and the rest take none. The picker makes only key names
-// of the shared grammar (web/key-grammar.js), the one the server checks.
 /**
- * A key the picker offers; `mods` as above.
- * @typedef {{ base: string, label: string, mods?: "letter" | "ctrl" | "shift" }} PickerKey
+ * @typedef {{ base: string, label: string, mods?: "ctrl-or-alt" | "ctrl-only" | "shift-optional" }} PickerKey
  */
 
 /** @type {{ group: string, keys: PickerKey[] }[]} */
 export const PICKER_GROUPS = [
-  { group: "Letters, with Ctrl or Alt", keys: LETTERS.map((letter) => ({ base: letter, label: letter.toUpperCase(), mods: "letter" })) },
-  { group: "Backslash, with Ctrl", keys: [{ base: "\\", label: "\\", mods: "ctrl" }] },
+  { group: "Letters, with Ctrl or Alt", keys: LETTERS.map((letter) => ({ base: letter, label: letter.toUpperCase(), mods: "ctrl-or-alt" })) },
+  { group: "Backslash, with Ctrl", keys: [{ base: "\\", label: "\\", mods: "ctrl-only" }] },
   {
     group: "Keys",
     keys: [
       { base: "esc", label: "Esc" },
-      { base: "tab", label: "Tab", mods: "shift" },
+      { base: "tab", label: "Tab", mods: "shift-optional" },
       { base: "enter", label: "Enter" },
       { base: "backspace", label: "Backspace" },
     ],
@@ -83,8 +68,6 @@ export const PICKER_GROUPS = [
 
 const PICKER_KEYS = PICKER_GROUPS.flatMap(({ keys }) => keys);
 
-// The key name and its default label for a picker choice, or the reason the
-// combination can't be sent. A name outside the shared grammar is never made.
 /**
  * @typedef {{ key: string, label: string, error?: undefined } | { error: string, key?: undefined, label?: undefined }} PickedKey
  */
@@ -106,31 +89,29 @@ export function pickedKey({ ctrl = false, alt = false, shift = false, base }) {
 function pickedName({ ctrl, alt, shift, base }) {
   const entry = PICKER_KEYS.find((candidate) => candidate.base === base);
   if (!entry) return { error: "Pick a key." };
-  if (entry.mods === "letter") {
+  if (entry.mods === "ctrl-or-alt") {
     if (shift) return { error: "Shift goes only with Tab." };
     if (ctrl && alt) return { error: "Pick Ctrl or Alt, not both." };
     if (!ctrl && !alt) return { error: "A letter needs Ctrl or Alt." };
     return ctrl ? { key: `ctrl+${base}`, label: `Ctrl ${entry.label}` } : { key: `alt+${base}`, label: `Alt ${entry.label}` };
   }
-  if (entry.mods === "ctrl") {
+  if (entry.mods === "ctrl-only") {
     if (!ctrl || alt || shift) return { error: "Backslash goes with Ctrl only." };
     return { key: "ctrl+\\", label: "Ctrl \\" };
   }
-  if (ctrl || alt || (shift && entry.mods !== "shift")) {
-    return { error: entry.mods === "shift" ? "Tab takes Shift only." : `${entry.label} takes no Ctrl, Alt or Shift.` };
+  if (ctrl || alt || (shift && entry.mods !== "shift-optional")) {
+    return { error: entry.mods === "shift-optional" ? "Tab takes Shift only." : `${entry.label} takes no Ctrl, Alt or Shift.` };
   }
   if (shift) return { key: "shift+tab", label: "Shift Tab" };
   return { key: entry.base, label: entry.base === "backspace" ? "Bksp" : entry.label };
 }
 
-// The label the picker gives a key name, e.g. "Ctrl X" for ctrl+x.
 /** @param {string} key */
 export function defaultLabel(key) {
   const [modifier, base] = key.length > 1 && key.includes("+") ? key.split(/\+(.+)/) : [null, key];
   return pickedKey({ ctrl: modifier === "ctrl", alt: modifier === "alt", shift: modifier === "shift", base }).label ?? key;
 }
 
-// Every key name the picker can make.
 export function pickerKeyNames() {
   /** @type {Set<string>} */
   const names = new Set();
@@ -175,7 +156,6 @@ const isBarEntry = (entry) =>
   entry.label.length > 0 &&
   entry.label.length <= LABEL_MAX;
 
-// The saved bar, or the default when nothing (or something unreadable) is saved.
 /**
  * @param {Pick<Store, "getItem">} store
  * @returns {BarEntry[]}
@@ -200,7 +180,6 @@ export function saveBar(store, bar) {
  */
 const isStringList = (value) => Array.isArray(value) && value.every((item) => typeof item === "string");
 
-// Saved commands are kept exactly as written.
 /**
  * @param {Pick<Store, "getItem">} store
  * @returns {string[]}
@@ -219,7 +198,6 @@ export function saveCommands(store, commands) {
   store.setItem(COMMANDS_STORE_KEY, JSON.stringify(commands));
 }
 
-// A copy of `list` with the item at `index` moved by `delta` places (kept in range).
 /**
  * @template T
  * @param {T[]} list

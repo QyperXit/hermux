@@ -1,8 +1,3 @@
-// D29: the Live screen is redrawn in place. A box-drawn block keeps its element,
-// and so its sideways and vertical scroll position, across refreshes that
-// change it, and elements whose HTML didn't change aren't drawn again. The fake
-// DOM drops an element's scroll position when it is taken out of the page, as
-// a browser does.
 import { describe, expect, test } from "bun:test";
 import { drawLive } from "../web/live-render.js";
 import { readerHtml, readerParts, shellParts } from "../web/reader.js";
@@ -47,7 +42,7 @@ describe("drawing the Live screen in place", () => {
     }
   });
 
-  test("redrawn whole, as before D29, the block would snap back to the start", () => {
+  test("redrawn whole with innerHTML instead, the block would snap back to the start", () => {
     const { live } = livePage();
     live.innerHTML = readerHtml(screen(0));
     blocksOf(live)[0].scrollLeft = 140;
@@ -97,6 +92,18 @@ describe("drawing the Live screen in place", () => {
     block.scrollLeft = 50;
     draw(readerParts(screen(2)));
     expect(blocksOf(live)[0].scrollLeft).toBe(50);
+  });
+
+  test("an error with its Back link, then 'Reading output…', then a screen: each is drawn in place of the one before", () => {
+    const { live, draw } = livePage();
+    draw(readerParts(screen(0)));
+    draw([`<p class="output-empty">Couldn't read this agent's output.</p>`, `<a class="link-key" href="#/">Back to agents</a>`]);
+    expect(live.children.map((child) => child.textContent)).toEqual(["Couldn't read this agent's output.", "Back to agents"]);
+    draw([`<p class="output-empty">Reading output…</p>`]);
+    expect(live.children.map((child) => child.textContent)).toEqual(["Reading output…"]);
+    draw(readerParts(screen(1)));
+    expect(live.querySelector(".output-empty")).toBeNull();
+    expect(live.children.map((child) => child.textContent)).toEqual(fakePage(readerHtml(screen(1))).root.children.map((child) => child.textContent));
   });
 
   test("a shell's rows are kept the same way", () => {

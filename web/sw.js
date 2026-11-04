@@ -1,19 +1,13 @@
-// The service worker (D29): it keeps the app's own files, so the home-screen
-// app opens at once, even with the laptop out of reach (the page then shows
-// its usual "Can't reach the laptop"). It never touches the API or the live
-// stream: those requests go straight to the network and nothing is stored.
-//
-// The server stamps each copy of this file with the shell's version and files
-// (server/shell.ts). The version is a hash of the files, so a changed file is
+// The server stamps each copy of this file with the app shell's version and files
+// (server/app-shell.ts). The version is a hash of the files, so a changed file is
 // a new worker. It installs beside the old one and waits; the next open of the
 // app hands over to it and reloads once, and its activation deletes the older
 // caches.
-//
-// It also shows the server's push notifications and opens the Terminal a tap
-// names (D32). Neither touches the caching above.
+
+import { terminalHref } from "./routes.js";
 
 /**
- * @typedef {{ version: string, files: string[] }} Shell the version and the files, relative to the scope ("./" is the page)
+ * @typedef {{ version: string, files: string[] }} Shell
  * @typedef {{ match(key: string): Promise<Response | undefined>, put(key: string, response: Response): Promise<void> }} ShellCache
  * @typedef {{ open(name: string): Promise<ShellCache>, keys(): Promise<string[]>, delete(name: string): Promise<boolean> }} ShellCaches
  * @typedef {{ postMessage(message: string): void }} WaitingWorker
@@ -48,10 +42,6 @@ const STAMP = /** @type {unknown} */ ("__SHELL__");
 const isShell = (value) =>
   typeof value === "object" && value !== null && "version" in value && typeof value.version === "string" && "files" in value && Array.isArray(value.files);
 
-// The URL a request is kept under in the shell cache, or null when the worker
-// leaves it alone: anything but a GET, another origin, the API and its live
-// stream, a file outside the shell, and any page but the app's own (the app's
-// page with any query, such as `?demo`, is the one cached page).
 /**
  * @param {Request} request
  * @param {string} scope
@@ -101,15 +91,12 @@ function pushPayload(data) {
 /** @type {PushPayload} */
 const UNREADABLE = { title: "Agents", body: "Something changed.", tag: "agents", pane_id: null };
 
-// The page a notification opens: the app's own Terminal route (web/rows.js terminalHref).
 /**
  * @param {string} base
  * @param {unknown} paneId
  */
-const notificationUrl = (base, paneId) => new URL(typeof paneId === "string" ? `#/agent/${encodeURIComponent(paneId)}` : "./", base).href;
+const notificationUrl = (base, paneId) => new URL(typeof paneId === "string" ? terminalHref(paneId) : "./", base).href;
 
-// Push notifications (D32): showing one, and opening its Terminal on a tap, in
-// the window the app already has open if there is one.
 /**
  * @param {WorkerScope} scope
  * @param {string} base
@@ -147,14 +134,12 @@ export function start(scope, { version, files }) {
   const cacheName = CACHE_PREFIX + version;
   const base = scope.registration.scope;
   const shellUrls = new Set(files.map((file) => new URL(file, base).href));
-  // The waiting workers already asked to take over, so an open reloads at most once for each.
   /** @type {WeakSet<WaitingWorker>} */
-  const asked = new WeakSet();
+  const reloadedForWaiting = new WeakSet();
 
   /** @param {string} key */
   const fresh = (key) => scope.fetch(key, { cache: "no-cache" });
 
-  // Every file must arrive with 200, or the install fails and the old version stays.
   async function install() {
     const responses = await Promise.all(
       [...shellUrls].map(async (key) => {
@@ -172,8 +157,6 @@ export function start(scope, { version, files }) {
     await Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX) && name !== cacheName).map((name) => scope.caches.delete(name)));
   }
 
-  // Cache first, and the file fetched again in the background for next time.
-  // Only a 200 is kept.
   /**
    * @param {string} key
    * @param {(promise: Promise<unknown>) => void} waitUntil
@@ -189,9 +172,6 @@ export function start(scope, { version, files }) {
     return cached ?? update;
   }
 
-  // A new version waits until the next open of the app: that open asks it to
-  // take over and reloads into it. Only once per waiting worker, so a worker
-  // that never takes over can't keep the page reloading.
   /**
    * @param {string} key
    * @param {WorkerEvent} event
@@ -200,8 +180,8 @@ export function start(scope, { version, files }) {
     const { waiting } = scope.registration;
     if (event.request.mode === "navigate" && waiting) {
       waiting.postMessage(SKIP_WAITING);
-      if (!asked.has(waiting)) {
-        asked.add(waiting);
+      if (!reloadedForWaiting.has(waiting)) {
+        reloadedForWaiting.add(waiting);
         return new Response("", { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", refresh: "0" } });
       }
     }

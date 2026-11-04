@@ -20,3 +20,4 @@ docs/project/notes/*/
 # push notification keys and subscriptions: secrets of this laptop, never committed (D32)
 .push/
 web/round5/
+web/learn/

@@ -1,12 +1,6 @@
-// Reads an Atomic screen, from herdr's `--format ansi` text or plain text,
-// once: its rows without the scrollbar and jump hint, where Atomic's own
-// screen furniture (chrome) starts, whether it shows a workflow graph, and
-// the prose with Atomic's wraps joined. The server's latest lines and the
-// agent screen's Reader both read it from here. No DOM here.
 import { CONTROL } from "./wrap.js";
 
 /**
- * A colour a code set: a 256-colour index, or an RGB triple.
  * @typedef {{ index?: number, rgb?: number[] }} Colour
  * @typedef {"code" | "link" | "soft"} Foreground
  * @typedef {"you" | "tool"} Band
@@ -15,19 +9,12 @@ import { CONTROL } from "./wrap.js";
  * @typedef {{ text: string, runs: Run[], band: Band | null }} Line
  */
 
-// What a row is. Above the chrome: a blank "gap", a dialog "option" (or a
-// wrapped label of one), a "rule", "code" (in or at a ``` fence), a shaded
-// "band" row, a "box" row (box drawing or a Markdown table), or "prose". In
-// the chrome: a "rule", a "box" row, or any other "chrome" row.
 /**
  * @typedef {"gap" | "option" | "rule" | "code" | "band" | "box" | "prose" | "chrome"} Kind
  * @typedef {Line & { kind: Kind }} Row
  * @typedef {{ selected: boolean, number: string | null, ticked: boolean | null, start: number, end: number, numbered: boolean }} OptionRow
  */
-// A dialog row; `parts` is its label, then each of the label's continuation
-// lines with its indent dropped.
-/** @typedef {OptionRow & { index: number, more: number, parts: Line[] }} DialogRow */
-// Rows [start, end) joined into one paragraph; `runs` has a " " between rows.
+/** @typedef {OptionRow & { index: number, continuationRows: number, labelLines: Line[] }} DialogRow */
 /** @typedef {{ start: number, end: number, runs: Run[] }} Prose */
 /** @typedef {{ rows: Row[], chromeStart: number, graph: boolean, prose: Prose[], options: Map<number, DialogRow> }} Screen */
 
@@ -46,7 +33,7 @@ const same = (rgb, r, g, b) => rgb && rgb[0] === r && rgb[1] === g && rgb[2] ===
 
 // Atomic's palette, checked on real panes: cyan for code and file names, orange
 // for links and commands, 256-colour greys 240-245 for thinking and secondary
-// text. Any other colour is ink. Orange never reaches the page.
+// text. Any other colour is ink.
 /**
  * @param {Colour} colour
  * @returns {Foreground | null}
@@ -133,10 +120,6 @@ function classesOf(style) {
   return classes.join(" ");
 }
 
-// Lines of styled runs: { text, runs: [{ text, cls }], band }. `band` is the
-// background role of the line's first cell ("you", "tool" or null). The style
-// carries over line ends, as in a terminal. Control characters other than tab
-// are dropped.
 /** @param {string} text */
 function parseAnsi(text) {
   /** @typedef {{ text: string, runs: Run[], band: Band | null | undefined }} OpenLine */
@@ -175,15 +158,12 @@ function parseAnsi(text) {
   return lines.map((each) => ({ ...each, band: each.band ?? null }));
 }
 
-// The text without its escape codes and control characters: what the page
-// compares when it matches screen lines.
 /** @param {string} text */
 export const plainText = (text) =>
   parseAnsi(text)
     .map((line) => line.text)
     .join("\n");
 
-// Keeps the line's runs for characters [start, end) of its text.
 /**
  * @param {Line} line
  * @param {number} start
@@ -212,24 +192,18 @@ export const trimStart = (line) => sliceLine(line, leading(line));
 /** @param {Line} line */
 const isBlank = (line) => !line.text.trim();
 
-// Only one blank line in a row is kept.
 /**
  * @template {Line} T
  * @param {T[]} lines
  */
 const withoutBlankRuns = (lines) => lines.filter((line, index) => !isBlank(line) || (index > 0 && !isBlank(lines[index - 1])));
 
-// A plain shell's rows: styled, each end trimmed, one blank row in a row.
-// Nothing of Atomic's is looked for.
 /** @param {string} text */
 export const shellRows = (text) => withoutBlankRuns(parseAnsi(text).map(trimEnd));
 
 // Atomic draws a transcript scrollbar (│, with a ┃ or █ thumb) in the last
 // column of every row while the transcript is longer than the pane. A panel or
 // table row starts with its own box edge, so it isn't one; an empty row is.
-// The rows' length is the scrollbar's width, found from the │ and ┃ rows; a row
-// of exactly that width ending in █ is a thumb cell. The width is 0 when there
-// is no scrollbar.
 /** @param {string} text */
 const isScrollbarRow = (text) => /[│┃]$/.test(text) && !/^\s*[│┃╭╰├┌└╞](?!$)/.test(text);
 
@@ -246,7 +220,6 @@ function withoutScrollbar(lines) {
 // Atomic draws "↓ Jump to latest message · ctrl+end" over the right end of a
 // screen row. In an unwrapped read a long row goes on past that edge, so the
 // hint can sit mid-line; whatever follows it is the rest of the overdrawn row.
-// A row that is only the hint is left blank.
 const JUMP_HINT = /(?:^|\s+)↓ Jump to latest message\b.*$/;
 /** @param {Line} line */
 const withoutJumpHint = (line) => {
@@ -255,8 +228,7 @@ const withoutJumpHint = (line) => {
 };
 
 // Atomic's full-screen workflow graph has its "│ GRAPH │" status pill among
-// the last lines on screen; every line of that screen is Atomic's drawing, so
-// it is found on the rows as drawn and nothing is removed from them.
+// the last lines on screen; every line of that screen is Atomic's drawing.
 const GRAPH_PILL = /^\s*│ GRAPH │/;
 /** @param {Line[]} lines */
 const showsWorkflowGraph = (lines) =>
@@ -299,7 +271,6 @@ export function isUsage(line) {
 // starts at the last prompt box (a rule, a line starting with ❯, any further
 // lines of a draft, and a closing rule) that has Atomic's footer under it.
 // Anything of the agent's own above that, rules and ❯ included, is not chrome.
-// lines.length when there is none.
 /** @param {string[]} texts */
 function chromeStartIndex(texts) {
   for (let i = texts.length - 2; i >= 0; i--) {
@@ -315,7 +286,6 @@ function chromeStartIndex(texts) {
   return texts.length;
 }
 
-// Box drawing (panels, tables) or a Markdown table row.
 /** @param {string} text */
 const isBoxLine = (text) => /[\u2500-\u257f]/.test(text) || /^\s*\|.*\|\s*$/.test(text);
 /** @param {string} text */
@@ -363,13 +333,12 @@ const optionRowOf = (line) => {
 // an "ACTIVE" or "TERMINAL" row heads each group. Atomic draws the run under
 // its cursor on its accent shade in bold across the whole inner width, and the
 // others never bold, so a run whose rows are all bold is the selected one.
-// Every run becomes a dialog row whose parts are its rows inside the borders;
+// Every run becomes a dialog row whose label lines are its rows inside the borders;
 // nothing is changed unless one run is selected.
 const PICKER_TITLE = /^\s*╭── Connect to workflow run ─/;
 const PICKER_ID_ROW = /^ \S \S/;
 const PICKER_SECTION_ROW = /^ {3}(?:ACTIVE|TERMINAL)$/;
 
-// The row's text inside the box's two │ edges, or null for a row that isn't a box row.
 /** @param {Line} line */
 const insideBorders = (line) => {
   const match = /^(\s*│)(.*)│$/.exec(line.text);
@@ -396,23 +365,20 @@ function pickerOptions(lines, limit, options) {
       const next = i + 1 < limit ? insideBorders(lines[i + 1]) : null;
       const last = runs.at(-1);
       if (PICKER_ID_ROW.test(inner.text)) {
-        runs.push({ index: i, selected: allBold(inner), number: null, ticked: null, start: 0, end: 0, numbered: false, more: 0, parts: [inner] });
-      } else if (last && last.index + last.more + 1 === i && /^ {3}\S/.test(inner.text) && !(PICKER_SECTION_ROW.test(inner.text) && next && PICKER_ID_ROW.test(next.text))) {
-        last.more++;
-        last.parts.push(inner);
+        runs.push({ index: i, selected: allBold(inner), number: null, ticked: null, start: 0, end: 0, numbered: false, continuationRows: 0, labelLines: [inner] });
+      } else if (last && last.index + last.continuationRows + 1 === i && /^ {3}\S/.test(inner.text) && !(PICKER_SECTION_ROW.test(inner.text) && next && PICKER_ID_ROW.test(next.text))) {
+        last.continuationRows++;
+        last.labelLines.push(inner);
         last.selected = last.selected && allBold(inner);
       }
     }
     if (runs.filter((run) => run.selected).length === 1) {
-      for (const run of runs) options.set(run.index, { ...run, parts: run.parts.map(trimStart) });
+      for (const run of runs) options.set(run.index, { ...run, labelLines: run.labelLines.map(trimStart) });
     }
     top = i;
   }
 }
 
-// Rows of a dialog by line index, each with the label's continuation lines. A
-// wrapped label of the cursor row is bold on every line. The picker's runs are
-// dialog rows too.
 /**
  * @param {Line[]} lines
  * @param {number} limit
@@ -424,7 +390,7 @@ function dialogOptions(lines, limit) {
   for (let i = 0; i < limit; i++) {
     if (isFence(lines[i].text)) inFence = !inFence;
     const row = !inFence && optionRowOf(lines[i]);
-    if (row) found.push({ index: i, ...row, more: 0, parts: [] });
+    if (row) found.push({ index: i, ...row, continuationRows: 0, labelLines: [] });
   }
   /** @type {Map<number, DialogRow>} */
   const options = new Map();
@@ -433,7 +399,7 @@ function dialogOptions(lines, limit) {
   const flush = () => {
     if (cluster.filter((row) => row.numbered).length >= 2 && cluster.some((row) => row.selected)) {
       for (const row of cluster) {
-        row.parts = [sliceLine(lines[row.index], row.start, row.end), ...lines.slice(row.index + 1, row.index + 1 + row.more).map(trimStart)];
+        row.labelLines = [sliceLine(lines[row.index], row.start, row.end), ...lines.slice(row.index + 1, row.index + 1 + row.continuationRows).map(trimStart)];
         options.set(row.index, row);
       }
     }
@@ -441,17 +407,17 @@ function dialogOptions(lines, limit) {
   };
   for (const row of found) {
     const last = cluster.at(-1);
-    const between = last ? lines.slice(last.index + 1 + last.more, row.index) : [];
+    const between = last ? lines.slice(last.index + 1 + last.continuationRows, row.index) : [];
     const joined = between.length <= MAX_DIALOG_GAP && between.every((line) => isBlank(line) || leading(line) >= 2);
     if (!joined) flush();
     if (row.selected) {
       while (
-        row.index + 1 + row.more < limit &&
-        !isBlank(lines[row.index + 1 + row.more]) &&
-        !optionRowOf(lines[row.index + 1 + row.more]) &&
-        lines[row.index + 1 + row.more].runs.every((run) => !run.text.trim() || run.cls.split(" ").includes("a-b"))
+        row.index + 1 + row.continuationRows < limit &&
+        !isBlank(lines[row.index + 1 + row.continuationRows]) &&
+        !optionRowOf(lines[row.index + 1 + row.continuationRows]) &&
+        lines[row.index + 1 + row.continuationRows].runs.every((run) => !run.text.trim() || run.cls.split(" ").includes("a-b"))
       ) {
-        row.more++;
+        row.continuationRows++;
       }
     }
     cluster.push(row);
@@ -468,7 +434,7 @@ function dialogOptions(lines, limit) {
  * @returns {Kind[]}
  */
 function kindsOf(lines, chromeStart, options) {
-  const optionLines = new Set([...options.values()].flatMap((row) => Array.from({ length: row.more + 1 }, (_, n) => row.index + n)));
+  const optionLines = new Set([...options.values()].flatMap((row) => Array.from({ length: row.continuationRows + 1 }, (_, n) => row.index + n)));
   let inFence = false;
   return lines.map((line, index) => {
     if (index >= chromeStart) return isRule(line.text) ? "rule" : isBoxLine(line.text) ? "box" : "chrome";
@@ -501,7 +467,6 @@ const STARTS_ITEM = /^(?:[-•*$>]|\d+[.)])\s/;
  */
 const wrapsOnto = (line, next) => line.length >= WRAP_MIN_LENGTH && !ENDS_SENTENCE.test(line) && !STARTS_ITEM.test(next);
 
-// The rows [start, end) joined into one paragraph.
 /**
  * @param {Row[]} rows
  * @param {number} start

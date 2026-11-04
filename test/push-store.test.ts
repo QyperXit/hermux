@@ -1,6 +1,3 @@
-// Where the push keys and subscriptions live (D32): created on first start and
-// reused, readable by the user only, kept out of git, and refusing anything
-// that isn't an https push subscription.
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";

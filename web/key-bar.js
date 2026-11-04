@@ -1,12 +1,3 @@
-// The key bar of a Terminal screen, and the one owner of its state: the
-// terminal keys (the answer keys first, shown only while an Agent is blocked),
-// the key picker, each key's edit menu, the saved commands (the "/" popover in
-// the message box, web/composer.js) and their editor, the hold and long-press
-// timing, and what is kept on the phone (`storage`).
-// The page tells it two things: a Terminal screen was drawn (`attach`), and
-// whether its Agent is blocked (`setBlocked`). It asks the page for three:
-// send this key, send this text, and announce this. No DOM is touched on
-// import, and none until it is attached, so the tests can import it.
 import { find, findAll, fitField, need } from "./dom.js";
 import { escapeHtml, icon } from "./html.js";
 import {
@@ -30,8 +21,6 @@ import {
  */
 
 /**
- * The clock the hold and long-press timing run on: the page's own by default,
- * a fake one in the tests. `requestAnimationFrame` runs after the next layout.
  * @typedef {object} Timers
  * @property {(run: () => void, ms: number) => number} setTimeout
  * @property {(id: number) => void} clearTimeout
@@ -40,9 +29,6 @@ import {
  */
 
 /**
- * What the key bar asks of the page: `sendKey(key, label)` and `sendText(text)`
- * send to the open Terminal (a saved command exactly as written), and
- * `announce` shows a notice.
  * @typedef {object} KeyBarIntents
  * @property {(key: string, label: string) => unknown} sendKey
  * @property {(text: string) => unknown} sendText
@@ -94,10 +80,6 @@ function pickerHtml() {
     </form>`;
 }
 
-// The key bar's part of a Terminal screen's controls, drawn at their start:
-// the keys, the edit menu, the picker and the saved commands' editor. The
-// saved commands themselves are listed in the message box's "/" popover.
-// Laid out as the page's own template, so the screen's markup is as before.
 const controlsHtml = () => `
       <div class="keys" role="group" aria-label="Terminal keys"></div>
       <div class="key-menu" role="group" hidden>
@@ -119,8 +101,6 @@ const controlsHtml = () => `
         </div>
       </div>`;
 
-// One key on the bar, or an answer key. A key that keeps its own label shows
-// its drawn icon, if it has one. `keyEdit` is the picker and edit-menu state.
 /**
  * @param {BarEntry} entry
  * @param {{ index?: number, keyEdit?: KeyEdit }} [options]
@@ -138,7 +118,6 @@ function keyButtonHtml({ key, label }, { index = -1, keyEdit = { picker: false, 
   return `<button class="${classes}" type="button" data-key="${escapeHtml(key)}" ${answer ? "" : `data-index="${index}"`} aria-label="${escapeHtml(name)}">${legend}</button>`;
 }
 
-// The answer keys (shown only while blocked), the saved bar, then the + key.
 /**
  * @param {BarEntry[]} bar
  * @param {KeyEdit} keyEdit
@@ -151,16 +130,11 @@ function keysHtml(bar, keyEdit) {
   ].join("");
 }
 
-// The saved commands in the "/" popover: one button each, in order, which
-// sends the command as written. An empty command has no button but keeps its
-// index. The Edit entry is part of the popover's own markup (web/composer.js).
 /** @param {string[]} commands */
 function savedHtml(commands) {
   return commands.map((command, index) => (command.trim() ? `<button class="saved-item" type="button" data-index="${index}">${escapeHtml(command)}</button>` : "")).join("");
 }
 
-// The commands editor's list. The commands themselves are set as values, not
-// markup (see renderCommandList).
 /** @param {string[]} commands */
 function commandListHtml(commands) {
   const last = commands.length - 1;
@@ -181,13 +155,10 @@ function commandListHtml(commands) {
 }
 
 /**
- * The key picker's controls and the edit menu's state: whether the picker is
- * open, and the index of the bar key whose menu is open.
  * @typedef {{ picker: boolean, menu: number | null }} KeyEdit
  */
 
 /**
- * The picker form and its controls.
  * @typedef {object} PickerFields
  * @property {HTMLFormElement} form
  * @property {HTMLInputElement} ctrl
@@ -197,8 +168,6 @@ function commandListHtml(commands) {
  * @property {HTMLInputElement} label
  */
 
-// `storage` keeps the bar and the commands ("agents.keys", "agents.commands");
-// they are read now and written only when the user changes them.
 /**
  * @param {{ storage: Store, timers?: Timers }} options
  */
@@ -208,20 +177,22 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
   /** @type {KeyBarIntents} */
   let intents = { sendKey: () => {}, sendText: () => {}, announce: () => {} };
 
+  /** @type {HTMLElement | null} */
+  let outsideTapTarget = null;
+
   /** @returns {HTMLElement} */
   const page = () => {
     if (!screen) throw new Error("The key bar isn't attached to a screen.");
     return screen;
   };
+  const assertAttached = () => void page();
 
   const state = {
     bar: loadBar(storage),
     commands: loadCommands(storage),
-    // The key picker is open; `menu` is the bar key whose edit menu is open.
     /** @type {KeyEdit} */
     keyEdit: { picker: false, menu: null },
     editingCommands: false,
-    // The "/" popover of saved commands is open.
     savedOpen: false,
   };
 
@@ -255,7 +226,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
       if (index >= 0 && state.keyEdit.picker) {
         button.addEventListener("click", () => openKeyMenu(index));
       } else if (isHoldKey(key)) {
-        // Hold keys send on a hold wherever they are; they are edited with the picker open.
         bindHoldKey(button, label, send);
       } else if (index >= 0) {
         bindTapOrLongPress(button, send, () => openKeyMenu(index));
@@ -266,12 +236,10 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     need(group, ".key-add").addEventListener("click", () => setPicker(!state.keyEdit.picker));
   }
 
-  // The popover's pieces: the "/" button in the message box and the list it opens.
   function savedParts() {
     return { slash: need(page(), ".slash"), popover: need(page(), ".saved") };
   }
 
-  // Focus goes to the first command (or Edit when there are none).
   function openSaved() {
     if (state.savedOpen || state.keyEdit.picker || state.editingCommands) return;
     renderSaved();
@@ -282,7 +250,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     (find(popover, ".saved-item") ?? need(popover, ".saved-edit")).focus();
   }
 
-  // `focus: false` when the focus is already going somewhere else.
   /** @param {{ focus?: boolean }} [options] */
   function closeSaved({ focus = true } = {}) {
     if (!state.savedOpen) return;
@@ -293,8 +260,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     if (focus) slash.focus();
   }
 
-  // A tap anywhere else on the page closes the popover. The focus goes back to
-  // the "/" button unless the tap landed on something that took it.
   /** @param {Event} event */
   function closeOnOutsideTap(event) {
     if (!state.savedOpen) return;
@@ -372,7 +337,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     find(page(), ".key-menu button:not(:disabled)")?.focus();
   }
 
-  // The edit menu of one bar key: move it left or right, or remove it.
   function showKeyMenu() {
     const menu = need(page(), ".key-menu");
     const index = state.keyEdit.menu;
@@ -428,8 +392,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     need(page(), ".key-add").focus();
   }
 
-  // Saved commands: one tap sends a command exactly as written, through the
-  // same path as the message box, and closes the popover.
   function renderSaved() {
     const list = need(page(), ".saved-list");
     list.innerHTML = savedHtml(state.commands);
@@ -477,7 +439,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
         need(page(), "[data-command-add]").focus();
       });
     }
-    // After layout, so each box fits its text.
     timers.requestAnimationFrame(() => {
       /** @type {HTMLTextAreaElement[]} */
       const boxes = findAll(list, "textarea");
@@ -511,8 +472,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     else need(page(), ".slash").focus();
   }
 
-  // Opens `longPress` on a press of LONG_PRESS_MS (or the context menu, from a
-  // mouse or keyboard); a shorter tap runs `tap`.
   /**
    * @param {HTMLElement} button
    * @param {() => unknown} tap
@@ -556,8 +515,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     });
   }
 
-  // Ctrl C, Ctrl D, Ctrl Z and Ctrl \ send only after a hold of HOLD_MS, or
-  // from the keyboard on a second press within KEYBOARD_CONFIRM_MS.
   /**
    * @param {HTMLElement} button
    * @param {string} label
@@ -619,8 +576,10 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
       need(drawn, ".controls").insertAdjacentHTML("afterbegin", controlsHtml());
       renderKeys();
 
-      // The same function on the page's own element each time, so the browser adds it once.
-      drawn.addEventListener("click", closeOnOutsideTap);
+      if (outsideTapTarget !== drawn) {
+        drawn.addEventListener("click", closeOnOutsideTap);
+        outsideTapTarget = drawn;
+      }
       need(drawn, ".slash").addEventListener("click", () => (state.savedOpen ? closeSaved() : openSaved()));
       need(drawn, ".saved-edit").addEventListener("click", () => setCommandsEditor(true));
       need(drawn, ".composer").addEventListener("keydown", (event) => {
@@ -652,12 +611,9 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
       need(drawn, "[data-commands-done]").addEventListener("click", () => setCommandsEditor(false));
     },
 
-    // While the Agent is blocked its question is answered with the keys, and
-    // the message box is hidden with the page's composer, so an open popover of
-    // saved commands closes.
     /** @param {boolean} blocked */
     setBlocked(blocked) {
-      page(); // throws until a screen is attached
+      assertAttached();
       if (blocked) closeSaved({ focus: false });
     },
   };

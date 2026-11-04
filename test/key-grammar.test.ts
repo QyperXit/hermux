@@ -1,9 +1,6 @@
-// The key grammar (web/key-grammar.js, the server's isAllowedKey in
-// server/herdr.ts), checked directly against the independent lists in
-// test/support/key-grammar.ts. The HTTP tests send a few keys of each family;
-// this is where every key is checked. The picker is checked against the same
-// lists in test/keys.test.ts.
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { createHerdr, isAllowedKey } from "../server/herdr";
 import { REFUSED_KEYS, REPRESENTATIVE_KEYS, VALID_KEYS } from "./support/key-grammar";
 
@@ -43,4 +40,30 @@ test("a refused key list is answered with the key and the families to use, befor
   const help = "Use ctrl+ or alt+ with a letter, ctrl+\\, shift+tab, backspace, f1-f12, up, down, left, right, esc, tab, enter or a digit.";
   await expect(herdr.sendKeys("w9:pD", ["enter", "pageup"], "pi")).rejects.toMatchObject({ code: "key_not_allowed", message: `Key not allowed: "pageup". ${help}` });
   await expect(herdr.sendKeys("w9:pD", [], "shell")).rejects.toMatchObject({ code: "key_not_allowed", message: `Key not allowed: (none). ${help}` });
+});
+
+const KEY_LISTS = resolve(import.meta.dir, "support/key-grammar.ts");
+const REPO = resolve(import.meta.dir, "..");
+
+// Every module a source names: static imports and re-exports (types too), bare imports, import() and require().
+const moduleSpecifiers = (source: string) =>
+  [...source.matchAll(/\bfrom\s*["']([^"']+)["']|\bimport\s*["']([^"']+)["']|\bimport\s*\(\s*["'`]([^"'`]+)["'`]|\brequire\s*\(\s*["'`]([^"'`]+)["'`]/g)].map((match) => match.slice(1).find(Boolean) ?? "");
+
+const appModulesNamed = (source: string, file: string) =>
+  moduleSpecifiers(source)
+    .map((specifier) => relative(REPO, resolve(dirname(file), specifier)))
+    .filter((path) => /^(server|web)(\/|$)/.test(path));
+
+test("the test key lists are written out independently: they import nothing from server/ or web/", () => {
+  expect(appModulesNamed(readFileSync(KEY_LISTS, "utf8"), KEY_LISTS)).toEqual([]);
+  const sneaky = [
+    'import { KEY_HELP } from "../../web/key-grammar.js";',
+    'import type { Herdr } from "../../server/herdr";',
+    'export { isAllowedKey } from "../../server/herdr";',
+    'import "../../web/keys.js";',
+    'const grammar = await import("../../web/key-grammar.js");',
+    'const herdr = require("../../server/herdr");',
+    'import { helper } from "./frames";',
+  ].join("\n");
+  expect(appModulesNamed(sneaky, KEY_LISTS)).toEqual(["web/key-grammar.js", "server/herdr", "server/herdr", "web/keys.js", "web/key-grammar.js", "server/herdr"]);
 });

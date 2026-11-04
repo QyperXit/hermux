@@ -1,5 +1,3 @@
-// A browser's push parts and the server's push routes, recording every call,
-// with the page's Notifications control (web/notifications.js) made over them.
 import { createNotifications, type Browser, type View } from "../../web/notifications.js";
 
 export type Permission = "default" | "granted" | "denied";
@@ -50,7 +48,7 @@ export function setup({ permission = "default", subscribed = false, asked = "gra
   const api = {
     key: async () => {
       calls.push("server key");
-      return "AQID-_8"; // bytes 1, 2, 3, 251, 255
+      return Buffer.from([1, 2, 3, 251, 255]).toString("base64url");
     },
     subscribe: async (subscription: unknown) => {
       calls.push(`server subscribe ${JSON.stringify(subscription)}`);

@@ -1,5 +1,3 @@
-// HTTP client for the Agents server. Same methods as the sample client.
-
 /**
  * @typedef {import("./types.js").Client} Client
  * @typedef {import("./types.js").Agent} Agent
@@ -33,7 +31,6 @@ class ApiError extends Error {
   }
 }
 
-// The page's words for an error code, else herdr's own words with the code.
 /**
  * @param {string} code
  * @param {string | undefined} detail
@@ -43,9 +40,6 @@ export function errorMessage(code, detail, status) {
   return FRIENDLY[code] ?? (detail ? `herdr said: ${detail} (${code}).` : `The laptop answered ${status}.`);
 }
 
-// A thrown value as the page keeps and shows it: the error's code (the
-// server's, or "unreachable"; "" for an error without one) and message, or
-// `fallback` for something that isn't an Error.
 /**
  * @param {unknown} error
  * @param {string} [fallback]
@@ -56,7 +50,6 @@ export function describeError(error, fallback = "The laptop didn't answer.") {
   return { code, message: error instanceof Error ? error.message : fallback };
 }
 
-// The code and message of the server's `{ error: { code, message } }`, where it has them.
 /**
  * @param {unknown} body
  * @returns {{ code?: string, message?: string }}
@@ -71,8 +64,6 @@ function errorOf(body) {
   };
 }
 
-// The server's JSON answer, of the shape each method below says it has: the
-// page trusts its own server's answers and doesn't check them.
 /**
  * @template T
  * @param {string} path
@@ -93,8 +84,6 @@ async function request(path, init) {
   throw new ApiError(code, errorMessage(code, message, response.status));
 }
 
-// Every pane, an agent or a plain shell, is read and typed into through
-// the terminal routes. `/api/agents` still lists the agents for home.
 /**
  * @param {string} paneId
  * @param {string} [action]
@@ -128,8 +117,6 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
   return {
     isSample: false,
 
-    // `linePanes`: the idle panes home's Activity shows, so the server reads
-    // their latest lines too.
     async listAgents(linePanes = []) {
       const query = linePanes.length ? `?lines=${encodeURIComponent(linePanes.join(","))}` : "";
       /** @type {{ agents: Agent[] }} */
@@ -137,7 +124,6 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       return answer.agents;
     },
 
-    // Every pane in herdr's order, agents and shells. `linePanes` as above.
     async listTerminals(linePanes = []) {
       const query = linePanes.length ? `?lines=${encodeURIComponent(linePanes.join(","))}` : "";
       /** @type {{ terminals: Terminal[] }} */
@@ -145,7 +131,6 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       return answer.terminals;
     },
 
-    // One workspace's panes, each with its latest line: { workspace: { id, label }, terminals }.
     async listWorkspaceTerminals(workspaceId) {
       return read(`api/workspaces/${encodeURIComponent(workspaceId)}/terminals`);
     },
@@ -179,7 +164,7 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       await post(terminalPath(paneId, "keys"), { keys, kind });
     },
 
-    // Live output (D30): the server pushes this pane's output on the page's
+    // Live output: the server pushes this pane's output on the page's
     // event stream, named `stream`, until the page asks no more.
     async watchOutput(paneId, stream) {
       await post(terminalPath(paneId, "watch"), { stream });
@@ -191,9 +176,6 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
   };
 }
 
-// Push notifications (D32): the server's public key, and this phone's
-// subscription saved, removed and tried. Only the real page has it; the sample
-// data never subscribes.
 export function createPushClient() {
   const subscription = "api/push/subscription";
   return {

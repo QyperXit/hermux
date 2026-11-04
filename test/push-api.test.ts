@@ -1,6 +1,3 @@
-// The push routes (D32) through the real app: the login check, the refusal of
-// other sites, JSON-only bodies, what each route saves and sends, and that the
-// private key never leaves the laptop in an answer.
 import { afterAll, describe, expect, test } from "bun:test";
 import { createApp } from "../server/app";
 import { createHerdr } from "../server/herdr";
@@ -13,10 +10,11 @@ afterAll(removePushFolders);
 const A = subscription("a");
 const B = subscription("b");
 
+const NO_HERDR = "/nonexistent/herdr";
+
 function setup(options: Parameters<typeof makePush>[0] = {}, { withPush = true }: { withPush?: boolean } = {}) {
   const made = makePush(options);
-  // The push routes never run herdr: if one did, this binary doesn't exist and the request would fail.
-  const app = createApp({ herdr: createHerdr("/nonexistent/herdr"), allowedLogin: ALLOWED_LOGIN, webRoot: WEB, push: withPush ? made.push : undefined });
+  const app = createApp({ herdr: createHerdr(NO_HERDR), allowedLogin: ALLOWED_LOGIN, webRoot: WEB, push: withPush ? made.push : undefined });
   const request = (method: string, path: string, { body, login = ALLOWED_LOGIN, headers = {}, contentType = "application/json" }: { body?: unknown; login?: string | null; headers?: Record<string, string>; contentType?: string | null } = {}) => {
     const all = new Headers(headers);
     if (login !== null) all.set("Tailscale-User-Login", login);

@@ -1,6 +1,3 @@
-// The home and All screens as HTML: the header (with the keys the page gives
-// it: the notifications bell and the theme key) and the lists under it. No DOM
-// here, so the tests can import it.
 import { allAgents, summaryLine } from "./home.js";
 import { escapeHtml, icon } from "./html.js";
 import { allRowHtml, homeBodyHtml, sectionHtml, shellRowHtml } from "./rows.js";
@@ -20,7 +17,8 @@ function emptyListHtml(view) {
     : `<p class="empty">No agents are running. Start one in Herdr on the laptop and it shows up here.</p>`;
 }
 
-// `freshness` is the "Live" line, `keys` the header's keys at its right.
+export const FRESHNESS_SLOT = `<span class="freshness"></span>`;
+
 /**
  * @param {{ view: Snapshot, home: Home, freshness: string, keys: string }} screen
  */

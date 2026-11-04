@@ -1,5 +1,3 @@
-// Live updates (D20), the page side: the switch between the server's event
-// stream and polling (web/live.js), with a stand-in EventSource. No DOM.
 import { expect, test } from "bun:test";
 import { EVENTS_PATH, createLiveStream, freshnessText } from "../web/live.js";
 import { CLOSED, CONNECTING, FakeSource } from "./support/event-source";
@@ -30,11 +28,9 @@ test("the stream is healthy only once the server says herdr's events reach it; u
   expect(stream.isHealthy()).toBe(false);
   sources[0].fire("live", { live: true });
   expect(stream.isHealthy()).toBe(true);
-  // The server's subscription to herdr dropped: poll again, then stream when it is back.
   sources[0].fire("live", { live: false });
   sources[0].fire("live", { live: true });
   expect(health).toEqual([true, false, true]);
-  // A second start while open opens nothing more.
   stream.start();
   expect(sources).toHaveLength(1);
 });
@@ -53,7 +49,7 @@ test("changes and output activity are handed to the page", () => {
   ]);
 });
 
-test("live output (D30): the stream's name is handed over, and taken back when it errors or closes; output and watch events reach the page", () => {
+test("live output: the stream's name is handed over, and taken back when it errors or closes; output and watch events reach the page", () => {
   const { stream, last, events, names } = setup();
   stream.start();
   last().fire("stream", { id: "first" });
@@ -63,14 +59,11 @@ test("live output (D30): the stream's name is handed over, and taken back when i
     ["watch", { pane_id: "w1:p1", streaming: true }],
     ["output", { pane_id: "w1:p1", text: "screen" }],
   ]);
-  // The browser reconnects: a new connection, with a new name.
   last().fail(CONNECTING);
   last().fire("stream", { id: "second" });
-  // A name that isn't a string is no name.
   last().fire("stream", { id: 7 });
   stream.stop();
   expect(names).toEqual(["first", null, "second", null]);
-  // Closed: a second stop says nothing more.
   stream.stop();
   expect(names).toHaveLength(4);
 });
@@ -81,7 +74,6 @@ test("a stream error falls back to polling at once; the browser's own reconnect 
   sources[0].fire("live", { live: true });
   sources[0].fail(CONNECTING);
   expect(stream.isHealthy()).toBe(false);
-  // The browser reconnects this same source; the page opens no other.
   expect(sources).toHaveLength(1);
   sources[0].fire("live", { live: true });
   expect(health).toEqual([true, false, true]);
@@ -96,13 +88,11 @@ test("a stream the browser gave up on is opened again after a pause, and streams
   expect(sources).toHaveLength(1);
   await Bun.sleep(60);
   expect(sources).toHaveLength(2);
-  // It may fail again (the server still down): again a pause, then another try.
   sources[1].fail(CLOSED);
   await Bun.sleep(60);
   expect(sources).toHaveLength(3);
   sources[2].fire("live", { live: true });
   expect(health).toEqual([true, false, true]);
-  // Events from a source the page has left are ignored.
   sources[0].fire("live", { live: false });
   expect(stream.isHealthy()).toBe(true);
   expect(health).toEqual([true, false, true]);
@@ -119,7 +109,6 @@ test("a hidden page closes the stream (and polls nothing while hidden); shown ag
   expect(sources).toHaveLength(2);
   sources[1].fire("live", { live: true });
   expect(health).toEqual([true, false, true]);
-  // Hidden while waiting to reopen: nothing is opened until it is shown.
   sources[1].fail(CLOSED);
   stream.stop();
   await Bun.sleep(60);

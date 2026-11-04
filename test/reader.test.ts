@@ -1,5 +1,3 @@
-// The agent screen's Reader output: herdr's `--format ansi` text becomes
-// classed, escaped HTML. Palette and layout come from real Atomic panes.
 import { describe, expect, test } from "bun:test";
 import { readerHtml, shellHtml } from "../web/reader.js";
 
@@ -66,7 +64,6 @@ describe("colours, styles and escaping", () => {
     expect(html).toContain(`<span class="a-code">&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;</span> &amp; &#39;q&#39; &quot;dq&quot; &amp;amp;`);
     expect(html).toContain("link &lt;img src=x onerror=alert(1)&gt;");
     expect(html).toContain("[38;2;0;255;255m already lost ESC");
-    // Every attribute is a fixed class list or an indent.
     for (const [, attribute] of html.matchAll(/ ([a-z-]+)="/g)) expect(["class", "style"]).toContain(attribute);
     for (const [, style] of html.matchAll(/style="([^"]*)"/g)) expect(style).toMatch(/^(?:padding|margin)-left:\d+ch$/);
   });
@@ -154,9 +151,8 @@ describe("paragraphs, lists, blocks and the screen's own marks", () => {
     expect(html).toBe(`<p class="p">It is one setup by Matt, then automatic forever. For today, the command fixes it.</p><div class="gap"></div><p class="p">Next.</p>`);
   });
 
-  test("Atomic's jump hint drawn over the end of a row is dropped", () => {
+  test("Atomic's jump hint is dropped, drawn over the end of a row or alone on a row, where it leaves a gap, not a paragraph", () => {
     expect(readerHtml(` ### What I checked           ${TOOL} ↓ Jump to latest message · ctrl+end ${RESET}     \n Next.`)).toBe(`<p class="p">### What I checked</p><p class="p">Next.</p>`);
-    // Deliberate (D22): a row that is only the hint is dropped too, as the Latest line always did; it was a paragraph before.
     expect(readerHtml(" Done.\n↓ Jump to latest message · ctrl+end\n Next.")).toBe(`<p class="p">Done.</p><div class="gap"></div><p class="p">Next.</p>`);
   });
 
@@ -311,27 +307,24 @@ const optionRowsOf = (html: string) => [...html.matchAll(/<div class="(opt[^"]*)
 const visibleText = (html: string) => html.replace(/<span class="visually-hidden">.*?<\/span>/g, "").replace(/<[^>]+>/g, "");
 
 describe("question dialogs", () => {
-  test("D17: the dialog's selected option is a selection row, not an orange-bold link; the others are plain option rows", () => {
+  test("the dialog's selected option is a selection row, not an orange-bold link; the others are plain option rows", () => {
     const html = readerHtml(SINGLE_DIALOG);
     const rows = optionRowsOf(html);
     expect(rows.map((row) => row.cls)).toEqual(["opt is-selected", "opt", "opt", "opt"]);
     expect(visibleText(rows[0].inner)).toBe("1.Internal testing (Recommended)");
     expect(visibleText(rows[1].inner)).toBe("2.Closed testing");
-    // Atomic's orange never reaches the page: no link class, no pointer glyph, no bold span on the bar.
     expect(rows[0].inner).not.toContain("a-link");
     expect(html).not.toContain("a-link");
     expect(html).not.toContain("❯");
-    // The descriptions and the question stay ordinary prose.
     expect(html).toContain(`<p class="p">Where should I upload the bundle?</p>`);
     expect(html).toContain("Only your test group gets it.");
   });
 
-  test("D17: in a multi-select, ticked and unticked boxes are different, and the bar sits on the row under the cursor", () => {
+  test("in a multi-select, ticked and unticked boxes are different, and the bar sits on the row under the cursor", () => {
     const html = readerHtml(MULTI_DIALOG);
     const rows = optionRowsOf(html);
     expect(rows.map((row) => row.cls)).toEqual(["opt is-selected is-ticked", "opt is-ticked", "opt is-unticked", "opt is-unticked", "opt"]);
     expect(rows.map((row) => visibleText(row.inner))).toEqual(["1.Android", "2.Web", "3.iOS", "4.Windows", "Next"]);
-    // Boxes are drawn by the stylesheet; the state is also in hidden text for screen readers.
     expect(rows[0].inner).toContain(`<span class="opt-box"><span class="visually-hidden">ticked</span></span>`);
     expect(rows[2].inner).toContain(`<span class="opt-box"><span class="visually-hidden">not ticked</span></span>`);
     expect(html).not.toContain("[✔]");
@@ -340,7 +333,7 @@ describe("question dialogs", () => {
     expect(html).toContain("Needs a Mac runner.");
   });
 
-  test("D17: a numbered list or a lone ❯ line in the agent's own prose is not a dialog", () => {
+  test("a numbered list or a lone ❯ line in the agent's own prose is not a dialog", () => {
     const prose = [" Steps:", "   1. Build it", "   2. Ship it", "", " Then I ran it.", selectedRow("❯ 3. a lone cursor row"), " Done."].join("\n");
     const html = readerHtml(prose);
     expect(html).not.toContain('class="opt');
@@ -348,7 +341,7 @@ describe("question dialogs", () => {
     expect(readerHtml(["   1. Build it", "   2. Ship it", "   3. Test it"].join("\n"))).not.toContain('class="opt');
   });
 
-  test("D17: option text is escaped, and a wrapped selected label stays in its bar", () => {
+  test("option text is escaped, and a wrapped selected label stays in its bar", () => {
     const html = readerHtml(
       [
         selectedRow(`❯ 1. Use <b onclick="x()">&</b> and a label that`),
@@ -363,7 +356,7 @@ describe("question dialogs", () => {
     expect(html).not.toContain("a-link");
   });
 
-  test("D17: an answered option that Atomic marks with ✔ reads as a ticked row without the bar", () => {
+  test("an answered option that Atomic marks with ✔ reads as a ticked row without the bar", () => {
     const html = readerHtml([selectedRow("❯ 1. Internal testing"), optionRow(`2. ${ORANGE}${BOLD}Closed testing ✔${RESET}`), optionRow("3. Production")].join("\n"));
     const rows = optionRowsOf(html);
     expect(rows.map((row) => row.cls)).toEqual(["opt is-selected", "opt is-ticked", "opt"]);
@@ -371,7 +364,7 @@ describe("question dialogs", () => {
     expect(html).not.toContain("✔");
   });
 
-  test("D17: with the cursor on Next, the bar is on Next and no option row is selected", () => {
+  test("with the cursor on Next, the bar is on Next and no option row is selected", () => {
     const html = readerHtml(
       [`   1. ${ORANGE}[✔]${RESET} Android`, `   2. ${MUTED}[ ]${RESET} iOS`, ` ${ORANGE}${BOLD}❯ Next${RESET}`].join("\n"),
     );
@@ -383,7 +376,7 @@ describe("question dialogs", () => {
 });
 
 // Atomic's `/workflow connect` picker as herdr's `--format ansi` read shows it,
-// escape for escape as captured from a real pane (D29), with generic run ids
+// escape for escape as captured from a real pane, with generic run ids
 // and names and the inner width cut to 60. Each run is an id row and a name
 // row; the run under the cursor is one bold run on the accent shade.
 const PICKER_INNER = 60;
@@ -433,20 +426,17 @@ const picker = (selected: number, finished = false) =>
   ].join("\n");
 
 describe("Atomic's /workflow connect picker", () => {
-  test("D29: the picker's selected run gets the D17 selection bar and the other run is a plain row", () => {
+  test("the picker's selected run gets the question dialog's selection bar and the other run is a plain row", () => {
     for (const selected of [0, 1]) {
       const html = readerHtml(picker(selected));
       const rows = optionRowsOf(html);
       expect(rows.map((row) => row.cls)).toEqual(selected === 0 ? ["opt is-selected", "opt"] : ["opt", "opt is-selected"]);
-      // Both of a run's rows are on its row: the id, then the name, elapsed time and stages.
       expect(rows.map((row) => visibleText(row.inner).replace(/\s+/g, " "))).toEqual([`● ${RUN_A} docs-build 14s 0/0 stages`, `● ${RUN_B} nightly-review 19s 0/0 stages`]);
       expect(rows[selected].inner).toContain(`<span class="opt-mark"><span class="visually-hidden">selected</span></span>`);
-      // No run is left in a box block, and Atomic's accent shade and bold never reach the page.
       expect(blocks(html).join("\n")).not.toContain(RUN_A);
       expect(blocks(html).join("\n")).not.toContain(RUN_B);
       expect(rows[selected].inner).not.toContain("a-b");
       expect(html).not.toContain("a-link");
-      // The box's title, filter and group rows and its bottom edge stay drawn; the prose stays prose.
       expect(blocks(html)[0]).toContain("Connect to workflow run");
       expect(blocks(html)[0]).toContain("ACTIVE");
       expect(blocks(html).at(-1)).toContain("╰");
@@ -454,7 +444,7 @@ describe("Atomic's /workflow connect picker", () => {
     }
   });
 
-  test("D29: a TERMINAL heading between the groups stays a heading, not part of the run above it", () => {
+  test("a TERMINAL heading between the groups stays a heading, not part of the run above it", () => {
     const html = readerHtml(picker(1, true));
     const rows = optionRowsOf(html);
     expect(rows.map((row) => row.cls)).toEqual(["opt", "opt is-selected"]);
@@ -462,7 +452,7 @@ describe("Atomic's /workflow connect picker", () => {
     expect(blocks(html).join("\n")).toContain("TERMINAL");
   });
 
-  test("D29: a picker with no run under the cursor, and Atomic's BACKGROUND panel of runs, are left as drawn", () => {
+  test("a picker with no run under the cursor, and Atomic's BACKGROUND panel of runs, are left as drawn", () => {
     const none = readerHtml(picker(-1));
     expect(none).not.toContain('class="opt');
     expect(blocks(none).join("\n")).toContain(RUN_A);
@@ -470,7 +460,7 @@ describe("Atomic's /workflow connect picker", () => {
     expect(readerHtml(panel)).not.toContain('class="opt');
   });
 
-  test("D29: picker text is escaped", () => {
+  test("picker text is escaped", () => {
     const html = readerHtml(picker(0).replace("docs-build", `<b x="1">&`).replace("nightly-review", "<i>"));
     expect(html).not.toContain("<b ");
     expect(html).not.toContain("<i>");
@@ -480,7 +470,6 @@ describe("Atomic's /workflow connect picker", () => {
 });
 
 describe("plain shells", () => {
-  // A plain shell's output is shown as printed.
   test("a shell's rows stay one mono row each: nothing is joined, boxed or dimmed, and colours and escaping are kept", () => {
     const text = [
       "you@laptop:~/proj$ ls -l",
@@ -493,14 +482,11 @@ describe("plain shells", () => {
       "",
     ].join("\n");
     const html = shellHtml(text);
-    // The long row doesn't join the next one as an agent's wrapped sentence would.
     expect(html.match(/class="line/g)?.length).toBe(4);
     expect(html).toContain("b.txt</div><div class=\"gap\">");
-    // Three blank rows collapse to one gap, and none trails the output.
     expect(html.match(/class="gap"/g)).toHaveLength(1);
     expect(html.endsWith("</div>")).toBe(true);
     expect(html).toContain('class="a-code"');
-    // Atomic's orange becomes the link blue, as on the agent screen: no raw colour reaches the page.
     expect(html).not.toContain("255,102,0");
     expect(html).not.toContain("style=\"color");
     expect(html).toContain("&lt;b&gt;&amp;&lt;/b&gt;");

@@ -1,5 +1,3 @@
-// The output's scroll arithmetic (web/scroll.js). No DOM: plain objects with
-// the three numbers the page's element has.
 import { expect, test } from "bun:test";
 import { isAtBottom, keepView } from "../web/scroll.js";
 
@@ -10,7 +8,6 @@ test("the view follows the output while it is less than 32px from the end", () =
   expect(isAtBottom(view(2000, 1169))).toBe(true);
   expect(isAtBottom(view(2000, 1168))).toBe(false);
   expect(isAtBottom(view(2000, 0))).toBe(false);
-  // Too short to scroll is at its end.
   expect(isAtBottom(view(500, 0))).toBe(true);
 });
 
@@ -30,7 +27,6 @@ test("from the saved position, a scrollTop already clamped by a removal is not c
   const el = view(3000, 2100);
   const fromNow = keepView(el);
   const fromSaved = keepView(el, { fromTop: true });
-  // Removing 1000px above: the browser has clamped scrollTop to the new end.
   el.scrollHeight = 2000;
   el.scrollTop = 1200;
   fromSaved();

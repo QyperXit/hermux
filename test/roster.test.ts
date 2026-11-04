@@ -368,7 +368,7 @@ describe.concurrent("the terminals", () => {
   });
 });
 
-describe.concurrent("one terminal (D32)", () => {
+describe.concurrent("one terminal", () => {
   const AGENT_TAB = { tab_id: "w1:t1", workspace_id: "w1", label: "next work", number: 4 };
 
   test("an agent comes with its tab, its title and its latest line, and only its own pane is read", async () => {

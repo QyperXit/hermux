@@ -1,8 +1,3 @@
-// The notifications panel (D33) the bell key opens: the state in words, Turn on
-// or Turn off, Send test and the last result. It is a modal dialog on the
-// switcher sheet's layer: the page behind it is inert, focus stays inside it and
-// returns to the bell when it closes. A tap outside or Esc closes it. No DOM is
-// touched on import, so the tests can import it.
 import { find, findAll, need } from "./dom.js";
 import { keysHtml, statusLine } from "./notifications.js";
 import { nextRow } from "./sheet.js";
@@ -25,9 +20,6 @@ const PANEL = `
       </div>
     </section>`;
 
-// `page` is the app and `root` the layer the panel is drawn in; both are touched
-// only once the panel opens. `keys` is where key presses are heard (the page's
-// document).
 /**
  * @param {{ page: HTMLElement | null, root: HTMLElement | null, keys: KeyEvents, notifications: Notifications }} options
  */
@@ -41,8 +33,6 @@ export function createNotifyPanel({ page: pageElement, root: rootElement, keys, 
     throw new Error(`The notifications panel has no ${what}.`);
   };
 
-  // The panel while it is open: the bell that opened it, the keys last drawn,
-  // and whether focus was on a key that has since been redrawn.
   /** @type {{ trigger: HTMLElement, keys: string, refocus: boolean } | null} */
   let panel = null;
 
@@ -68,7 +58,6 @@ export function createNotifyPanel({ page: pageElement, root: rootElement, keys, 
     panel = null;
     keys.removeEventListener("keydown", onKey);
     page().inert = false;
-    // The header may have been redrawn while the panel was open: the bell on the page now is the one to update.
     const bell = find(page(), ".bell-key") ?? closing.trigger;
     bell.setAttribute("aria-expanded", "false");
     root().hidden = true;
@@ -111,7 +100,6 @@ export function createNotifyPanel({ page: pageElement, root: rootElement, keys, 
     else if (action === "test") notifications.test();
   }
 
-  // Tab and Shift+Tab go round the keys that work, or stay on the panel.
   /** @param {KeyboardEvent} event */
   function onKey(event) {
     if (event.key === "Escape") {

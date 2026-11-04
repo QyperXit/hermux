@@ -1,5 +1,4 @@
-// The parts of `web-push` the server uses. The package ships no types, and a
-// second dependency just for them isn't worth it.
+// The parts of `web-push` the server uses. The package ships no types.
 declare module "web-push" {
   export function generateVAPIDKeys(): { publicKey: string; privateKey: string };
   export function sendNotification(

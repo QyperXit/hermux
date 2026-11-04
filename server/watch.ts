@@ -1,21 +1,7 @@
-// Live output streaming (D30): a live copy of the screen of each Terminal a
-// page is viewing, and its output pushed to those pages as it changes.
-//
-// While at least one page views a pane, the watcher keeps one read-only
-// `terminal session observe` stream of it (server/herdr.ts) and feeds its
-// frames into a headless terminal emulator, so the server always holds the
-// pane's screen. Frames arrive in bursts, so the screen is looked at once per
-// DEBOUNCE_MS; when it really changed, the watcher reads the pane's output the
-// way the output endpoint does (`readStyled`) and pushes that text, if it
-// differs from the last push. herdr's frames place every row with a cursor
-// move, so they can't say where a long line wrapped; the read's
-// recent-unwrapped text can, and so the pushed text is byte for byte what a
-// poll returns: the Reader, the Join and Earlier messages see no difference.
-//
-// When the last page stops viewing a pane, its stream stops after GRACE_MS
-// (a page that comes back sooner keeps it). A stream that fails or ends is
-// opened again with back-off; until it works again, and after a read fails,
-// the viewing pages are told to poll that pane as before.
+// herdr's frames place every row with a cursor move, so they can't say where a
+// long line wrapped; the read's recent-unwrapped text can, and so the pushed
+// text is byte for byte what a poll returns: the Reader, the Join and Earlier
+// messages see no difference.
 import { Terminal, type IBufferCell } from "@xterm/headless";
 import { HerdrError, isRecord, type Frame, type Herdr, type Observation, type Pane } from "./herdr";
 
@@ -30,7 +16,6 @@ const DEFAULT_ROWS = 40;
 // output endpoint returns it; `watch`, whether its output is streamed now
 // (true) or the page should poll it (false).
 export type WatchEvent = { type: "output"; pane_id: string; text: string } | { type: "watch"; pane_id: string; streaming: boolean };
-// A viewing page's connection, as the watcher reaches it.
 export type Viewer = (event: WatchEvent) => void;
 
 type Watched = {
@@ -38,15 +23,12 @@ type Watched = {
   viewers: Set<Viewer>;
   term: Terminal | null;
   observation: Observation | null;
-  // Counts the streams opened, so a stream that was replaced is ignored.
-  runs: number;
-  // The screen last looked at, and the text last pushed.
-  screen: string | null;
-  text: string | null;
-  // What the viewing pages were last told.
-  streaming: boolean;
+  generation: number;
+  lastScreen: string | null;
+  lastPushedText: string | null;
+  toldStreaming: boolean;
   reading: boolean;
-  again: boolean;
+  changedDuringRead: boolean;
   wait: number;
   closed: boolean;
   debounce?: ReturnType<typeof setTimeout>;
@@ -59,7 +41,6 @@ const viewportRows = (pane: Pane) => {
   return typeof rows === "number" && Number.isInteger(rows) && rows > 0 ? rows : DEFAULT_ROWS;
 };
 
-// An SGR parameter list for a cell's style, "" for the default style.
 function styleOf(cell: IBufferCell) {
   const codes: string[] = [];
   if (cell.isBold()) codes.push("1");
@@ -80,9 +61,6 @@ function styleOf(cell: IBufferCell) {
   return codes.join(";");
 }
 
-// The emulator's screen as text: one line per row, each style change as an
-// SGR reset and the cell's codes, trailing plain blanks and blank rows left
-// out. Comparing it tells a frame that changed the screen from one that didn't.
 export function screenText(term: Terminal): string {
   const buffer = term.buffer.active;
   const cell = buffer.getNullCell();
@@ -125,16 +103,21 @@ export function createWatcher({
   retryMs?: { first: number; max: number };
 }) {
   const watched = new Map<string, Watched>();
-  // The pane each viewer views: one at a time.
   const viewing = new Map<Viewer, string>();
+
+  const isCurrent = (entry: Watched, run: number) => !entry.closed && run === entry.generation;
+
+  const forgetScreen = (entry: Watched) => {
+    entry.lastScreen = null;
+  };
 
   const tell = (entry: Watched, event: WatchEvent) => {
     for (const viewer of entry.viewers) viewer(event);
   };
 
   function setStreaming(entry: Watched, streaming: boolean) {
-    if (entry.streaming === streaming) return;
-    entry.streaming = streaming;
+    if (entry.toldStreaming === streaming) return;
+    entry.toldStreaming = streaming;
     tell(entry, { type: "watch", pane_id: entry.paneId, streaming });
   }
 
@@ -145,7 +128,7 @@ export function createWatcher({
     entry.observation = null;
     entry.term?.dispose();
     entry.term = null;
-    entry.screen = null;
+    forgetScreen(entry);
   }
 
   function close(entry: Watched) {
@@ -156,9 +139,8 @@ export function createWatcher({
     watched.delete(entry.paneId);
   }
 
-  // The stream failed or ended: the pages poll, and it is opened again later.
   function lost(entry: Watched, run: number, error: unknown) {
-    if (entry.closed || run !== entry.runs) return;
+    if (!isCurrent(entry, run)) return;
     endStream(entry);
     setStreaming(entry, false);
     console.error(`Live output: the stream of ${entry.paneId} stopped (${error instanceof Error ? error.message : String(error)}). Retrying.`);
@@ -168,10 +150,10 @@ export function createWatcher({
   }
 
   async function open(entry: Watched) {
-    const run = ++entry.runs;
+    const run = ++entry.generation;
     try {
       const rows = viewportRows(await herdr.pane(entry.paneId));
-      if (entry.closed || run !== entry.runs) return;
+      if (!isCurrent(entry, run)) return;
       const term = new Terminal({ cols, rows, scrollback: 0, allowProposedApi: true });
       entry.term = term;
       entry.observation = herdr.observe(entry.paneId, { cols, rows }, { frame: (frame) => onFrame(entry, run, term, frame), end: (error) => lost(entry, run, error) });
@@ -181,10 +163,10 @@ export function createWatcher({
   }
 
   function onFrame(entry: Watched, run: number, term: Terminal, frame: Frame) {
-    if (entry.closed || run !== entry.runs) return;
+    if (!isCurrent(entry, run)) return;
     if (frame.width !== term.cols || frame.height !== term.rows) term.resize(frame.width, frame.height);
     term.write(frame.bytes, () => {
-      if (entry.closed || run !== entry.runs || entry.debounce) return;
+      if (!isCurrent(entry, run) || entry.debounce) return;
       entry.debounce = setTimeout(() => {
         entry.debounce = undefined;
         look(entry, run, term);
@@ -192,52 +174,46 @@ export function createWatcher({
     });
   }
 
-  // The screen changed since the last look: read the output.
   function look(entry: Watched, run: number, term: Terminal) {
-    if (entry.closed || run !== entry.runs) return;
+    if (!isCurrent(entry, run)) return;
     const screen = screenText(term);
-    if (screen === entry.screen) return;
-    entry.screen = screen;
+    if (screen === entry.lastScreen) return;
+    entry.lastScreen = screen;
     read(entry);
   }
 
-  // One read at a time per pane; a change during a read reads once more after it.
   async function read(entry: Watched) {
     if (entry.reading) {
-      entry.again = true;
+      entry.changedDuringRead = true;
       return;
     }
     entry.reading = true;
     try {
       do {
-        entry.again = false;
-        const run = entry.runs;
+        entry.changedDuringRead = false;
+        const run = entry.generation;
         try {
           const text = await herdr.readStyled(entry.paneId);
-          if (entry.closed || run !== entry.runs || !entry.observation) continue;
-          const resumed = !entry.streaming;
+          if (!isCurrent(entry, run) || !entry.observation) continue;
+          const resumed = !entry.toldStreaming;
           entry.wait = retryMs.first;
           setStreaming(entry, true);
-          if (resumed || text !== entry.text) {
-            entry.text = text;
+          if (resumed || text !== entry.lastPushedText) {
+            entry.lastPushedText = text;
             tell(entry, { type: "output", pane_id: entry.paneId, text });
           }
         } catch (error) {
-          // Like a failed poll: the pages poll (and show the error), and the
-          // next change reads again.
-          if (entry.closed || run !== entry.runs) continue;
-          entry.screen = null;
+          if (!isCurrent(entry, run)) continue;
+          forgetScreen(entry);
           setStreaming(entry, false);
           if (!(error instanceof HerdrError)) console.error(error);
         }
-      } while (entry.again && !entry.closed);
+      } while (entry.changedDuringRead && !entry.closed);
     } finally {
       entry.reading = false;
     }
   }
 
-  // Stops viewing the pane the viewer views, if any; with no viewer left, its
-  // stream stops after the grace period.
   function unwatch(viewer: Viewer, paneId?: string) {
     const current = viewing.get(viewer);
     if (current === undefined || (paneId !== undefined && paneId !== current)) return;
@@ -258,23 +234,22 @@ export function createWatcher({
       viewing.set(viewer, paneId);
       let entry = watched.get(paneId);
       if (!entry) {
-        entry = { paneId, viewers: new Set(), term: null, observation: null, runs: 0, screen: null, text: null, streaming: false, reading: false, again: false, wait: retryMs.first, closed: false };
+        entry = { paneId, viewers: new Set(), term: null, observation: null, generation: 0, lastScreen: null, lastPushedText: null, toldStreaming: false, reading: false, changedDuringRead: false, wait: retryMs.first, closed: false };
         watched.set(paneId, entry);
         open(entry);
       }
       clearTimeout(entry.grace);
       entry.grace = undefined;
       entry.viewers.add(viewer);
-      if (entry.streaming && entry.text !== null) {
+      if (entry.toldStreaming && entry.lastPushedText !== null) {
         viewer({ type: "watch", pane_id: paneId, streaming: true });
-        viewer({ type: "output", pane_id: paneId, text: entry.text });
+        viewer({ type: "output", pane_id: paneId, text: entry.lastPushedText });
       }
     },
     unwatch,
-    // The panes with a stream, open or being opened again.
     watched: () => [...watched.keys()],
     // Whether a page is viewing the pane now (not merely a stream kept for
-    // the grace period): the notifier stays quiet about a pane someone is looking at (D32).
+    // the grace period): the notifier stays quiet about a pane someone is looking at.
     viewed: (paneId: string) => (watched.get(paneId)?.viewers.size ?? 0) > 0,
     stop() {
       for (const entry of [...watched.values()]) close(entry);

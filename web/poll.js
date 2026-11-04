@@ -1,4 +1,4 @@
-// One poll per target at a time. No DOM here, so the tests can import it.
+// One poll per target at a time.
 //
 // A call while the poll for the same target is in flight starts no second
 // request: it asks for one more run once the current one ends (any number of

@@ -1,20 +1,11 @@
-// Live updates (D20): the server's event stream, and the switch between it and
-// polling. No DOM here (the EventSource is passed in), so the tests can import it.
-//
-// The stream is healthy once the server says herdr's events reach it
-// (`live` true). While it is healthy the page doesn't poll the list; when the
-// stream errors, or the server says herdr's events stopped, the page polls
-// again at once, and stops when the stream is healthy again. The browser
-// reconnects a dropped stream by itself; a stream it gave up on (the server
-// answered something else) is opened again after REOPEN_MS.
-
 export const EVENTS_PATH = "api/events";
+// The browser reconnects a dropped stream by itself; a stream it gave up on (the
+// server answered something else) is opened again after REOPEN_MS.
 export const REOPEN_MS = 5000;
 // EventSource.CLOSED: the browser won't reconnect this one.
 const CLOSED = 2;
 
 /**
- * The part of an EventSource the page uses.
  * @typedef {object} EventSourceLike
  * @property {(type: string, listener: (event: MessageEvent) => void) => void} addEventListener
  * @property {() => void} close
@@ -23,7 +14,7 @@ const CLOSED = 2;
 
 /**
  * A changed terminal as the server sends it: herdr's pane, status and kind.
- * An `output` event with `text` is the watched Terminal's output (D30); a
+ * An `output` event with `text` is the watched Terminal's output; a
  * `watch` event says whether it is streamed (`streaming`) or to be polled.
  * @typedef {{ pane_id: string, agent_status: string, agent?: string | null }} ChangedTerminal
  * @typedef {{ changed?: ChangedTerminal[], refetch?: boolean, pane_id?: string, text?: string, streaming?: boolean }} StreamEvent
@@ -40,7 +31,7 @@ function dataOf(event) {
 }
 
 /**
- * `onStream` hears the name the server gave this connection (D30), and null
+ * `onStream` hears the name the server gave this connection, and null
  * once it is gone (an error, or closed): a reconnect is a new connection.
  * @param {{
  *   open: (path: string) => EventSourceLike,
@@ -92,7 +83,6 @@ export function createLiveStream({ open, onHealth, onEvent, onStream = () => {},
     });
   }
 
-  // Closes the stream (a hidden page doesn't keep one open) until start().
   function stop() {
     clearTimeout(timer);
     timer = 0;
@@ -105,8 +95,6 @@ export function createLiveStream({ open, onHealth, onEvent, onStream = () => {},
   return { start, stop, isHealthy: () => healthy };
 }
 
-// Home's freshness line: "Live" while the stream is healthy, otherwise the
-// source and the time of the last refresh, as before.
 /** @param {{ streaming: boolean, sample: boolean, time: string }} state */
 export function freshnessText({ streaming, sample, time }) {
   if (streaming) return "Live";

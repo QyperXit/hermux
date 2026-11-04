@@ -1,6 +1,3 @@
-// The fake herdr itself: it must refuse what real herdr would do outside the
-// server's allowlist, or the server tests could pass on commands the server
-// must never run.
 import { expect, test } from "bun:test";
 import { makeFakeHerdr } from "./fake-herdr";
 

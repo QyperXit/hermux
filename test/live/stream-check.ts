@@ -1,15 +1,13 @@
-// Live check of live updates (D20) against the real Herdr session. Run it from
+// Live check of live updates against the real Herdr session. Run it from
 // inside Herdr:
 //
 //   bun test/live/stream-check.ts
 //
-// Safety: it creates ONE new tab (--no-focus) and starts the key recorder in
-// it (test/live/key-recorder.ts, reporting `atomic`), which reports its own
-// pane's states to herdr. Nothing is sent to any other pane. It starts its own
-// Agents server on LIVE_PORT (default 8791), never 8787, which subscribes to
-// herdr's events read-only. At the end it stops that server by its own process
-// handle, closes only the tab it created, and checks the tab list is the same
-// as before.
+// It creates ONE new tab (--no-focus) and starts the key recorder in it
+// (test/live/key-recorder.ts, reporting `atomic`), which reports its own
+// pane's states to herdr. It starts its own Agents server on LIVE_PORT
+// (default 8791), never 8787, which subscribes to herdr's events read-only.
+// At the end it stops that server by its own process handle.
 //
 // It measures how long a status change takes to reach the page: through the
 // stream (the `change` event on GET /api/events), and through the old 3 s
@@ -19,6 +17,7 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { createdPanes } from "./created-panes";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const PORT = process.env.LIVE_PORT ?? "8791";
@@ -43,8 +42,10 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 };
 const sleep = (ms: number) => Bun.sleep(ms);
 
+const guard = createdPanes();
+
 function herdr(args: string[]) {
-  const result = Bun.spawnSync([herdrBin, ...args]);
+  const result = Bun.spawnSync([herdrBin, ...guard.herdrArgs(args)]);
   return { exit: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 const tabIds = () => (JSON.parse(herdr(["tab", "list"]).stdout).result.tabs as { tab_id: string }[]).map((tab) => tab.tab_id).sort();
@@ -59,7 +60,6 @@ let log = "";
 const base = `http://127.0.0.1:${PORT}`;
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
-// One server-sent event stream, parsed into events as they come.
 async function openStream(headers: Record<string, string> = {}) {
   const controller = new AbortController();
   const response = await fetch(`${base}/api/events`, { headers: { "Tailscale-User-Login": LOGIN, ...headers }, signal: controller.signal });
@@ -98,8 +98,6 @@ async function waitFor<T>(find: () => T | undefined, ms: number) {
   }
 }
 
-// The recorder's states in turn, and the status herdr reports for each:
-// idle after work is herdr's "done".
 const STEPS: [ask: string, expect: string[]][] = [
   ["working", ["working"]],
   ["blocked", ["blocked"]],
@@ -110,10 +108,11 @@ const STEPS: [ask: string, expect: string[]][] = [
 ];
 
 try {
-  // The disposable pane and its recorder.
   const created = JSON.parse(herdr(["tab", "create", "--workspace", workspace, "--cwd", ROOT, "--label", "agents-stream-check", "--no-focus"]).stdout).result;
   createdTab = created.tab.tab_id as string;
+  guard.addTab(created.tab.tab_id);
   const pane = created.root_pane.pane_id as string;
+  guard.addPane(pane);
   log = join(dir, "atomic.jsonl");
   const launcher = join(dir, "recorder");
   writeFileSync(launcher, `#!${process.execPath}\nimport ${JSON.stringify(join(ROOT, "test/live/key-recorder.ts"))};\n`);
@@ -129,7 +128,6 @@ try {
     return Date.now();
   };
 
-  // The server, after the pane exists, so its first subscription names it.
   server = Bun.spawn([process.execPath, join(ROOT, "server/main.ts")], { env: { ...process.env, PORT, HERDR_BIN: herdrBin, AGENTS_ALLOWED_LOGIN: LOGIN }, stdout: "pipe", stderr: "inherit" });
   const banner = new TextDecoder().decode((await server.stdout.getReader().read()).value);
   check("server banner shows 127.0.0.1 and herdr's socket", banner.includes(`http://127.0.0.1:${PORT}`) && banner.includes("events: "), banner.trim());
@@ -144,7 +142,6 @@ try {
   const live = await waitFor(() => stream.events.find((event) => event.type === "live" && event.data.live === true), 5000);
   check("the stream says live once the server subscribed to herdr", live !== undefined);
 
-  // After: the stream. Each status change, timed to its change event.
   const streamed: number[] = [];
   for (const [state, expected] of STEPS) {
     const from = stream.events.length;
@@ -159,7 +156,6 @@ try {
     await sleep(700);
   }
 
-  // Before: the old page's 3 s list poll, one request at a time.
   const polled: number[] = [];
   let polling = true;
   const answers: { at: number; status: string | undefined }[] = [];
@@ -174,7 +170,6 @@ try {
   })();
   await sleep(LIST_REFRESH_MS + 500);
   for (const [index, [state, expected]] of STEPS.entries()) {
-    // Spread the asks over the poll's rhythm, as real changes are.
     await sleep(400 * index);
     const at = ask(state);
     const seen = await waitFor(() => answers.find((answer) => answer.at > at && expected.includes(answer.status ?? "")), 8000);

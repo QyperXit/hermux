@@ -1,26 +1,12 @@
-import { RECENT_ROWS } from "../web/activity.js";
+import { RECENT_IDLE_READS, RECENT_ROWS } from "../web/activity.js";
 import { HerdrError, SHELL, type Agent, type Herdr, type Pane, type Tab } from "./herdr";
 import { latestLine, shellLatestLine } from "./latest-line";
 import { kindOf, tabsOf, toTerminals, type Terminal } from "./terminals";
 
 export const LATEST_LINE_STATUSES = new Set(["blocked", "working", "unknown", "done"]);
-// Of the idle agents, only the most recently active (highest state_change_seq)
-// are read by default, never all of them: Activity's recent rows, plus spare
-// reads for idle agents that sit in the Inbox as finished, so a first load
-// usually has every line.
-const FINISHED_IDLE_SPARE_READS = 3;
-export const RECENT_IDLE_READS = RECENT_ROWS + FINISHED_IDLE_SPARE_READS;
-// When more idle agents than that sit in the Inbox, the recent reads miss an
-// Activity row, so the page also names the idle panes its Activity list shows,
-// and the first this many names are read too.
+export { RECENT_IDLE_READS };
 export const NAMED_IDLE_READS = RECENT_ROWS;
-// A read is reused while the pane's state_change_seq is unchanged and the read
-// is younger than this. An idle pane's output doesn't change while it stays
-// idle with the same state_change_seq.
 const READ_REUSE_MS = 3_000;
-// A change counts as seen at a time only if the roster looked at the agent this
-// recently before. After a longer gap (the page was closed), it is unknown when
-// the change happened.
 const OBSERVED_WITHIN_MS = 10_000;
 // Tab labels change rarely, so every list reuses the last `tab list` the
 // roster read while it is younger than this, instead of reading it again.
@@ -44,12 +30,12 @@ function keepListed(memory: Map<string, unknown>, listed: string[]) {
 
 const seqOf = (agent: Agent) => (typeof agent.state_change_seq === "number" ? agent.state_change_seq : -Infinity);
 
-function agentsToRead<T extends Agent>(agents: T[], named: string[]) {
+function agentsToRead<T extends Agent>(agents: T[], shownIdlePanes: string[]) {
   const recentIdle = agents
     .filter((agent) => agent.agent_status === "idle")
     .sort((a, b) => seqOf(b) - seqOf(a))
     .slice(0, RECENT_IDLE_READS);
-  const names = new Set(named.slice(0, NAMED_IDLE_READS));
+  const names = new Set(shownIdlePanes.slice(0, NAMED_IDLE_READS));
   return agents.filter(
     (agent) =>
       LATEST_LINE_STATUSES.has(agent.agent_status) ||
@@ -92,10 +78,12 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
     return agents.map(stamp);
   }
 
+  const canReuse = (cached: AgentRead, agent: Agent) => sameState(cached, stateOf(agent)) && (agent.agent_status === "idle" || isFresh(cached));
+
   async function agentLine(agent: Agent): Promise<LatestLine> {
     const state = stateOf(agent);
     const cached = agentReads.get(agent.pane_id);
-    if (cached && sameState(cached, state) && (agent.agent_status === "idle" || isFresh(cached))) return { latest_line: cached.line };
+    if (cached && canReuse(cached, agent)) return { latest_line: cached.line };
     const at = now();
     try {
       const line = latestLine(await herdr.read(agent.pane_id, kindOf(agent.agent)));
@@ -130,8 +118,7 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
     );
   }
 
-  // A tab list that fails leaves the tabs without labels or numbers; the lists still answer.
-  async function recentTabs(): Promise<Tab[]> {
+  async function recentTabsOrNone(): Promise<Tab[]> {
     if (tabList && now() - tabList.at < TABS_REUSE_MS) return tabList.tabs;
     const at = now();
     try {
@@ -145,7 +132,7 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
   }
 
   async function listing() {
-    const [panes, agents, workspaces, tabs] = await Promise.all([herdr.panes(), herdr.list(), herdr.workspaces(), recentTabs()]);
+    const [panes, agents, workspaces, tabs] = await Promise.all([herdr.panes(), herdr.list(), herdr.workspaces(), recentTabsOrNone()]);
     return { panes, agents, workspaces, tabs };
   }
 
@@ -167,20 +154,18 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
   }
 
   return {
-    async agents(named: string[]): Promise<Agent[]> {
-      const [listed, tabs] = await Promise.all([herdr.list(), recentTabs()]);
+    async agents(shownIdlePanes: string[]): Promise<Agent[]> {
+      const [listed, tabs] = await Promise.all([herdr.list(), recentTabsOrNone()]);
       const agents = stampListed(listed);
       const tabOf = tabsOf(tabs);
-      const lines = await linesOf(agentsToRead(agents, named), []);
+      const lines = await linesOf(agentsToRead(agents, shownIdlePanes), []);
       return agents.map((agent) => ({ ...agent, tab: tabOf(agent.tab_id), ...lines.get(agent.pane_id) }));
     },
 
-    async terminals(named: string[]): Promise<Terminal[]> {
-      return terminalsIn(await listing(), () => true, (agents) => agentsToRead(agents, named));
+    async terminals(shownIdlePanes: string[]): Promise<Terminal[]> {
+      return terminalsIn(await listing(), () => true, (agents) => agentsToRead(agents, shownIdlePanes));
     },
 
-    // One Terminal as the lists show it, with its Latest line if it is an agent
-    // (D32: the notifier looks at the pane that changed, and no other).
     async terminal(paneId: string): Promise<Terminal | null> {
       const { panes, agents, workspaces, tabs } = await listing();
       const terminal = toTerminals(panes, agents, workspaces, tabs).find((candidate) => candidate.pane_id === paneId);

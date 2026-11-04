@@ -5,7 +5,7 @@ import { parseHistoryQuery, type createHistory } from "./history";
 import { parseSubscription } from "./push-store";
 import type { Push } from "./push";
 import { createRoster } from "./roster";
-import { stampedWorker } from "./shell";
+import { stampedWorker } from "./app-shell";
 import type { Viewer, WatchEvent, Watcher } from "./watch";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -19,7 +19,6 @@ const CONTENT_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-// HTTP status for each error code. herdr codes not listed here become 502.
 const STATUS: Record<string, number> = {
   bad_request: 400,
   invalid_target: 400,
@@ -45,19 +44,15 @@ const json = (body: unknown, status = 200) =>
 
 const errorResponse = (code: string, message: string) => json({ error: { code, message } }, STATUS[code] ?? 502);
 
-// The page's event stream (D20). The browser reconnects after RETRY_MS when it
-// drops; a comment every HEARTBEAT_MS keeps an idle stream open (Bun closes a
-// connection that sends nothing for 10 s).
+// Bun.serve closes a connection that sends nothing for this long (its default idleTimeout).
+const BUN_IDLE_TIMEOUT_S = 10;
 const RETRY_MS = 2_000;
-const HEARTBEAT_MS = 5_000;
+const HEARTBEAT_MS = (BUN_IDLE_TIMEOUT_S * 1000) / 2;
 
-// What the page's stream carries: herdr's events (D20) to every page, and
-// (D30) its own name first, then the output of the Terminal it watches.
 type StreamEvent = LiveEvent | WatchEvent | { type: "stream"; id: string };
 
 const sseFrame = ({ type, ...data }: StreamEvent) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
-// `attach` hooks a connection up to more than herdr's events; it answers how to let go.
 function eventStream(request: Request, events: LiveEvents, attach?: (send: (event: StreamEvent) => void) => () => void): Response {
   const encoder = new TextEncoder();
   let cleanup = () => {};
@@ -111,15 +106,15 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   throw new HerdrError("bad_request", "The request body must be a JSON object.");
 }
 
-// A page of this app asks (an EventSource or a GET sends no body, so the global
-// rules for changes don't cover it); a request another site fired is refused.
-function refuseCrossSite(request: Request) {
+function isCrossSite(request: Request) {
   const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none") throw new HerdrError("cross_site_request", "Requests from other sites are refused.");
+  return fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none";
 }
 
-// The kind the client saw (`kind` from the terminal list: an agent kind, or
-// "shell"), checked just before each send.
+function refuseCrossSiteRead(request: Request) {
+  if (isCrossSite(request)) throw new HerdrError("cross_site_request", "Requests from other sites are refused.");
+}
+
 function terminalKind(body: Record<string, unknown>): string {
   if (typeof body.kind !== "string" || !body.kind) {
     throw new HerdrError("bad_request", '`kind` must be the kind of terminal you saw: its agent kind, or "shell".');
@@ -163,44 +158,38 @@ export function createApp({
 }: {
   herdr: Herdr;
   webRoot: string;
-  // The one Tailscale login the app answers (AGENTS_ALLOWED_LOGIN); every other request gets 403.
   allowedLogin: string;
   now?: () => number;
   // Earlier messages from Atomic's session store; without it there are none.
   history?: ReturnType<typeof createHistory>;
-  // herdr's events for the page's stream (D20); without it there is no stream.
+  // herdr's events for the page's stream; without it there is no stream.
   events?: LiveEvents;
-  // Live output (D30); without it the page polls the open Terminal's output.
+  // Live output; without it the page polls the open Terminal's output.
   watcher?: Watcher;
-  // Push notifications (D32); without it the push routes are unknown (404).
+  // Push notifications; without it the push routes are unknown (404).
   push?: Push;
 }) {
   const root = resolve(webRoot);
   const roster = createRoster(herdr, now);
-  // Each open event stream by the name it told its page (D30).
   const streams = new Map<string, Viewer>();
-  // The latest watch request of each open stream, counted: a request that
-  // waits on herdr acts only if it is still the latest, and only while its
-  // stream is open (a closed stream is dropped here).
-  const requests = new Map<Viewer, number>();
+  const watchGeneration = new Map<Viewer, number>();
+  const isStreamOpen = (viewer: Viewer) => watchGeneration.has(viewer);
+  const isLatestWatch = (viewer: Viewer, ticket: number) => watchGeneration.get(viewer) === ticket;
 
-  // A stream is named in its first event, so its page can ask, by that name,
-  // for its open Terminal's output on it. When it closes, its watch goes too.
   const nameStream = (send: (event: StreamEvent) => void) => {
     if (!watcher) return () => {};
     const id = crypto.randomUUID();
     const viewer: Viewer = (event) => send(event);
     streams.set(id, viewer);
-    requests.set(viewer, 0);
+    watchGeneration.set(viewer, 0);
     send({ type: "stream", id });
     return () => {
       streams.delete(id);
-      requests.delete(viewer);
+      watchGeneration.delete(viewer);
       watcher.unwatch(viewer);
     };
   };
 
-  // The open stream a watch request names in its JSON body: `{ stream }`.
   async function streamOf(request: Request): Promise<{ watcher: Watcher; viewer: Viewer }> {
     const body = await readBody(request);
     const viewer = typeof body.stream === "string" ? streams.get(body.stream) : undefined;
@@ -222,24 +211,20 @@ export function createApp({
     if (!path.startsWith(root + sep) || !type || !(await file.exists())) {
       return new Response("Not found\n", { status: 404 });
     }
-    // The service worker carries the shell's version and files (D29).
     if (path === resolve(root, "sw.js")) {
       return new Response(await stampedWorker(root, await file.text()), { headers: { "content-type": type, "cache-control": "no-cache" } });
     }
     return new Response(file, { headers: { "content-type": type, "cache-control": "no-cache" } });
   }
 
-  // `/api/<collection>` is the list, GET only; `lines` names the panes whose
-  // latest line is wanted, comma-separated. `/api/<collection>/<pane>/<action>`
-  // answers the methods `routes` gives for its action ("" is the pane itself):
-  // another method on a known action is 405, an unknown action 404.
+  const PANE_ITSELF = "";
   type PaneRoutes = Record<string, Record<string, (paneId: string) => Promise<Response>>>;
   async function collectionApi(
     request: Request,
     url: URL,
     encodedPane: string | undefined,
     action: string | undefined,
-    list: (named: string[]) => Promise<Response>,
+    list: (shownIdlePanes: string[]) => Promise<Response>,
     routes: PaneRoutes,
   ): Promise<Response> {
     const method = request.method;
@@ -248,17 +233,16 @@ export function createApp({
       return list((url.searchParams.get("lines") ?? "").split(","));
     }
     const paneId = decodeTarget(encodedPane);
-    const name = action ?? "";
+    const name = action ?? PANE_ITSELF;
     if (!Object.hasOwn(routes, name)) throw new HerdrError("not_found", "No such API route.");
     const methods = routes[name];
     if (!Object.hasOwn(methods, method)) throw new HerdrError("method_not_allowed", `${method} isn't allowed here.`);
     return methods[method](paneId);
   }
 
-  // The agents list for home. Reads and sends go through the terminal routes,
-  // so every `/api/agents/<pane>` route is unknown (404).
-  function agentsApi(request: Request, url: URL, encodedPane: string | undefined, action: string | undefined): Promise<Response> {
-    return collectionApi(request, url, encodedPane, action, async (named) => json({ agents: await roster.agents(named) }), {});
+  function agentsApi(request: Request, url: URL, encodedPane: string | undefined): Promise<Response> {
+    if (encodedPane !== undefined) throw new HerdrError("not_found", "No such API route.");
+    return collectionApi(request, url, undefined, undefined, async (shownIdlePanes) => json({ agents: await roster.agents(shownIdlePanes) }), {});
   }
 
   async function historyPage(paneId: string, url: URL) {
@@ -270,21 +254,17 @@ export function createApp({
     return history.page(paneId, query);
   }
 
-  // Any pane, agent or plain shell. Sends name the `kind` the client saw.
   function terminalsApi(request: Request, url: URL, encodedPane: string | undefined, action: string | undefined): Promise<Response> {
     return collectionApi(
       request,
       url,
       encodedPane,
       action,
-      async (named) => json({ terminals: await roster.terminals(named) }),
+      async (shownIdlePanes) => json({ terminals: await roster.terminals(shownIdlePanes) }),
       {
-        // The pane itself answers no method here.
-        "": {},
-        // The page names no kind when it reads, so the pane is read as any pane.
+        [PANE_ITSELF]: {},
         output: { GET: async (paneId) => json({ text: await herdr.readStyled(paneId) }) },
         history: {
-          // Earlier messages exist only for agents.
           GET: async (paneId) => {
             try {
               return json(await historyPage(paneId, url));
@@ -309,25 +289,20 @@ export function createApp({
             return json({ ok: true });
           },
         },
-        // Live output (D30): the page's stream named in the body gets this
-        // pane's output pushed as it changes (POST), until it asks no more
-        // (DELETE), watches another pane, or closes.
         watch: {
           POST: async (paneId) => {
             const { watcher, viewer } = await streamOf(request);
-            const mine = (requests.get(viewer) ?? 0) + 1;
-            requests.set(viewer, mine);
+            const ticket = (watchGeneration.get(viewer) ?? 0) + 1;
+            watchGeneration.set(viewer, ticket);
             await herdr.pane(paneId);
-            // The stream closed meanwhile: no page views this pane.
-            if (!requests.has(viewer)) throw new HerdrError("not_found", "No such event stream: open /api/events first.");
-            // A later watch or unwatch came in meanwhile and stands.
-            if (requests.get(viewer) === mine) watcher.watch(viewer, paneId);
+            if (!isStreamOpen(viewer)) throw new HerdrError("not_found", "No such event stream: open /api/events first.");
+            if (isLatestWatch(viewer, ticket)) watcher.watch(viewer, paneId);
             return json({ ok: true });
           },
           DELETE: async (paneId) => {
             const { watcher, viewer } = await streamOf(request);
             checkTarget(paneId);
-            requests.set(viewer, (requests.get(viewer) ?? 0) + 1);
+            watchGeneration.set(viewer, (watchGeneration.get(viewer) ?? 0) + 1);
             watcher.unwatch(viewer, paneId);
             return json({ ok: true });
           },
@@ -336,12 +311,9 @@ export function createApp({
     );
   }
 
-  // Push notifications (D32). The key is the server's public VAPID key, for the
-  // page's subscribe. A subscription is saved and removed by its endpoint, and a
-  // test goes only to a subscription the server has saved.
   async function pushApi(request: Request, name: string | undefined): Promise<Response> {
     if (!push) throw new HerdrError("not_found", "No such API route.");
-    refuseCrossSite(request);
+    refuseCrossSiteRead(request);
     const method = request.method;
     const endpointOf = (body: Record<string, unknown>) => {
       if (typeof body.endpoint !== "string" || !body.endpoint) throw new HerdrError("bad_request", "`endpoint` must be the subscription's endpoint.");
@@ -377,13 +349,11 @@ export function createApp({
   async function api(request: Request, url: URL): Promise<Response> {
     const [, , resource, target, action, ...rest] = url.pathname.split("/");
     if (rest.length) throw new HerdrError("not_found", "No such API route.");
-    if (resource === "agents") return agentsApi(request, url, target, action);
+    if (resource === "agents") return agentsApi(request, url, target);
     if (resource === "terminals") return terminalsApi(request, url, target, action);
-    // The page's event stream (D20): GET only, and only from this page. An
-    // EventSource sends no body, so the global POST rules don't cover it.
     if (resource === "events" && target === undefined && events) {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
-      refuseCrossSite(request);
+      refuseCrossSiteRead(request);
       return eventStream(request, events, nameStream);
     }
     if (resource === "push" && action === undefined) return pushApi(request, target);
@@ -400,9 +370,7 @@ export function createApp({
     }
     // tailscale serve adds the login header to any request from the phone, even
     // one fired by another site's page, so changes must come from this page.
-    // (Origin isn't compared with Host: tailscale serve may rewrite Host.)
-    const fetchSite = request.headers.get("sec-fetch-site");
-    if (request.method !== "GET" && request.method !== "HEAD" && fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none") {
+    if (request.method !== "GET" && request.method !== "HEAD" && isCrossSite(request)) {
       return errorResponse("cross_site_request", "Requests from other sites are refused.");
     }
     const url = new URL(request.url);

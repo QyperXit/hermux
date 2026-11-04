@@ -1,4 +1,4 @@
-// An EventSource a test drives (the page's side of D20's stream): it fires the
+// An EventSource a test drives: it fires the
 // server's events and the browser's errors, and records whether the page closed it.
 export const CONNECTING = 0;
 const OPEN = 1;

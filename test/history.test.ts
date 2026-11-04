@@ -1,20 +1,16 @@
-// Earlier messages from Atomic's session store, through the HTTP API.
-// Each test builds its own store (test/support/session-store.ts) with entries
-// in the real shapes, which the server opens READ-ONLY.
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { readFileSync, readdirSync, renameSync, statSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { dirname, resolve } from "node:path";
 import { STORE_RETRY_MS, createHistory, openSessionStore, type SessionStore } from "../server/history";
 import { historyHtml } from "../web/history.js";
 import type { FakeAgent } from "./fake-herdr";
-import { disposeFakes, makeHarness } from "./support/http";
-import { CWD, addEntries, addSession, makeStore, removeStores, type Entry } from "./support/session-store";
+import { makeHarness } from "./support/http";
+import { CWD, addEntries, addSession, makeStore, type Entry } from "./support/session-store";
 
 const PANE = "w8:p1";
 const OTHER = "w8:p2";
 
-// Entries in the shapes Atomic writes.
 const user = (text: string): Entry => ({ type: "message", message: { role: "user", content: [{ type: "text", text }], timestamp: 1 } });
 const assistant = (...content: unknown[]): Entry => ({
   type: "message",
@@ -29,12 +25,6 @@ const imageResult = (): Entry => ({
   message: { role: "toolResult", toolName: "read", content: [{ type: "text", text: "Read image file [image/png]" }, { type: "image", data: "iVBORw0KGgo".repeat(50), mimeType: "image/png" }] },
 });
 const custom = (): Entry => ({ type: "custom", customType: "task-completion-ack", data: { completionId: "x" } });
-
-// Every fake herdr and store made in this file, removed after the last test.
-afterAll(() => {
-  disposeFakes();
-  removeStores();
-});
 
 const agent = (pane_id: string, cwd = CWD): FakeAgent => ({ agent: "atomic", pane_id, agent_status: "idle", state_change_seq: 1, cwd });
 
@@ -59,7 +49,6 @@ const historyPath = (pane: string, query = "") => `/api/terminals/${encodeURICom
 const allText = (messages: { blocks: { kind: string; text?: string; summary?: string }[] }[]) =>
   messages.flatMap((message) => message.blocks.map((block) => block.text ?? block.summary)).join("\n");
 
-// A conversation of numbered turns; the screen shows the last two messages.
 function numberedSession(id: string, turns: number, last = "the latest answer is on the screen right now") {
   const entries: Entry[] = [];
   for (let turn = 1; turn <= turns; turn++) {
@@ -71,6 +60,9 @@ function numberedSession(id: string, turns: number, last = "the latest answer is
   }
   return { id, entries };
 }
+const ENTRIES_PER_TURN = numberedSession("count", 1).entries.length;
+const MESSAGES_PER_TURN = 3;
+const messageSeqs = (turn: number) => [1, 2, ENTRIES_PER_TURN].map((offset) => (turn - 1) * ENTRIES_PER_TURN + offset);
 const screenOf = (...lines: string[]) => ` ${lines.join("\n ")}\n ───────\n ❯ \n (anthropic) claude-opus-5-5 • ~/weather-app\n`;
 
 describe.concurrent("history pages", () => {
@@ -95,11 +87,10 @@ describe.concurrent("history pages", () => {
     // Every page is in order, and the pages join without a gap or a repeat.
     expect(seen).toEqual([...seen].sort((a, b) => a - b));
     expect(new Set(seen).size).toBe(seen.length);
-    // Turns 1-39 are history: user, tool call and answer for each (thinking-only,
-    // tool result and custom entries are not messages). Turn 40 is on screen.
-    expect(seen.length).toBe(39 * 3);
+    const historyTurns = 40 - 1;
+    expect(seen.length).toBe(historyTurns * MESSAGES_PER_TURN);
     expect(seen[0]).toBe(1);
-    expect(seen.at(-1)).toBe(39 * 5);
+    expect(seen.at(-1)).toBe(historyTurns * ENTRIES_PER_TURN);
   });
 
   test("tool calls are one line each (tool name and a short argument summary); thinking, signatures, tool results and images are skipped", async () => {
@@ -221,23 +212,20 @@ describe.concurrent("filling the gap while the agent keeps working", () => {
       screens: { [PANE]: screenOf("question number 10 about the release", "$ echo step 10", "answer number 10 for the release notes") },
     });
     const first = (await get(historyPath(PANE))).body.history;
-    // Turn 10 (46, 47, 50) is on screen; the Join is its question.
-    expect(first.join).toBe(46);
-    expect(first.messages.at(-1).seq).toBe(45);
+    expect(first.join).toBe(messageSeqs(10)[0]);
+    expect(first.messages.at(-1).seq).toBe(messageSeqs(9).at(-1));
 
     // The agent works on: turns 11 to 14 are written, and the screen now shows only turn 14.
     addEntries(store, "s1", 51, numberedSession("s1", 14, "the latest answer is on the screen right now").entries.slice(50));
     setScreens({ [PANE]: screenOf("question number 14 about the release", "$ echo step 14", "the latest answer is on the screen right now") });
     const gap = (await get(historyPath(PANE, `?from=${first.join}&limit=100`))).body.history;
     const seqs = gap.messages.map((message: { seq: number }) => message.seq);
-    // Turn 10 and turns 11-13 scrolled off; nothing older than the old Join comes back.
-    expect(seqs).toEqual([46, 47, 50, 51, 52, 55, 56, 57, 60, 61, 62, 65]);
-    expect(gap.join).toBe(66);
+    expect(seqs).toEqual([10, 11, 12, 13].flatMap(messageSeqs));
+    expect(gap.join).toBe(messageSeqs(14)[0]);
     expect(gap.before).toBeNull();
-    // First page plus the gap: every message once, in order, up to the new Join.
     const all = [...first.messages.map((message: { seq: number }) => message.seq), ...seqs];
     expect(all).toEqual([...new Set(all)].sort((a, b) => a - b));
-    expect(all.length).toBe(13 * 3);
+    expect(all.length).toBe(13 * MESSAGES_PER_TURN);
   });
 
   test("a partial message at the Join comes back whole once it has scrolled off", async () => {
@@ -403,8 +391,6 @@ describe.concurrent("a session store that can't be opened", () => {
 });
 
 describe.concurrent("store rows in the wrong shape", () => {
-  // A store from another Atomic version could have looser columns than the
-  // STRICT schema the fixtures copy; the server checks each row's shape.
   function looseStore(sessionId: unknown, entries: [seq: unknown, entry: unknown][]) {
     const path = makeStore([]);
     const db = new Database(path);
@@ -485,7 +471,6 @@ describe.concurrent("the history route", () => {
     expect(opened()).toBeNull();
   });
 
-  // The screen is read as the page's output route reads it, with `pane read`.
   test("herdr is only asked for the agent (agent get) and its plain screen (pane read)", async () => {
     const { get, fake } = setup({ store, screens });
     await get(historyPath(PANE));
@@ -518,20 +503,16 @@ describe.concurrent("the session store is read-only", () => {
     expect(source).toContain("new Database(path, { readonly: true })");
     expect(source.match(/new Database\(/g)).toHaveLength(1);
     const code = source.replace(/\/\/.*$/gm, "");
-    // SQL keywords that write (upper case, as the SQL here is written), and any
-    // spelling of the statements that change the file or lock it.
     for (const word of ["INSERT", "UPDATE", "DELETE", "REPLACE", "UPSERT", "ATTACH", "CREATE", "DROP", "ALTER", "BEGIN", "COMMIT"]) {
       expect(code).not.toMatch(new RegExp(`\\b${word}\\b`));
     }
     for (const word of ["vacuum", "pragma", "checkpoint", "exclusive", "immediate", "journal_mode", "create: true", "readwrite"]) {
       expect(code.toLowerCase()).not.toContain(word);
     }
-    // Every entry read is by session_id and seq, with a LIMIT.
     const statements = [...code.matchAll(/"(SELECT [^"]*(?:"\s*\+\s*"[^"]*)*)"/g)].map(([statement]) => statement.replace(/"\s*\+\s*"/g, ""));
     expect(statements).toHaveLength(2);
     for (const statement of statements) expect(statement).toMatch(/LIMIT \?\d/);
     expect(statements.find((statement) => statement.includes("session_entries"))).toContain("WHERE session_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3");
-    // No other server file opens a database.
     for (const file of ["app.ts", "events.ts", "herdr.ts", "latest-line.ts", "main.ts", "roster.ts"]) {
       expect(readFileSync(resolve(import.meta.dir, `../server/${file}`), "utf8")).not.toContain("bun:sqlite");
     }

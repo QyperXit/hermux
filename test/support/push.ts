@@ -1,6 +1,3 @@
-// Stand-ins for Web Push (D32): a send that records what it was given and
-// answers as a push service would, and subscriptions in the browser's shape.
-// The keys are made-up text, not real keys.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,8 +10,6 @@ export const subscription = (name: string): Subscription => ({
   keys: { p256dh: `p256dh-of-${name}`, auth: `auth-of-${name}` },
 });
 
-// What the push service answers a send to an endpoint with: nothing wrong
-// (omitted), or a status code, or no answer at all ("network").
 type Answer = number | "network";
 
 export function fakeSend() {
@@ -32,7 +27,6 @@ export function fakeSend() {
     send,
     sent,
     attempts,
-    // The next sends to this endpoint answer in turn with these.
     answer(endpoint: string, ...next: Answer[]) {
       answers.set(endpoint, next);
     },
@@ -42,7 +36,6 @@ export function fakeSend() {
 const folders: string[] = [];
 export const removePushFolders = () => folders.splice(0).forEach((folder) => rmSync(folder, { recursive: true, force: true }));
 
-// A store in a temporary folder, a push over it with a fake send, and what it logged.
 export function makePush({ saved = [] }: { saved?: Subscription[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "push-test-"));
   folders.push(dir);

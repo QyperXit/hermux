@@ -1,4 +1,4 @@
-// Push notifications (D32): where the server keeps its VAPID keys and the
+// Push notifications: where the server keeps its VAPID keys and the
 // phones' push subscriptions. Both are secrets of this laptop: the private key
 // signs every push, and a subscription is the address of one phone. They live
 // in files of their own folder (`.push/` in the repo, git-ignored, never in the
@@ -38,8 +38,7 @@ function readJson(path: string): unknown {
   }
 }
 
-// Written beside the file and renamed over it, so a crash never leaves half a file.
-function writePrivate(path: string, value: unknown) {
+function writePrivateAtomically(path: string, value: unknown) {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   chmodSync(temporary, 0o600);
@@ -59,7 +58,7 @@ export function createPushStore(dir: string) {
     vapid = { publicKey: saved.publicKey, privateKey: saved.privateKey };
   } else {
     vapid = generateVAPIDKeys();
-    writePrivate(vapidPath, vapid);
+    writePrivateAtomically(vapidPath, vapid);
   }
 
   let subscriptions: Subscription[] = [];
@@ -68,13 +67,12 @@ export function createPushStore(dir: string) {
     if (!Array.isArray(saved)) throw new Error(`${subscriptionsPath} isn't a list. Delete the folder to start afresh (see docs/setup.md).`);
     subscriptions = saved.flatMap((entry) => parseSubscription(entry) ?? []);
   }
-  const save = () => writePrivate(subscriptionsPath, subscriptions);
+  const save = () => writePrivateAtomically(subscriptionsPath, subscriptions);
 
   return {
     vapid: () => vapid,
     subscriptions: () => [...subscriptions],
     find: (endpoint: string) => subscriptions.find((subscription) => subscription.endpoint === endpoint),
-    // A phone that subscribes again replaces its entry.
     add(subscription: Subscription) {
       subscriptions = [...subscriptions.filter((saved) => saved.endpoint !== subscription.endpoint), subscription];
       save();

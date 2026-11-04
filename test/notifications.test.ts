@@ -1,8 +1,3 @@
-// The page's Notifications control (D32, web/notifications.js): its four
-// states, that the browser's permission prompt only ever follows a tap, what
-// turning on and off do to the browser and the server, how a refusal by the
-// browser is explained, the demo that never subscribes, and the bell and the
-// panel's words and keys (D33).
 import { describe, expect, test } from "bun:test";
 import { bellHtml, createNotifications, keyBytes, keysHtml, looksLikeBrave, statusLine, type Browser } from "../web/notifications.js";
 import type { View } from "../web/notifications.js";

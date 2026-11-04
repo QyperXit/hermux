@@ -5,7 +5,6 @@
 // their text. No DOM is touched on import.
 
 /**
- * The first element in `root` that matches `selector`, or null.
  * @template {Element} [E=HTMLElement]
  * @param {ParentNode} root
  * @param {string} selector
@@ -16,8 +15,6 @@ export function find(root, selector) {
 }
 
 /**
- * The first element in `root` that matches `selector`; the screen is always
- * drawn with it, so there is one.
  * @template {Element} [E=HTMLElement]
  * @param {ParentNode} root
  * @param {string} selector
@@ -31,7 +28,6 @@ export function need(root, selector) {
 }
 
 /**
- * Every element in `root` that matches `selector`.
  * @template {Element} [E=HTMLElement]
  * @param {ParentNode} root
  * @param {string} selector
@@ -43,9 +39,8 @@ export function findAll(root, selector) {
   return [...found];
 }
 
-// A text box grows with its text, up to 160px.
 /** @param {{ style: { height: string }, scrollHeight: number }} textarea */
 export function fitField(textarea) {
   textarea.style.height = "auto";
-  textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  textarea.style.height = `${textarea.scrollHeight}px`;
 }

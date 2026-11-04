@@ -1,6 +1,3 @@
-// The theme choice. System follows the phone; Light and Dark override it.
-// index.html applies a stored choice in <head>, before the stylesheet, so the
-// first paint already has the chosen theme.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { memoryStorage } from "../web/home.js";

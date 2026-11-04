@@ -1,6 +1,3 @@
-// Push notifications (D32): which status changes notify, what the notification
-// says, and when it stays quiet. The real roster and herdr client run over a
-// fake herdr; herdr's events and the push are stand-ins that record.
 import { afterAll, describe, expect, test } from "bun:test";
 import { createHerdr } from "../server/herdr";
 import { DEBOUNCE_MS, createNotifier, notificationFor, plainText } from "../server/notifier";
@@ -13,7 +10,6 @@ import { FOOTER } from "./support/screens";
 
 const fakes: ReturnType<typeof makeFakeHerdr>[] = [];
 const notifiers: ReturnType<typeof createNotifier>[] = [];
-// The tests of a group run side by side, so everything is cleaned up once, at the end.
 afterAll(() => {
   notifiers.splice(0).forEach((notifier) => notifier.stop());
   fakes.splice(0).forEach((fake) => fake.dispose());
@@ -50,8 +46,8 @@ const OUTPUTS = {
   [SHELL]: "$ bun server/main.ts\nlistening\n",
 };
 
-// The notifier over a fake herdr. `change` is what happens on the laptop: herdr
-// now reports the new status, and says so in an event.
+const SETTLE_MS = 600;
+
 async function setup({ subscribers = true, config = {}, debounceMs = 40 }: { subscribers?: boolean; config?: Partial<FakeConfig>; debounceMs?: number } = {}) {
   const state: FakeConfig = { agents: AGENTS.map((entry) => ({ ...entry })), shells: SHELLS, tabs: TABS, outputs: OUTPUTS, ...config };
   const fake = makeFakeHerdr(state);
@@ -98,19 +94,16 @@ async function setup({ subscribers = true, config = {}, debounceMs = 40 }: { sub
     hasSubscribers,
     calls: () => fake.calls(),
     emit,
-    // The laptop's agent changes status: herdr lists it so, and tells us.
     change(paneId: string, status: string) {
       state.agents = (state.agents ?? []).map((entry) => (entry.pane_id === paneId ? { ...entry, agent_status: status } : entry));
       fake.setConfig(state);
       emit(paneId, status);
     },
-    // herdr lists the status without an event having told us.
     quietly(paneId: string, status: string) {
       state.agents = (state.agents ?? []).map((entry) => (entry.pane_id === paneId ? { ...entry, agent_status: status } : entry));
       fake.setConfig(state);
     },
-    // Long enough for a notification that is going to be sent to have been sent.
-    quiet: () => Bun.sleep(40 + 600),
+    quiet: () => Bun.sleep(debounceMs + SETTLE_MS),
   };
 }
 
@@ -154,7 +147,6 @@ describe.concurrent("which changes notify", () => {
     test(`${from} to ${to} is not news`, async () => {
       const { sent, change, quietly, emit, quiet } = await setup();
       const pane = HERMUX;
-      // Get the agent into `from` first (without notifying), then change it.
       quietly(pane, from);
       emit(pane, from);
       await quiet();
@@ -192,7 +184,6 @@ describe.concurrent("which changes notify", () => {
 
   test("an agent that was working when the server started has a before: its first done is a finish", async () => {
     const { sent, change } = await setup();
-    // INVESTOR is working in herdr's list from the start; no event ever said so.
     change(INVESTOR, "done");
     await until(() => sent.length === 1, 3_000, "the notification");
   });
@@ -333,7 +324,6 @@ describe.concurrent("what the notifier asks of herdr", () => {
     const commands = new Set(calls().map((call) => call.slice(0, 2).join(" ")));
     for (const command of commands) expect(["agent list", "pane list", "workspace list", "tab list", "agent read", "pane read"]).toContain(command);
     expect(commands.has("agent read") || commands.has("pane read")).toBe(true);
-    // Only the changed panes are read, never a shell or an idle agent.
     const read = calls().filter((call) => call[1] === "read").map((call) => call[2]);
     expect([...new Set(read)].sort()).toEqual([WEATHER, INVESTOR]);
   });
@@ -356,7 +346,7 @@ describe("the notification's words", () => {
     expect(notificationFor(terminal({ title: "atomic - investor path - weather-app" }), "finished").title).toBe("weather-app · investor path finished");
   });
 
-  test("the name is the app's own (D31): the session, else the tab's label, else tab N, else the pane ID", () => {
+  test("the name is the app's own: the session, else the tab's label, else tab N, else the pane ID", () => {
     const name = (fields: Partial<Terminal>) => notificationFor(terminal(fields), "needs-you").title.replace("weather-app · ", "").replace(" needs you", "");
     expect(name({ title: "atomic - investor path - weather-app", tab: { id: "t", label: "next work", number: 3 } })).toBe("investor path");
     expect(name({ title: "atomic - weather-app", tab: { id: "t", label: "next work", number: 3 } })).toBe("next work");

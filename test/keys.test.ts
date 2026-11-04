@@ -1,5 +1,3 @@
-// The agent screen's key bar, key picker and saved commands, as the page
-// runs them (web/keys.js), with memoryStorage() standing in for localStorage.
 import { expect, test } from "bun:test";
 import { memoryStorage } from "../web/home.js";
 import {

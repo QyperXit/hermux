@@ -1,6 +1,3 @@
-// The terminal routes' fixtures: two workspaces of agents and plain shells as
-// herdr 0.9.5's `pane list`, `agent list`, `workspace list` and `tab list` give
-// them, and the harness and send helpers for /api/terminals.
 import type { FakeAgent, FakeConfig } from "../fake-herdr";
 import { makeHarness } from "./http";
 import { FOOTER } from "./screens";
@@ -10,7 +7,7 @@ import { FOOTER } from "./screens";
 export const ATOMIC = "w9:pD";
 export const PI = "w9:pE";
 export const SHELL_PANE = "w9:p2";
-export const OTHER_AGENT = "wF:p1";
+export const BLOCKED_ATOMIC = "wF:p1";
 export const SERVER_SHELL = "wF:pM";
 export const pane = (id: string, workspace: string, tab: string) => ({
   pane_id: id,
@@ -24,7 +21,7 @@ export const pane = (id: string, workspace: string, tab: string) => ({
 export const AGENTS: FakeAgent[] = [
   { ...pane(ATOMIC, "w9", "w9:tD"), agent: "atomic", agent_status: "idle", state_change_seq: 30, completion_seq: 29, cwd: "/home/you/usage-dashboard", foreground_cwd: "/home/you/usage-dashboard", terminal_title: "atomic - next work - usage-dashboard", terminal_title_stripped: "atomic - next work - usage-dashboard" },
   { ...pane(PI, "w9", "w9:tE"), agent: "pi", agent_status: "working", state_change_seq: 40, cwd: "/home/you/usage-dashboard", terminal_title_stripped: "pi - usage-dashboard" },
-  { ...pane(OTHER_AGENT, "wF", "wF:t1"), agent: "atomic", agent_status: "blocked", state_change_seq: 7, cwd: "/home/you/hermux", terminal_title_stripped: "atomic - hermux" },
+  { ...pane(BLOCKED_ATOMIC, "wF", "wF:t1"), agent: "atomic", agent_status: "blocked", state_change_seq: 7, cwd: "/home/you/hermux", terminal_title_stripped: "atomic - hermux" },
 ];
 export const SHELLS = [
   { ...pane(SHELL_PANE, "w9", "w9:t2"), cwd: "/home/you/usage-dashboard", foreground_cwd: "/home/you/usage-dashboard", terminal_title: "you@laptop:~/usage-dashboard", terminal_title_stripped: "you@laptop:~/usage-dashboard" },
@@ -44,7 +41,7 @@ const TABS = [
 export const OUTPUTS = {
   [ATOMIC]: `Finished the chart fix.${FOOTER}`,
   [PI]: `Running the chart tests${FOOTER}`,
-  [OTHER_AGENT]: `Which port should it use?${FOOTER}`,
+  [BLOCKED_ATOMIC]: `Which port should it use?${FOOTER}`,
   [SHELL_PANE]: "you@laptop:~/usage-dashboard$ ls\nREADME.md  src\nyou@laptop:~/usage-dashboard$   \n\n\n",
   [SERVER_SHELL]: "$ bun server/main.ts\nAgents server listening on http://127.0.0.1:8787\n",
 };

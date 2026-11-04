@@ -1,8 +1,3 @@
-// Earlier messages through their whole interface (web/earlier.js): open a
-// Terminal, tell it the Live screen changed, leave it. The screen's elements
-// are plain objects that lay out like the page's (a message is 100px high; the
-// browser clamps scrollTop and moves nothing by itself), and the client is a
-// fake whose answers each test hands out. No DOM, no server, no timers.
 import { describe, expect, test } from "bun:test";
 import type { HistoryPage, Message } from "../server/history";
 import { createEarlier } from "../web/earlier.js";
@@ -14,7 +9,6 @@ const NOTE_PX = 40;
 const JOIN_PX = 40;
 const CLIENT_PX = 800;
 
-// The elements of one Terminal screen. `liveHeight` is the Live screen's.
 function screen(liveHeight = 2000) {
   const listeners = new Set<() => void>();
   const items: { seq: number; html: string }[] = [];
@@ -83,31 +77,25 @@ function screen(liveHeight = 2000) {
     seqs: () => items.map((item) => item.seq),
     html: (seq: number) => items.find((item) => item.seq === seq)?.html,
     scrollTop: () => output.scrollTop,
-    // The message at the top of the view, and how far into it.
     viewTop: () => {
       const into = output.scrollTop - NOTE_PX;
       return { seq: items[Math.floor(into / MESSAGE_PX)]?.seq, into: into % MESSAGE_PX };
     },
-    // Where the Live screen starts in the view: what the reader sees stays put when this does.
     liveTop: () => contentAbove() + (shown() ? JOIN_PX : 0) - top,
-    // The reader scrolls: the browser moves the view and tells the listeners.
     scrollTo(position: number) {
       output.scrollTop = position;
       reported = top;
       for (const listener of [...listeners]) listener();
     },
-    // The browser tells the listeners of a scroll that nobody made by hand (the page's own, or a view kept in place).
     flushScroll() {
       if (top === reported) return;
       reported = top;
       for (const listener of [...listeners]) listener();
     },
-    // The page scrolls a freshly drawn Live screen to its end.
     scrollToEnd() {
       output.scrollTop = output.scrollHeight;
     },
     listeners: () => listeners.size,
-    // Everything a late answer could write.
     snapshot: () => JSON.stringify({ seqs: items.map((item) => item.seq), note: note.textContent, hidden: region.hidden, status: region.dataset.status, gap: gap.hidden, top, height: output.scrollHeight }),
   };
 }
@@ -122,7 +110,6 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-// The client: every request waits for the test to answer it.
 function client() {
   const requests: { paneId: string; query: { before?: number | null; from?: number; limit?: number }; answer: ReturnType<typeof deferred<HistoryPage>> }[] = [];
   return {
@@ -136,21 +123,17 @@ function client() {
   };
 }
 
-// Lets every answer given so far be taken.
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 const message = (seq: number, text = `message ${seq}`): Message => ({ seq, role: "assistant", blocks: [{ kind: "text", text }] });
 const range = (first: number, last: number) => Array.from({ length: last - first + 1 }, (_, n) => first + n);
-// A page of Earlier messages: `before` is where the next one starts (null at the start of the Session).
 const page = (seqs: number[], before: number | null, { join, session = "s1" }: { join?: number; session?: string } = {}): HistoryPage => ({
   history: { session, messages: seqs.map((seq) => message(seq)), before, ...(join === undefined ? {} : { join }) },
 });
 const NO_MATCH: HistoryPage = { history: null, reason: "no_match" };
 
-// The Live screen of a working Agent, from report line `top` on.
 const liveScreen = (top: number, timer = "12s") => [...range(top, top + 7).map((n) => ` report line ${n} of the long working session`), ` Working… ${timer}`].join("\n");
 
-// An Agent's screen opened and drawn, the way the page does it: opened, scrolled to the end, then told.
 function agent({ liveHeight = 2000, paneId = "w8:p2" }: { liveHeight?: number; paneId?: string } = {}) {
   const fake = client();
   const earlier = createEarlier({ client: fake });
@@ -255,7 +238,6 @@ describe("an Agent's Earlier messages load as the reader scrolls up", () => {
     view.scrollTo(100);
     expect(fake.requests).toHaveLength(3);
 
-    // The reader is in the Earlier messages, a message and a bit down from the top.
     view.scrollTo(10100);
     const reading = view.viewTop();
     earlier.live(liveScreen(4));
@@ -277,13 +259,11 @@ describe("an Agent's Earlier messages load as the reader scrolls up", () => {
     view.scrollTo(100);
     expect(fake.asked()[3]).toEqual({ paneId: "w8:p2", before: 310 });
 
-    // While that page is on its way the Agent adds 15: 305, so the 5 oldest go.
     earlier.live(liveScreen(4));
     fake.requests[4].answer.resolve(page(range(601, 615), null, { join: 616 }));
     await settle();
     expect(view.seqs()).toEqual(range(316, 615));
 
-    // The page ends at 310, with 311 to 315 gone: it isn't put on screen.
     fake.requests[3].answer.resolve(page(range(211, 310), 210));
     await settle();
     expect(view.seqs()).toEqual(range(316, 615));
@@ -294,7 +274,6 @@ describe("an Agent's Earlier messages load as the reader scrolls up", () => {
 });
 
 describe("the Join stays joined while the Agent works", () => {
-  // The first page ends in a partial message 40 (its head); the Live screen starts inside it.
   const firstPage = () => ({ history: { session: "s1", messages: [...range(36, 39).map((seq) => message(seq)), message(40, "head of 40")], before: 35, join: 40 } });
   const scrolledOn = (fake: ReturnType<typeof client>, answer: HistoryPage) => fake.requests.at(-1)!.answer.resolve(answer);
 
@@ -317,10 +296,8 @@ describe("the Join stays joined while the Agent works", () => {
     expect(view.html(40)).toContain("the whole of 40");
     expect(view.html(40)).not.toContain("head of 40");
     expect(view.gap.hidden).toBe(true);
-    // The reader is in the Live screen: it didn't move.
     expect(view.liveTop()).toBe(liveTop);
 
-    // The next scroll-off asks from the new Join; older messages are never asked for again.
     earlier.live(liveScreen(9));
     expect(fake.asked()[2]).toEqual({ paneId: "w8:p2", from: 43, limit: 100 });
   });
@@ -374,11 +351,9 @@ describe("the Join stays joined while the Agent works", () => {
 
     earlier.live(liveScreen(4));
     expect(fake.asked()[1]).toEqual({ paneId: "w8:p2", from: 40, limit: 100 });
-    // More scrolls off while that fill is on its way: no second read at the same time.
     earlier.live(liveScreen(9));
     expect(fake.requests).toHaveLength(2);
 
-    // Its answer moves the Join; what scrolled off since is asked once, from there.
     scrolledOn(fake, { history: { session: "s1", messages: [message(40, "the whole of 40"), message(41), message(42)], before: null, join: 43 } });
     await settle();
     expect(fake.asked()[2]).toEqual({ paneId: "w8:p2", from: 43, limit: 100 });
@@ -399,7 +374,6 @@ describe("a change of Session starts the Earlier messages again", () => {
     view.scrollTo(100);
     fake.requests[1].answer.resolve(page(range(91, 95), 90, { session: "s2" }));
     await settle();
-    // The old Session's messages are gone, and the new Session is read from its first page.
     expect(view.seqs()).toEqual([]);
     expect(fake.asked()[2]).toEqual({ paneId: "w8:p2", before: undefined });
     fake.requests[2].answer.resolve(page(range(1, 4), null, { join: 5, session: "s2" }));
@@ -435,26 +409,21 @@ describe("a pane with no match", () => {
     await settle();
     expect(view.note.textContent).toBe("No earlier messages: this pane's Atomic session wasn't found.");
 
-    // The same screen gets the same answer.
     view.scrollTo(50);
     expect(fake.requests).toHaveLength(1);
 
-    // The screen changed, and the view is at the top.
     earlier.live(liveScreen(1, "14s"));
     expect(fake.requests).toHaveLength(2);
-    // The note stays while it asks again.
     expect(view.note.textContent).toBe("No earlier messages: this pane's Atomic session wasn't found.");
     fake.requests[1].answer.resolve(NO_MATCH);
     await settle();
     view.scrollTo(30);
     expect(fake.requests).toHaveLength(2);
 
-    // The screen changed, but the view is far from the top.
     view.scrollTo(1000);
     earlier.live(liveScreen(1, "16s"));
     expect(fake.requests).toHaveLength(2);
 
-    // Back at the top with a screen the last answer wasn't for: a match.
     view.scrollTo(30);
     expect(fake.requests).toHaveLength(3);
     fake.requests[2].answer.resolve(page([7, 8], 6, { join: 9 }));

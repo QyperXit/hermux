@@ -1,8 +1,4 @@
-// Push notifications (D32): sends a payload to the phones that opted in, through
-// each phone's own push service (Web Push, signed with this laptop's VAPID key
-// and encrypted so the push service can't read it). A push service that answers
-// 404 or 410 says the subscription is dead: it is forgotten. A failure that may
-// pass is tried once more. What is logged never names a subscription or a key.
+// What is logged never names a subscription or a key.
 import { sendNotification } from "web-push";
 import { isRecord } from "./herdr";
 import type { PushStore, Subscription } from "./push-store";
@@ -31,7 +27,6 @@ const statusOf = (error: unknown) => (isRecord(error) && typeof error.statusCode
 
 // Dead for good: the push service has forgotten this subscription.
 const isGone = (status: number | undefined) => status === 404 || status === 410;
-// May pass: no answer at all, throttling or a push service having trouble.
 const isTransient = (status: number | undefined) => status === undefined || status === 429 || status >= 500;
 
 export type Delivery = "sent" | "gone" | "failed";
@@ -68,11 +63,9 @@ export function createPush({ store, send, retryMs = RETRY_MS, log = console.erro
     subscribe: (subscription: Subscription) => store.add(subscription),
     unsubscribe: (endpoint: string) => store.remove(endpoint),
     hasSubscribers: () => store.subscriptions().length > 0,
-    // The payload to every subscription.
     async broadcast(payload: Payload) {
       await Promise.all(store.subscriptions().map((subscription) => deliver(subscription, payload)));
     },
-    // The payload to one saved subscription: null when none is saved under that endpoint.
     async sendTo(endpoint: string, payload: Payload): Promise<Delivery | null> {
       const subscription = store.find(endpoint);
       return subscription ? deliver(subscription, payload) : null;

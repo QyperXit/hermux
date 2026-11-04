@@ -19,9 +19,6 @@
   font-display: swap;
 }
 
-/* The theme: System follows the phone's setting; data-theme, set from
-   the user's choice before the first paint, overrides it. Each colour token is
-   light-dark(light, dark) and follows the root's color-scheme. */
 :root {
   color-scheme: light dark;
 
@@ -37,13 +34,12 @@
   --key-dark-ink: light-dark(#f7f6f2, #1c1c1a);
   --signal: light-dark(#e2560f, #cf5418);
   --signal-hi: light-dark(#ffa266, #f08a4b);
+  --signal-shade: rgb(226 86 15 / 0.45);
   --lamp-off: light-dark(#d6d1c7, #393834);
   --lamp-off-shade: light-dark(rgb(60 50 30 / 0.22), rgb(0 0 0 / 0.5));
-  /* The switcher sheet's scrim and its shadow: shades, like the key and lamp shades. */
   --scrim: light-dark(rgb(18 18 17 / 0.28), rgb(0 0 0 / 0.5));
   --switcher-shade: light-dark(rgb(60 50 30 / 0.22), rgb(0 0 0 / 0.6));
   --hold-fill: light-dark(rgb(18 18 17 / 0.16), rgb(220 216 207 / 0.2));
-  /* Output colours: Atomic's cyan code and orange links, recoloured; its two row shades. */
   --code: light-dark(#00646b, #6fd3d6);
   --link: light-dark(#2357a6, #8ab4f8);
   --band-you: light-dark(#e2e6dc, #1f2a1f);
@@ -61,10 +57,9 @@
   --row: 56px;
   --key: 48px;
   --radius: 8px;
+  --hairline: 1px;
   --gutter: 16px;
-  /* Edge to edge: a negative gutter on each side. */
   --bleed: calc(-1 * var(--gutter));
-  /* The output face's line height: terminal lines, blocks and the quiet notes. */
   --leading-output: 20px;
   --hold-ms: 700ms;
 }
@@ -187,7 +182,7 @@ button {
 [data-status="blocked"] > .lamp,
 .lamp[data-status="blocked"] {
   background: radial-gradient(circle at 35% 30%, var(--signal-hi), var(--signal) 62%);
-  box-shadow: 0 1px 3px rgb(226 86 15 / 0.45);
+  box-shadow: 0 1px 3px var(--signal-shade);
 }
 
 [data-status="working"] > .lamp,
@@ -251,8 +246,6 @@ button {
   color: var(--ink-soft);
 }
 
-/* The offline reason takes its own line under the title, so a long one
-   doesn't squeeze between the title and the theme key. */
 .freshness.is-offline {
   order: 1;
   flex-basis: 100%;
@@ -271,9 +264,6 @@ button {
   height: 16px;
 }
 
-/* The notifications bell and the theme control, 48px icon keys at the right of
-   the home and All headers. The bell is muted while the browser blocks push or
-   can't do it. */
 .bell-key,
 .theme-key {
   display: grid;
@@ -339,7 +329,6 @@ button {
   border-top: 1px solid var(--rule);
 }
 
-/* A list row (home, All) and a switcher row: lamp slot, text, end. */
 .row,
 .pane-row {
   display: grid;
@@ -362,7 +351,6 @@ button {
   margin-top: 6px;
 }
 
-/* One column that may shrink below its content. */
 .row-text,
 .pane-text,
 .controls,
@@ -420,7 +408,6 @@ button {
   min-width: 6em;
 }
 
-/* One line, cut with an ellipsis. */
 .row-meta,
 .row-tick,
 .identity-folder,
@@ -439,7 +426,6 @@ button {
   color: var(--ink-soft);
 }
 
-/* The Inbox line: a blocked agent's question or a finished agent's last line, up to two lines. */
 .row-line {
   display: -webkit-box;
   overflow: hidden;
@@ -450,8 +436,6 @@ button {
   line-clamp: 2;
 }
 
-/* The output face: a terminal's latest line (.row-tick, .pane-line), and
-   the agent screen's terminal lines and blocks. */
 .row-tick,
 .pane-line,
 .line,
@@ -502,7 +486,6 @@ button {
   color: var(--ink-soft);
 }
 
-/* The notifications panel (D33), on the switcher sheet's layer: what it is now, its keys and the last result. */
 .notify-body {
   display: grid;
   gap: var(--unit);
@@ -535,12 +518,10 @@ button {
   font-weight: 600;
 }
 
-/* Activity: a stopped agent's line is quieter than an Inbox line. */
 .row-line.is-quiet {
   color: var(--ink-soft);
 }
 
-/* The "Older" label over the two oldest recent rows, which fade. */
 .fold {
   padding: var(--unit) var(--gutter);
   border-bottom: 1px solid var(--rule);
@@ -612,8 +593,6 @@ button {
   min-height: 0;
 }
 
-/* The agent's output in Reader style. Prose in the UI face at 15/22;
-   tables, boxes, code blocks, tool bands and Atomic's chrome stay mono. */
 .output {
   height: 100%;
   overflow-y: auto;
@@ -627,9 +606,6 @@ button {
   line-height: 22px;
 }
 
-/* Earlier messages from Atomic's session store, above the live screen.
-   A quiet line at the top says what is happening; a 1px rule labelled
-   "Live screen" marks where herdr's screen starts. */
 .history-note,
 .history-gap,
 .history-join {
@@ -645,7 +621,6 @@ button {
   margin: 0;
 }
 
-/* What scrolled off the live screen couldn't be added: said once, at the Join. */
 .history-gap {
   margin: var(--unit) 0 0;
 }
@@ -673,7 +648,6 @@ button {
   overflow-wrap: anywhere;
 }
 
-/* A list item hangs its marker. */
 .output .li {
   padding-left: 1.4em;
   text-indent: -1.4em;
@@ -695,8 +669,6 @@ button {
   border-top: 1px solid var(--rule);
 }
 
-/* A box-drawn region (workflow graph, panel, table) keeps its terminal
-   layout in one block that scrolls sideways inside its own row. */
 .block {
   margin: 0 var(--bleed);
   padding: 0 var(--gutter);
@@ -725,7 +697,7 @@ button {
 
 /* A question dialog's options. The row under Atomic's cursor is an ink
    bar edge to edge with a drawn marker, never a link; boxes are drawn, filled
-   with a check when ticked, empty when not. Ink tokens only, no orange. */
+   with a check when ticked, empty when not. */
 .opt {
   --opt-ink: var(--ink);
   --opt-ground: var(--face);
@@ -833,7 +805,6 @@ button {
   color: var(--face);
 }
 
-/* Code and file names in prose become mono chips. */
 .output .p .a-code {
   padding: 1px 4px;
   border-radius: 4px;
@@ -842,8 +813,6 @@ button {
   font-size: var(--text-s);
 }
 
-/* A laptop path's copy key (D29): a quiet 13px word after the path, a 48px
-   target whose negative margin keeps the line's own height. */
 .copy-key {
   display: inline-flex;
   align-items: center;
@@ -868,8 +837,6 @@ button {
   color: var(--ink);
 }
 
-/* In a box-drawn block a path is long-pressed to copy; a dotted grey
-   underline says so without moving a column. */
 .path {
   text-decoration: underline dotted var(--ink-soft);
   text-underline-offset: 3px;
@@ -905,10 +872,8 @@ button {
   border-top: 1px solid var(--rule);
 }
 
-/* One row that never wraps (D34): every key is 48px tall and as wide as its
-   label, and the row swipes sideways, edge to edge, when there are more keys
-   than fit. The row's 4px of bottom padding keeps the key shade from being
-   clipped; the equal negative margin keeps the row's own height at 48px. */
+/* The row's 4px of bottom padding keeps the key shade from being clipped by its
+   sideways scroll; the equal negative margin keeps the row's own height at 48px. */
 .keys {
   display: flex;
   flex-wrap: nowrap;
@@ -983,7 +948,6 @@ button {
   display: none;
 }
 
-/* A key's own label. Longer labels drop to 13px and may take two lines. */
 .key-label {
   max-width: 100%;
   padding: 0 4px;
@@ -1005,7 +969,6 @@ button {
   -webkit-line-clamp: 1;
 }
 
-/* The + key adds a key; it is a tool, not a terminal key, so it has no face. */
 .key-add {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--rule);
@@ -1016,8 +979,6 @@ button {
   box-shadow: inset 0 0 0 2px var(--ink);
 }
 
-/* Panels under the keys: the key menu, the key picker and the saved
-   commands editor. Separated by a 1px rule, never a card. */
 .key-menu,
 .picker,
 .commands-editor {
@@ -1049,7 +1010,6 @@ button {
   gap: var(--unit);
 }
 
-/* Outlined keys: a 1px rule, no face. */
 .act,
 .all-key {
   border: 1px solid var(--rule);
@@ -1073,7 +1033,6 @@ button {
   touch-action: manipulation;
 }
 
-/* A pressed control takes the face colour, as does the switcher's own row. */
 .bell-key:active,
 .theme-key:active,
 .row:active,
@@ -1086,7 +1045,6 @@ button {
   background: var(--face);
 }
 
-/* Filled dark keys. */
 .act-dark,
 .latest,
 .link-key {
@@ -1254,17 +1212,13 @@ button {
   position: relative;
 }
 
-/* The chat bar (D34): one rounded field with the "/" button and the round send
-   arrow inside it at the trailing edge, both bottom-aligned as the field grows.
-   The field is 48px tall and grows with its text to 160px, then scrolls inside
-   itself. The text box and the two buttons are 48px targets that cover the
-   field's full height, over its 1px border (a -1px margin); the buttons' 40px
-   round faces are drawn inset. */
+/* The text box and the two buttons cover the field's full height, over its
+   border: a negative margin of one hairline. */
 .composer-box {
   display: flex;
   align-items: flex-end;
   min-height: var(--key);
-  border: 1px solid var(--rule);
+  border: var(--hairline) solid var(--rule);
   border-radius: calc(var(--key) / 2);
   background: var(--face);
 }
@@ -1279,7 +1233,7 @@ button {
   min-width: 0;
   min-height: var(--key);
   max-height: 160px;
-  margin: -1px 0;
+  margin: calc(-1 * var(--hairline)) 0;
   padding: 13px 0 13px var(--gutter);
   border: 0;
   background: transparent;
@@ -1292,7 +1246,6 @@ button {
   outline: none;
 }
 
-/* A long Terminal name ends the placeholder with an ellipsis; it never wraps. */
 .composer textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1321,7 +1274,7 @@ button {
   place-items: center;
   width: var(--key);
   height: var(--key);
-  margin: -1px;
+  margin: calc(-1 * var(--hairline));
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -1392,9 +1345,6 @@ button {
   }
 }
 
-/* The saved commands (D15, D34): a small popover anchored above the field, as
-   wide as it. The commands scroll inside it; Edit stays pinned under them. It
-   sits over the app like the switcher sheet, so it takes the sheet's shade. */
 .saved {
   position: absolute;
   right: 0;
@@ -1485,7 +1435,6 @@ button {
   display: none;
 }
 
-/* A plain shell's glyph, drawn where an agent has its lamp. */
 .shell-glyph {
   width: 16px;
   height: 16px;
@@ -1496,9 +1445,6 @@ button {
   justify-self: start;
 }
 
-/* The agent screen's second header line: the terminal's name, then the key
-   that opens the switcher. The key is 48px tall; its negative margin
-   keeps the line's own height, so the header doesn't grow. */
 .app[data-screen="agent"] .identity-meta {
   display: flex;
   align-items: center;
@@ -1551,9 +1497,6 @@ button {
   display: block;
 }
 
-/* Switcher sheet: the one raised surface. A scrim over the app, the sheet
-   rising from the bottom edge with a real offset shadow, a grab handle and
-   title that can be swiped down, and one 56px+ row per pane. */
 .switcher-layer {
   position: fixed;
   inset: 0;

@@ -2,31 +2,27 @@
 //
 //   bun test/live/live-check.ts
 //
-// Safety: it creates TWO new tabs (--no-focus) and runs the key recorder in each.
+// It creates TWO new tabs (--no-focus) and runs the key recorder in each.
 // One recorder reports itself as `pi`, a herdr built-in kind, and is launched
 // through a script named `pi`, so herdr's own `agent prompt` and `agent
 // send-keys` accept it. The other reports `atomic`, like Atomic's agents, so the
-// server must use its guarded `pane send-text` / `pane send-keys` path (D10).
+// server must use its guarded `pane send-text` / `pane send-keys` path.
 // Each recorder is started by typing its command into its new tab's own shell
-// (`pane send-text`, then Enter); `pane run` is never used. Prompts and keys go
-// only to these two panes and, apart from two raw herdr probes on the atomic
-// pane, only through the Agents server's terminal routes (D25: the per-agent
-// routes are gone). Other agents are only listed, and the active ones read
-// (D11 latest_line, read-only). The D11 Inbox checks drive the atomic
-// recorder's own states and printed text through files.
-// At the end it closes only the tabs it created and checks that the tab list is
-// the same as before.
+// (`pane send-text`, then Enter); `pane run` is never used. Apart from two raw
+// herdr probes on the atomic pane, prompts and keys go only through the Agents
+// server's terminal routes (the per-agent routes are gone). The Inbox checks
+// drive the atomic recorder's own states and printed text through files.
 //
-// D18: it also creates a third --no-focus tab with a plain shell, and types into
+// It also creates a third --no-focus tab with a plain shell, and types into
 // it ONLY through the server's terminal routes: a command line with quotes, $
 // and newlines that bash must run exactly once as typed, then a raw byte logger
 // (it reports no agent) to check the exact bytes of a message, Ctrl+C and Enter.
-// The other panes of this workspace are only listed and read.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { allAgents, homeLists, memoryStorage, recordFirstSight, recordOpened } from "../../web/home.js";
 import { LATEST_LINE_STATUSES, RECENT_IDLE_READS } from "../../server/roster";
+import { createdPanes } from "./created-panes";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const PORT = process.env.LIVE_PORT ?? "8790";
@@ -46,8 +42,10 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 };
 const sleep = (ms: number) => Bun.sleep(ms);
 
+const guard = createdPanes();
+
 function herdr(args: string[]) {
-  const result = Bun.spawnSync([herdrBin, ...args]);
+  const result = Bun.spawnSync([herdrBin, ...guard.herdrArgs(args)]);
   return { exit: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
@@ -67,7 +65,6 @@ const chunks = (log: string) =>
         .map((entry) => entry.hex as string)
     : [];
 
-// Waits until the recorder has been quiet for a moment, then returns the new bytes as hex.
 async function bytesAfter(log: string, action: () => Promise<unknown> | unknown) {
   const before = chunks(log).length;
   const outcome = await action();
@@ -93,12 +90,13 @@ const count = (haystack: string, needle: string) => {
   return n;
 };
 
-// Creates a --no-focus tab and starts a recorder of `kind` in its shell.
 async function startRecorder(kind: string, launcherName: string, { exec }: { exec: boolean }) {
   const created = herdr(["tab", "create", "--workspace", workspace!, "--cwd", ROOT, "--label", `agents-live-check-${kind}`, "--no-focus"]);
   const { result } = JSON.parse(created.stdout);
   createdTabs.push(result.tab.tab_id);
+  guard.addTab(result.tab.tab_id);
   const pane = result.root_pane.pane_id as string;
+  guard.addPane(pane);
   const log = join(dir, `${kind}.jsonl`);
   const launcher = join(dir, launcherName);
   writeFileSync(launcher, `#!${process.execPath}\nimport ${JSON.stringify(join(ROOT, "test/live/key-recorder.ts"))};\n`);
@@ -119,14 +117,15 @@ async function waitForStatus(pane: string, status: string) {
   }
 }
 
-// D18: a --no-focus tab with a plain shell, typed into only through the server.
 async function startShell() {
   const created = herdr(["tab", "create", "--workspace", workspace!, "--cwd", ROOT, "--label", "agents-live-check-shell", "--no-focus"]);
   const { result } = JSON.parse(created.stdout);
   createdTabs.push(result.tab.tab_id);
+  guard.addTab(result.tab.tab_id);
   await sleep(1500);
   const pane = result.root_pane.pane_id as string;
-  check("D18: created a disposable tab with a plain shell (no agent)", herdr(["agent", "get", pane]).exit !== 0, { tab: result.tab.tab_id, pane });
+  guard.addPane(pane);
+  check("created a disposable tab with a plain shell (no agent)", herdr(["agent", "get", pane]).exit !== 0, { tab: result.tab.tab_id, pane });
   return pane;
 }
 
@@ -163,7 +162,7 @@ try {
   const api = async (method: string, path: string, body?: unknown, login: string | null = LOGIN) => {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (login !== null) headers["Tailscale-User-Login"] = login;
-    const response = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const response = await fetch(`${base}${guard.route(method, path)}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await response.text();
     let json: unknown = text;
     try {
@@ -185,11 +184,7 @@ try {
     list.status === 200 && JSON.stringify(agents.map((a) => a.pane_id).sort()) === JSON.stringify(live.map((a) => a.pane_id).sort()),
     { count: agents.length },
   );
-  // D11: no time unless the server saw the change. This server has just started.
   check("no agent has a time on the server's first look", agents.every((a) => a.since === undefined), agents.filter((a) => a.since !== undefined).map((a) => a.pane_id));
-  // D11/D13: blocked, working, unknown and done agents carry latest_line, and so
-  // do the RECENT_IDLE_READS most recently active idle agents, no others. On
-  // the real agents (read-only) it is never Atomic's chrome.
   const active = agents.filter((a) => LATEST_LINE_STATUSES.has(a.agent_status));
   const recentIdle = agents
     .filter((a) => a.agent_status === "idle")
@@ -223,7 +218,7 @@ try {
     ordered.map((a) => `${a.pane_id}:${a.agent_status}:${a.state_change_seq}`),
   );
 
-  // A1 and D15: each key name is accepted and arrives as these bytes. ctrl+x,
+  // Each key name is accepted and arrives as these bytes. ctrl+x,
   // f5 and shift+tab are keys the picker adds (f5 stands in for PgUp, which
   // herdr 0.9.5 can't send); ctrl+d is one of the hold keys.
   const expected: Record<string, string> = {
@@ -256,12 +251,9 @@ try {
     "-v",
     "--help",
     "--wait --timeout 1",
-    // D15: a saved command, sent exactly as written.
     `/compact keep "the plan" and $HOME\nthen 'stop' & \`id\``,
   ];
 
-  // The same checks for both kinds, sent as the app sends them: on the terminal
-  // routes, with the kind it saw.
   for (const [kind, { pane, log }] of [["pi", pi], ["atomic", atomic]] as const) {
     const target = encodeURIComponent(pane);
     const listedTerminals = (await api("GET", "/api/terminals")).json.terminals as { pane_id: string; kind: string }[];
@@ -276,7 +268,6 @@ try {
       check(`${kind}: key ${bad} refused with 400, nothing sent`, statusOf(refused.outcome) === 400 && refused.hex === "", refused);
     }
 
-    // Prompts arrive as one bracketed paste followed by Enter, exactly once.
     for (const text of prompts) {
       const { outcome, hex: arrived } = await bytesAfter(log, () => api("POST", `/api/terminals/${target}/prompt`, { text, kind }));
       check(`${kind}: prompt ${JSON.stringify(text)} arrives exactly once, unchanged`, statusOf(outcome) === 200 && arrived === pasted(text) && count(arrived, hex(text)) === 1, {
@@ -288,7 +279,6 @@ try {
     const output = await api("GET", `/api/terminals/${target}/output`);
     check(`${kind}: output (pane read recent-unwrapped) shows what the recorder printed`, output.status === 200 && String(output.json.text).includes("key recorder ready"));
 
-    // Blocked: the prompt is refused with agent_blocked; keys still answer it.
     writeFileSync(`${log}.state`, "blocked");
     await waitForStatus(pane, "blocked");
     const listed = (await api("GET", "/api/agents")).json.agents as { pane_id: string; agent_status: string }[];
@@ -298,7 +288,6 @@ try {
     const blockedKeys = await bytesAfter(log, () => api("POST", `/api/terminals/${target}/keys`, { keys: ["2", "enter"], kind }));
     check(`${kind}: keys 2 + enter answer a blocked agent`, statusOf(blockedKeys.outcome) === 200 && blockedKeys.hex === "320d", blockedKeys);
 
-    // A2: prompt while working.
     writeFileSync(`${log}.state`, "working");
     await waitForStatus(pane, "working");
     const working = await bytesAfter(log, () => api("POST", `/api/terminals/${target}/prompt`, { text: "queued while working", kind }));
@@ -307,7 +296,7 @@ try {
     await waitForStatus(pane, "idle");
   }
 
-  // D11 Inbox, on the atomic pane: latest_line from a real `agent read`, the
+  // The Inbox, on the atomic pane: latest_line from a real `agent read`, the
   // Inbox rules as the page runs them (web/home.js), and times only when seen.
   {
     const { pane, log } = atomic;
@@ -327,20 +316,16 @@ try {
       return { a: mine(agents), agents };
     }
     const storage = memoryStorage();
-    // What opening the agent's screen does; the agent must have been listed.
     const open = (a: Listed | undefined) => {
       if (!a) throw new Error("The disposable agent wasn't in the list.");
       recordOpened(storage, a);
     };
     const inbox = (agents: Listed[], store = storage) => {
-      // As the page does on each list refresh: first sight, then the Inbox rules.
       recordFirstSight(store, agents);
       const home = homeLists(agents, store);
       return { blocked: home.blocked.some((a: Listed) => a.pane_id === pane), finished: home.finished.some((a: Listed) => a.pane_id === pane) };
     };
 
-    // Each text ends with Atomic's own screen under it: spinner, usage line,
-    // prompt box, 'esc to interrupt' and the task line.
     const atomicScreen = (line: string) =>
       `\n${line}\n\n ∀ Gestating...\n\n${" ".repeat(20)}↑83k • ↓168k • R44M • CH99.9% • $23.389 (sub) • 43.2%/1.0M (auto)\n[stage: live-check] ${RULE}\n❯\n${RULE}\nesc to interrupt\nTasks  1 shell running · /tasks\n`;
     writeFileSync(`${log}.state`, "working");
@@ -372,7 +357,6 @@ try {
     );
     check("atomic: never opened in the app, the done agent is in the Inbox as finished", inbox(done.agents).finished, done.a);
 
-    // What opening #/agent/<pane> does in the page.
     open(done.a);
     check("atomic: after opening it, it leaves the Inbox (herdr still says done)", !inbox(await listAll()).finished && mine(await listAll())?.agent_status === "done");
     await sleep(3_500);
@@ -388,9 +372,6 @@ try {
       { before: firstCompletion, after: again.a?.completion_seq },
     );
 
-    // D13: the user watches it work with its screen open, it stops, and the open
-    // screen counts that completion as opened. Back home, it keeps its place at
-    // the top of Activity, at full strength, with its line and a true time.
     writeFileSync(`${log}.state`, "working");
     const watched = await waitFor((a) => a.agent_status === "working");
     open(watched.a);
@@ -415,9 +396,6 @@ try {
       { status: stopped.a?.agent_status, seq: stopped.a?.state_change_seq, activity: rows.map((r) => `${r.agent.pane_id}:${r.agent.agent_status}:${r.agent.state_change_seq}${r.older ? ":older" : ""}`) },
     );
 
-    // A page already in use (it has stored a baseline for another pane) that
-    // sees this pane for the first time, while it isn't done, starts it at null,
-    // not at its current completion: none of its completions were opened here.
     const inUse = memoryStorage();
     inUse.setItem("agents.opened-completion.w0:p0", "1");
     writeFileSync(`${log}.state`, "blocked");
@@ -435,7 +413,7 @@ try {
     check("atomic: that page then shows its completion in the Inbox", inbox(doneInUse.agents, inUse).finished, doneInUse.a);
   }
 
-  // D18: every pane is a terminal. The plain shell is typed into only through the
+  // Every pane is a terminal. The plain shell is typed into only through the
   // server's terminal routes.
   {
     const shell = await startShell();
@@ -446,12 +424,12 @@ try {
     const rows = all.json.terminals as Row[];
     const rowOf = (pane: string) => rows.find((row) => row.pane_id === pane);
     check(
-      "D18: /api/terminals lists every pane herdr lists, once",
+      "/api/terminals lists every pane herdr lists, once",
       all.status === 200 && JSON.stringify(rows.map((row) => row.pane_id).sort()) === JSON.stringify(herdrPanes.map((p) => p.pane_id).sort()),
       { terminals: rows.length, panes: herdrPanes.length },
     );
     check(
-      "D18: the shell is a terminal of kind shell with no status, its workspace and tab labels, and a latest line; the recorders keep their agent kinds",
+      "the shell is a terminal of kind shell with no status, its workspace and tab labels, and a latest line; the recorders keep their agent kinds",
       rowOf(shell)?.kind === "shell" && rowOf(shell)?.status === null && rowOf(shell)?.workspace.id === workspace && rowOf(shell)?.tab.label === "agents-live-check-shell" &&
         typeof rowOf(shell)?.latest_line === "string" && rowOf(pi.pane)?.kind === "pi" && rowOf(atomic.pane)?.kind === "atomic",
       { shell: rowOf(shell), pi: rowOf(pi.pane)?.kind, atomic: rowOf(atomic.pane)?.kind },
@@ -459,27 +437,25 @@ try {
     const ws = await api("GET", `/api/workspaces/${workspace}/terminals`);
     const wsRows = ws.json.terminals as Row[];
     check(
-      "D18: /api/workspaces/:id/terminals lists exactly that workspace's panes, each with a latest line",
+      "/api/workspaces/:id/terminals lists exactly that workspace's panes, each with a latest line",
       ws.status === 200 &&
         JSON.stringify(wsRows.map((row) => row.pane_id).sort()) === JSON.stringify(herdrPanes.filter((p) => p.workspace_id === workspace).map((p) => p.pane_id).sort()) &&
         wsRows.every((row) => "latest_line" in row),
       { workspace: ws.json.workspace, panes: wsRows.map((row) => `${row.pane_id}:${row.kind}`) },
     );
 
-    // A command line with quotes, $ and newlines, run by bash exactly once, as typed.
     const outFile = join(dir, "shell-out.txt");
     const commandLine = `echo "say \\"hi\\" it's" '$HOME' "$((40+2))" >> ${outFile}\necho 'second line' >> ${outFile}`;
     const sent = await api("POST", `/api/terminals/${shellTarget}/prompt`, { text: commandLine, kind: "shell" });
     await waitUntil(() => existsSync(outFile) && readFileSync(outFile, "utf8").includes("second line"));
     await sleep(1000);
     const ran = existsSync(outFile) ? readFileSync(outFile, "utf8") : null;
-    check("D18: shell: a message with quotes, $ and newlines runs exactly once, as typed", sent.status === 200 && ran === `say "hi" it's $HOME 42\nsecond line\n`, { status: sent.status, ran });
+    check("shell: a message with quotes, $ and newlines runs exactly once, as typed", sent.status === 200 && ran === `say "hi" it's $HOME 42\nsecond line\n`, { status: sent.status, ran });
     const output = await api("GET", `/api/terminals/${shellTarget}/output`);
-    check("D18: shell: output (pane read --format ansi) shows what was typed", output.status === 200 && String(output.json.text).includes("second line"));
+    check("shell: output (pane read --format ansi) shows what was typed", output.status === 200 && String(output.json.text).includes("second line"));
     const shellHistory = await api("GET", `/api/terminals/${shellTarget}/history`);
-    check("D18: shell: history -> 409 not_an_agent", shellHistory.status === 409 && codeOf(shellHistory) === "not_an_agent", shellHistory.json);
+    check("shell: history -> 409 not_an_agent", shellHistory.status === 409 && codeOf(shellHistory) === "not_an_agent", shellHistory.json);
 
-    // A raw byte logger in the shell (it reports no agent), started through the server.
     const script = join(dir, "shell-bytes.ts");
     const slog = join(dir, "shell-bytes.jsonl");
     writeFileSync(
@@ -489,31 +465,31 @@ try {
     const started = await api("POST", `/api/terminals/${shellTarget}/prompt`, { text: `${process.execPath} ${script}`, kind: "shell" });
     await waitUntil(() => existsSync(slog) && readFileSync(slog, "utf8").includes('"ready"'));
     await sleep(300);
-    check("D18: shell: the byte logger started through the server and the pane is still a plain shell", started.status === 200 && existsSync(slog) && herdr(["agent", "get", shell]).exit !== 0);
+    check("shell: the byte logger started through the server and the pane is still a plain shell", started.status === 200 && existsSync(slog) && herdr(["agent", "get", shell]).exit !== 0);
     for (const [list, bytes] of [[["ctrl+c"], "03"], [["enter"], "0d"], [["esc", "up"], "1b1b5b41"], [["ctrl+d"], "04"]] as const) {
       const { outcome, hex: arrived } = await bytesAfter(slog, () => api("POST", `/api/terminals/${shellTarget}/keys`, { keys: list, kind: "shell" }));
-      check(`D18: shell: keys ${list.join(" ")} -> 200 and bytes ${bytes}`, statusOf(outcome) === 200 && arrived === bytes, { status: statusOf(outcome), arrived });
+      check(`shell: keys ${list.join(" ")} -> 200 and bytes ${bytes}`, statusOf(outcome) === 200 && arrived === bytes, { status: statusOf(outcome), arrived });
     }
     const message = `He said "don't" $HOME \`id\`\nline two`;
     const typed = await bytesAfter(slog, () => api("POST", `/api/terminals/${shellTarget}/prompt`, { text: message, kind: "shell" }));
     check(
-      "D18: shell: a message arrives once as the exact text (no paste markers), then Enter",
+      "shell: a message arrives once as the exact text (no paste markers), then Enter",
       statusOf(typed.outcome) === 200 && typed.hex === `${hex(message)}0d` && count(typed.hex, hex(message)) === 1,
       { status: statusOf(typed.outcome), arrived: typed.hex === `${hex(message)}0d` ? "exact" : typed.hex },
     );
     const asAgent = await bytesAfter(slog, () => api("POST", `/api/terminals/${shellTarget}/prompt`, { text: "seen as an agent", kind: "atomic" }));
-    check("D18: shell sent to as the atomic kind -> 409 terminal_changed, nothing sent", statusOf(asAgent.outcome) === 409 && codeOf(asAgent.outcome) === "terminal_changed" && asAgent.hex === "", asAgent.outcome);
+    check("shell sent to as the atomic kind -> 409 terminal_changed, nothing sent", statusOf(asAgent.outcome) === 409 && codeOf(asAgent.outcome) === "terminal_changed" && asAgent.hex === "", asAgent.outcome);
     writeFileSync(`${slog}.exit`, "");
     await sleep(500);
 
     const atomicTarget = encodeURIComponent(atomic.pane);
     const asShell = await bytesAfter(atomic.log, () => api("POST", `/api/terminals/${atomicTarget}/keys`, { keys: ["ctrl+c"], kind: "shell" }));
-    check("D18: atomic sent to as a shell -> 409 terminal_changed, nothing sent", statusOf(asShell.outcome) === 409 && codeOf(asShell.outcome) === "terminal_changed" && asShell.hex === "", asShell.outcome);
+    check("atomic sent to as a shell -> 409 terminal_changed, nothing sent", statusOf(asShell.outcome) === 409 && codeOf(asShell.outcome) === "terminal_changed" && asShell.hex === "", asShell.outcome);
+    guard.addMissing("w99:p99");
     const vanished = await api("POST", "/api/terminals/w99%3Ap99/prompt", { text: "echo must-not-run", kind: "shell" });
-    check("D18: a pane that doesn't exist -> 404 pane_not_found", vanished.status === 404 && codeOf(vanished) === "pane_not_found", vanished.json);
+    check("a pane that doesn't exist -> 404 pane_not_found", vanished.status === 404 && codeOf(vanished) === "pane_not_found", vanished.json);
   }
 
-  // D10 guards and probes, on the atomic pane only.
   {
     const { pane, log } = atomic;
     const target = encodeURIComponent(pane);
@@ -532,7 +508,6 @@ try {
     const pasteEnd = await bytesAfter(log, () => api("POST", `/api/terminals/${target}/prompt`, { text: "early \x1b[201~ end", kind: "atomic" }));
     check("atomic: prompt containing ESC [201~ -> 400, nothing sent", statusOf(pasteEnd.outcome) === 400 && pasteEnd.hex === "", pasteEnd.outcome);
 
-    // D25: the per-agent routes are gone; each answers 404 not_found and sends nothing.
     const removed = await bytesAfter(log, async () => [
       await api("GET", `/api/agents/${target}`),
       await api("GET", `/api/agents/${target}/output`),
@@ -541,9 +516,8 @@ try {
       await api("POST", `/api/agents/${target}/keys`, { keys: ["ctrl+c"], agent: "atomic" }),
     ]);
     const removedAnswers = (removed.outcome as { status: number; json: { error?: { code: string } } }[]).map((answer) => `${answer.status} ${answer.json?.error?.code}`);
-    check("D25: the removed per-agent routes answer 404 not_found, nothing sent", removedAnswers.every((answer) => answer === "404 not_found") && removed.hex === "", { answers: removedAnswers, arrived: removed.hex });
+    check("the removed per-agent routes answer 404 not_found, nothing sent", removedAnswers.every((answer) => answer === "404 not_found") && removed.hex === "", { answers: removedAnswers, arrived: removed.hex });
 
-    // D16: the recorder has no Atomic session, so its history is "no match", never another session's.
     const history = await bytesAfter(log, () => api("GET", `/api/terminals/${target}/history`));
     check(
       "atomic: history of a pane with no Atomic session -> 200 { history: null, reason: no_match }, nothing sent",
@@ -554,12 +528,10 @@ try {
     const postHistory = await api("POST", `/api/terminals/${target}/history`, {});
     check("atomic: history with a bad query -> 400, and POST -> 405", badHistory.status === 400 && postHistory.status === 405, { bad: badHistory.json, post: postHistory.json });
 
-    // The recorder exits and the pane is a plain shell again: nothing may be typed into it.
     writeFileSync(`${log}.state`, "exit");
     for (let i = 0; i < 30 && herdr(["agent", "get", pane]).exit === 0; i++) await sleep(100);
     const shellGet = herdr(["agent", "get", pane]);
     check("atomic: after the recorder exits, herdr agent get says agent_not_found", shellGet.exit !== 0 && shellGet.stderr.includes("agent_not_found"), shellGet.stderr.trim());
-    // The kind the client saw (atomic) no longer matches: refused, nothing typed.
     const changedPrompt = await api("POST", `/api/terminals/${target}/prompt`, { text: "echo d18-must-not-run", kind: "atomic" });
     const changedKeys = await api("POST", `/api/terminals/${target}/keys`, { keys: ["enter"], kind: "atomic" });
     await sleep(800);

@@ -1,7 +1,3 @@
-// The notifications panel the bell opens (D33, web/notify-panel.js), on the fake
-// DOM: it opens with focus inside it and the page behind it inert, Esc and a tap
-// outside close it and focus returns to the bell, its keys work and keep focus
-// through a redraw, and what the browser refused is shown as plain text.
 import { describe, expect, test } from "bun:test";
 import { createNotifyPanel } from "../web/notify-panel.js";
 import { FakeDocument, asPageElement, type FakeElement } from "./support/fake-dom";

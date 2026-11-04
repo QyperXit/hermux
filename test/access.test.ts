@@ -1,16 +1,12 @@
-// Who may use the server and from where: the login check, pane targets,
-// cross-site requests and the static files.
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApp } from "../server/app";
 import { createHerdr } from "../server/herdr";
-import { ALLOWED_LOGIN, disposeFakes } from "./support/http";
+import { ALLOWED_LOGIN } from "./support/http";
 import { WEB } from "./support/agents";
 import { PI, SHELL_PANE, keys, path as paneRoute, prompt, setup } from "./support/terminals";
-
-afterAll(disposeFakes);
 
 describe.concurrent("access control", () => {
   const paths: [string, string, unknown?][] = [
@@ -134,7 +130,6 @@ describe.concurrent("cross-site requests", () => {
     );
   });
 
-  // Each route a page could POST to, with a body this page would send.
   const posts: [string, unknown][] = [
     [promptPath, { text: "csrf", kind: "pi" }],
     [keysPath, { keys: ["ctrl+c"], kind: "pi" }],
@@ -231,7 +226,7 @@ describe.concurrent("static files", () => {
     }
   });
 
-  // The service worker's stamp (D29), as served.
+  // The service worker's stamp, as served.
   const stampOf = (text: string): { version: string; files: string[] } => {
     const match = text.match(/const STAMP = \/\*\* @type \{unknown\} \*\/ \((.*)\);/);
     expect(match).not.toBeNull();
@@ -247,7 +242,6 @@ describe.concurrent("static files", () => {
     for (const file of ["./", "app.js", "reader.js", "sample-data.js", "app.css", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "fonts/HankenGrotesk-latin-var.woff2", "fonts/JetBrainsMono-Regular.woff2", "fonts/JetBrainsMono-Bold.woff2"]) {
       expect([file, files.includes(file)]).toEqual([file, true]);
     }
-    // Not the worker itself, nor the page twice, the font licences, the design sketches or the API.
     const outside = (file: string) => file !== "./" && file.includes("/") && !file.startsWith("fonts/");
     expect(files.filter((file) => file === "sw.js" || file === "index.html" || file.endsWith(".txt") || file.startsWith("api/") || outside(file))).toEqual([]);
     for (const file of files) expect([file, (await request("GET", `/${file === "./" ? "" : file}`)).status]).toEqual([file, 200]);

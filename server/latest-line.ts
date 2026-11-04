@@ -11,8 +11,7 @@ const SPINNER = /^\s*[∀\u2800-\u28ff✢✳✶✻✽]\s+\S.*?(?:\.\.\.|…)(?:\
 const PANEL = /^\s*[╭│╰].*[╮│╯]\s*$/;
 // Atomic's key hints: transcript scroll, a question dialog's keys ("enter
 // select · ↑/↓ navigate · esc cancel") and a tool row's expand hints ("(ctrl+o
-// Expand)", "Press ctrl+o for live detail"). The jump hint is gone already
-// (web/screen.js).
+// Expand)", "Press ctrl+o for live detail").
 const HINT = /^\s*(?:↑↓ scroll\b|.*\benter select\b.*\besc cancel\b|.*\(.*\bExpand\)\s*$|Press \S+ for live detail\s*$)/;
 // The rows Atomic adds to every question dialog itself.
 const DIALOG_ROW = /^\s*(?:❯\s*)?\d+\.\s+(?:Type something\.|Chat about this)\s*$/;
@@ -33,11 +32,7 @@ const isChrome = (line: string) =>
   isUsage(line);
 
 // The last meaningful line of `herdr agent read` text, without surrounding
-// whitespace, or null when the output has none. web/screen.js finds where
-// Atomic's own furniture starts (all of a workflow graph screen is) and joins
-// Atomic's wraps; the line is the last row above that furniture that isn't one
-// of Atomic's own rows, with the rows it wraps on from (back to one of
-// Atomic's own rows, a long ❯ row say, at most).
+// whitespace, or null when the output has none.
 export function latestLine(text: string): string | null {
   const { rows, chromeStart } = readScreen(text);
   for (let i = chromeStart - 1; i >= 0; i--) {
@@ -49,8 +44,6 @@ export function latestLine(text: string): string | null {
   return null;
 }
 
-// A plain shell's latest line is the last line of its `pane read` text
-// with anything but whitespace on it, trimmed; null when there is none.
 export function shellLatestLine(text: string): string | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) if (lines[i].trim()) return lines[i].trim();

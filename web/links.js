@@ -1,17 +1,9 @@
-// Web addresses and laptop paths in the Reader's text (D29). An http(s)
-// address becomes a link that opens in a new tab; a laptop path (/tmp/…,
-// /home/…, ~/…) gets a copy key instead, since the phone can't open it. Every
-// piece of text is HTML-escaped, attributes included. Code chips never hold a
-// link, and punctuation after an address or path isn't part of it.
 import { escapeHtml } from "./html.js";
 
 /** @typedef {import("./screen.js").Run} Run */
 
-// How a path is copied: "key", a quiet copy key after it; "press", a long-press
-// on the path itself, in a box-drawn block where a key would move the columns.
 /** @typedef {"key" | "press"} CopyMode */
 
-// Only these two schemes are matched, so a javascript: or data: address stays text.
 const TARGET = /\bhttps?:\/\/[^\s<>"'`]+|(?<![\w.~/-])(?:~|\/tmp|\/home)\/[^\s<>"'`|]*/g;
 const TRAILING = /[.,;:!?]/;
 /** @type {Record<string, string>} */
@@ -23,8 +15,6 @@ const OPENER = { ")": "(", "]": "[", "}": "{" };
  */
 const count = (text, char) => text.split(char).length - 1;
 
-// The address or path without the punctuation that ends the sentence around
-// it; a closing bracket stays when it closes one inside it, as in a wiki address.
 /** @param {string} found */
 function withoutTrailing(found) {
   let end = found.length;
@@ -41,7 +31,6 @@ function withoutTrailing(found) {
  * @typedef {{ start: number, end: number, text: string, kind: "url" | "path" }} Target
  */
 
-// The addresses and paths in `text`, in order.
 /**
  * @param {string} text
  * @returns {Target[]}
@@ -67,8 +56,6 @@ export const copyKeyHtml = (path) => `<button class="copy-key" type="button" dat
 /** @param {string} cls */
 const isCode = (cls) => cls.split(" ").includes("a-code");
 
-// Styled runs as HTML, each run in a span of its classes, with addresses as
-// links and paths copyable. An address in a code run stays text.
 /**
  * @param {Run[]} runs
  * @param {CopyMode} copy
@@ -91,7 +78,6 @@ export function linkedRunsHtml(runs, copy) {
     const close = cls ? "</span>" : "";
     let inner = "";
     let at = offset;
-    // Pieces of the run, split where a target starts or ends.
     while (at < runEnd) {
       const target = targets.find((each) => each.end > at && each.start < runEnd);
       const inTarget = target && target.start <= at;
@@ -102,7 +88,6 @@ export function linkedRunsHtml(runs, copy) {
       else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}">${piece}</span>`;
       else inner += piece;
       at = pieceEnd;
-      // A copy key goes straight after its path, outside the run's span.
       if (inTarget && target.kind === "path" && copy === "key" && target.end === at) {
         html += `${open}${inner}${close}${copyKeyHtml(target.text)}`;
         inner = "";
@@ -114,15 +99,12 @@ export function linkedRunsHtml(runs, copy) {
   return html;
 }
 
-// Plain text as HTML, with addresses as links and paths copyable.
 /**
  * @param {string} text
  * @param {CopyMode} [copy]
  */
 export const linkedTextHtml = (text, copy = "key") => linkedRunsHtml([{ text, cls: "" }], copy);
 
-// Copies a path when its copy key is tapped, or when a path in a block is
-// long-pressed (the context menu), and says so through `announce`.
 /**
  * @param {HTMLElement} root
  * @param {{ writeText: (text: string) => Promise<void>, announce: (message: string, options?: { error?: boolean }) => void }} options
@@ -135,7 +117,6 @@ export function bindCopy(root, { writeText, announce }) {
       () => announce(`Couldn't copy ${path}.`, { error: true }),
     );
   /**
-   * The path on the element under `event` that matches `selector`, if any.
    * @param {Event} event
    * @param {string} selector
    */

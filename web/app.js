@@ -11,8 +11,9 @@ import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
 import { drawLive } from "./live-render.js";
 import { readerParts, shellParts } from "./reader.js";
-import { duration, terminalHref } from "./rows.js";
-import { allScreenHtml, homeScreenHtml } from "./screens.js";
+import { parseRoute, terminalHref } from "./routes.js";
+import { duration } from "./rows.js";
+import { FRESHNESS_SLOT, allScreenHtml, homeScreenHtml } from "./screens.js";
 import {
   STATE_WORDS,
   describeTerminal,
@@ -33,10 +34,9 @@ import { THEME_KEY, applyTheme, nextTheme, storedTheme, themeLabel } from "./the
  * @typedef {import("./types.js").RequestError} RequestError
  * @typedef {import("./session.js").Route} Route
  * @typedef {import("./session.js").Snapshot} Snapshot
- * @typedef {ReturnType<typeof setTimeout> | 0} TimerId a running timer, or 0 for none
+ * @typedef {ReturnType<typeof setTimeout> | 0} TimerId
  */
 
-// Real herdr data by default; `?demo` loads the synthetic sample data instead.
 const demo = new URLSearchParams(location.search).has("demo");
 const client = demo ? (await import("./sample-data.js")).createSampleClient() : createHttpClient();
 // Opened completions per pane. The demo keeps its own in memory, because the
@@ -47,7 +47,6 @@ const TOUCH_SETTLE_MS = 1200;
 
 const app = need(document, "#app");
 
-// The roster, the open Terminal, refresh and the live stream (web/session.js).
 const session = createSession({
   client,
   openStream: (path) => new EventSource(path),
@@ -55,7 +54,6 @@ const session = createSession({
   opened: openedStore,
 });
 
-// When home and All may be redrawn: not while a touch or scroll settles.
 let quietUntil = 0;
 /** @type {TimerId} */
 let deferredRender = 0;
@@ -67,11 +65,8 @@ const sheet = createSheet({
   onSwap: swapTo,
 });
 
-// Earlier messages above the live screen (web/earlier.js).
 const earlier = createEarlier({ client });
 
-// Push notifications (D32): the bell in the home and All headers and the panel
-// it opens (D33). The demo shows them but never subscribes.
 const notifications = createNotifications({
   browser: { serviceWorker: navigator.serviceWorker, notification: globalThis.Notification, pushManager: "PushManager" in globalThis, isBrave: () => looksLikeBrave(navigator) },
   api: demo ? null : createPushClient(),
@@ -80,7 +75,6 @@ const notifications = createNotifications({
 
 const notifyPanel = createNotifyPanel({ page: app, root: find(document, "#notify-root"), keys: document, notifications });
 
-// The key bar, the key picker and the saved commands (web/key-bar.js).
 const keyBar = createKeyBar({ storage: localStorage });
 
 /** @param {Date} [date] */
@@ -88,22 +82,11 @@ function clockTime(date = new Date()) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-/** @returns {Route} */
-function parseRoute() {
-  if (location.hash === "#/all") return { name: "all" };
-  const match = location.hash.match(/^#\/agent\/(.+)$/);
-  return match ? { name: "agent", paneId: decodeURIComponent(match[1]) } : { name: "home" };
-}
-
-// The keys at the right of the home and All headers: the notifications bell,
-// which opens its panel, and the theme control, which shows the current choice
-// and switches to the next one.
 const headerKeysHtml = () => {
   const theme = storedTheme(localStorage);
   return `${bellHtml(notifications.view(), notifyPanel.isOpen())}<button class="theme-key" type="button" aria-label="${themeLabel(theme)}">${icon(`i-theme-${theme}`)}</button>`;
 };
 
-// The page's <meta> tags, as applyTheme reads them.
 /** @type {import("./theme.js").ThemeDocument} */
 const themeDocument = {
   documentElement: document.documentElement,
@@ -135,20 +118,19 @@ function freshnessLine(view) {
   return `<span class="freshness">${freshnessText({ streaming: view.streaming, sample: client.isSample, time })}</span>`;
 }
 
-// What home and All last drew, so an unchanged refresh draws nothing.
 const listView = listRenderer();
 
 /** @param {Snapshot} view */
 function renderHome(view) {
-  const home = homeLists(view.agents, openedStore);
-  /** @param {string} freshness */
-  const page = (freshness) => homeScreenHtml({ view, home, freshness, keys: headerKeysHtml() });
+  const html = homeScreenHtml({ view, home: homeLists(view.agents, openedStore), freshness: FRESHNESS_SLOT, keys: headerKeysHtml() });
   const freshness = freshnessLine(view);
-  const change = listView.next({ screen: "home", shown: app.dataset.screen, html: page(""), freshness });
-  if (change === "freshness") need(app, ".freshness").outerHTML = freshness;
-  if (change !== "rebuild") return;
-  app.dataset.screen = "home";
-  app.innerHTML = page(freshness);
+  const change = listView.next({ screen: "home", shown: app.dataset.screen, html, freshness });
+  if (change === "none") return;
+  if (change === "rebuild") {
+    app.dataset.screen = "home";
+    app.innerHTML = html;
+  }
+  need(app, ".freshness").outerHTML = freshness;
 }
 
 /** @param {Snapshot} view */
@@ -159,8 +141,6 @@ function renderAll(view) {
   app.innerHTML = html;
 }
 
-// The list is redrawn when a refresh changed it; the focused control (a row,
-// the bell or theme key, Back or the older-sessions key) keeps its focus across it.
 function renderList() {
   const focused = app.contains(document.activeElement) ? document.activeElement : null;
   const href = focused?.getAttribute("href");
@@ -172,7 +152,6 @@ function renderList() {
   if (selector) find(app, selector)?.focus({ preventScroll: true });
 }
 
-// The output element and the text it shows, so an unchanged read isn't re-rendered.
 /** @type {WeakMap<HTMLElement, { text: string, shell: boolean }>} */
 const renderedText = new WeakMap();
 
@@ -188,7 +167,7 @@ function renderTerminalScreen() {
           <button class="terminals-key" type="button" aria-haspopup="dialog" aria-controls="terminal-switcher" aria-expanded="false" hidden><span class="terminals-count"></span>${icon("i-chevron-down")}</button>
         </p>
       </div>
-      <span class="state"><span class="lamp" aria-hidden="true"></span>${icon("i-shell", " shell-glyph")}<span class="state-word"></span></span>
+      <span class="state"><span class="lamp" aria-hidden="true"></span>${icon("i-shell", "shell-glyph")}<span class="state-word"></span></span>
     </header>
     <div class="output-wrap">
       <div class="output" role="log" aria-label="Recent output" tabindex="0">
@@ -221,8 +200,6 @@ function updateTerminalScreen(view) {
       return;
     }
     sheet.close({ restoreFocus: false });
-    // Its Earlier messages stay on screen as they were, but nothing more is
-    // asked for (not on a scroll up, not on a changed Live screen).
     earlier.leave();
     need(app, ".identity-folder").textContent = "Terminal gone";
     need(app, ".identity-name").textContent = `Pane ${view.route.paneId} is no longer there.`;
@@ -234,11 +211,7 @@ function updateTerminalScreen(view) {
   need(app, ".controls").hidden = false;
   need(app, ".state").hidden = false;
   const shell = isShell(terminal);
-  // This agent's current completion counts as opened, so it leaves the Inbox.
-  // While the screen stays open, a completion seen here counts as opened too.
   if (!shell) recordOpened(openedStore, terminal);
-  // Earlier messages exist only for agents: a pane that turns into a
-  // shell drops them, one that turns into an agent starts them.
   const [output, region, note, items, gap, join] = [".output", ".history", ".history-note", ".history-items", ".history-gap", ".history-join"].map((selector) => need(app, selector));
   earlier.open(terminal.pane_id, shell ? "shell" : "agent", { output, region, note, items, gap, join });
   const { folder } = describeTerminal(terminal);
@@ -264,9 +237,6 @@ function updateTerminalScreen(view) {
   keyBar.setBlocked(blocked);
 }
 
-// Only the live screen is redrawn by the refresh; earlier messages above it
-// stay as they are and are never fetched again. Text that scrolls off the live
-// screen is added under them (earlier.live).
 /** @param {Snapshot} view */
 function renderOutput({ output: { text, error }, terminal }) {
   const output = find(app, ".output");
@@ -274,19 +244,17 @@ function renderOutput({ output: { text, error }, terminal }) {
   if (!output || !live) return;
   const atBottom = isAtBottom(output);
   if (error && text === null) {
-    live.innerHTML = `<p class="output-empty">${escapeHtml(error)}</p><a class="link-key" href="#/">${icon("i-back")}Back to agents</a>`;
+    drawLive(live, [`<p class="output-empty">${escapeHtml(error)}</p>`, `<a class="link-key" href="#/">${icon("i-back")}Back to agents</a>`]);
     return;
   }
   if (text === null) {
-    live.innerHTML = `<p class="output-empty">Reading output…</p>`;
+    drawLive(live, [`<p class="output-empty">Reading output…</p>`]);
     return;
   }
-  // A plain shell's output is shown as printed, not as Atomic's transcript.
   const shell = isShell(terminal ?? { kind: "" });
   const before = renderedText.get(live);
   if (before && before.text === text && before.shell === shell) return;
   renderedText.set(live, { text, shell });
-  // Only what changed is drawn again, so a block scrolled sideways stays where it is (D29).
   drawLive(live, shell ? shellParts(text) : readerParts(text));
   if (atBottom || !output.dataset.seen) {
     output.scrollTop = output.scrollHeight;
@@ -313,7 +281,7 @@ function notify(message, { error = false } = {}) {
 /** @param {string} text */
 async function sendPrompt(text) {
   const sent = await session.sendText(text);
-  if (!sent) return false;
+  if (sent.status === "ignored") return false;
   if (sent.error) {
     notify(`Not sent. ${sent.error.message} Your message is still in the box.`, { error: true });
     return false;
@@ -328,7 +296,7 @@ async function sendPrompt(text) {
  */
 async function sendKey(key, label) {
   const sent = await session.sendKey(key);
-  if (!sent) return;
+  if (sent.status === "ignored") return;
   if (sent.error) notify(`${label} not sent. ${sent.error.message}`, { error: true });
   else notify(`Sent ${label}`);
 }
@@ -344,7 +312,6 @@ function bindTerminalScreen() {
   output.addEventListener("scroll", () => {
     if (isAtBottom(output)) latest.hidden = true;
   });
-  // A laptop path in the output is copied with its copy key or a long-press (D29).
   bindCopy(output, { writeText: async (text) => navigator.clipboard.writeText(text), announce: notify });
   latest.addEventListener("click", () => {
     output.scrollTo({ top: output.scrollHeight, behavior: "smooth" });
@@ -371,9 +338,6 @@ function bindTerminalScreen() {
   });
 }
 
-// Another terminal of the same workspace, without a reload. The hash is
-// replaced, not added to, so Back still goes straight home however many
-// terminals were looked at.
 /** @param {string} paneId */
 function swapTo(paneId) {
   history.replaceState(null, "", terminalHref(paneId));
@@ -382,8 +346,6 @@ function swapTo(paneId) {
 }
 
 function renderListSoon() {
-  // A render deferred during a touch must not draw over a terminal screen opened since.
-  if (session.snapshot().route.name === "agent") return;
   const wait = quietUntil - Date.now();
   if (wait <= 0) {
     renderList();
@@ -403,7 +365,6 @@ function render() {
   }
 }
 
-// Output already on screen that can't be refreshed says so, until a read works again.
 /** @param {Snapshot} view */
 function noteStaleOutput({ output }) {
   const notice = find(app, ".notice");
@@ -428,10 +389,11 @@ session.subscribe((change) => {
 });
 
 function onRouteChange() {
+  clearTimeout(deferredRender);
   sheet.close({ restoreFocus: false });
   notifyPanel.close({ restoreFocus: false });
   earlier.leave();
-  session.open(parseRoute());
+  session.open(parseRoute(location.hash));
   const view = session.snapshot();
   delete app.dataset.agentStatus;
   delete app.dataset.kind;
@@ -462,7 +424,6 @@ app.addEventListener("click", (event) => {
   if (bell instanceof HTMLElement) notifyPanel.open(bell);
 });
 
-// A change of the notifications state redraws the bell where it is shown.
 notifications.subscribe(() => {
   if (session.snapshot().route.name !== "agent") renderList();
 });
@@ -479,5 +440,4 @@ onRouteChange();
 session.start(document.visibilityState === "visible");
 notifications.refresh();
 
-// The service worker keeps the app's own files, so it opens at once (D29, web/sw.js).
 navigator.serviceWorker?.register("sw.js", { type: "module" }).catch(() => {});

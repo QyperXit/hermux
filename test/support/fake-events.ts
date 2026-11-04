@@ -1,8 +1,3 @@
-// A stand-in for herdr's socket (D20): a Unix socket that answers
-// `events.subscribe` as herdr 0.9.5 does (shapes probed read-only on a
-// real herdr), records every request line it gets, and pushes the events a
-// test gives it. It can drop its connections, refuse requests, or stop
-// listening and start again.
 import type { Socket } from "bun";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,19 +60,14 @@ export function makeFakeEvents({ listen = true }: { listen?: boolean } = {}) {
 
   return {
     path,
-    // Every request line, parsed, in the order they came.
     requests,
-    // Live subscriptions (connections herdr has answered subscription_started).
     subscribers: () => started.size,
-    // Pushes one event line to every live subscription, as herdr does.
     push(event: string, data: Record<string, unknown>) {
       for (const socket of started) write(socket, { event, data });
     },
-    // How the next requests are answered: started, or herdr's error.
     answerWith(next: Answer) {
       answer = next;
     },
-    // Closes every connection, as herdr does on events_lost or when it stops.
     drop() {
       for (const socket of [...buffers.keys()]) socket.end();
     },
@@ -97,7 +87,6 @@ export function makeFakeEvents({ listen = true }: { listen?: boolean } = {}) {
 
 export type FakeEvents = ReturnType<typeof makeFakeEvents>;
 
-// Waits until `ok` holds, polling every 5 ms; fails after `ms`.
 export async function until(ok: () => boolean, ms = 2_000, what = "the condition") {
   const started = Date.now();
   while (!ok()) {

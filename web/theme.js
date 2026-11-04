@@ -1,8 +1,3 @@
-// The user's theme choice. System follows the phone's light/dark setting;
-// Light and Dark override it. The choice is stored in localStorage, and
-// index.html applies a stored Light or Dark in <head> before the first paint.
-// No DOM here beyond the document passed in, so the tests can import it.
-
 /** @typedef {"system" | "light" | "dark"} Theme */
 
 export const THEME_KEY = "agents.theme";
@@ -29,17 +24,11 @@ export const nextTheme = (theme) => THEMES[(THEMES.indexOf(theme) + 1) % THEMES.
 /** @param {Theme} theme */
 export const themeLabel = (theme) => `Theme: ${NAMES[theme]}. Switch to ${NAMES[nextTheme(theme)]}`;
 
-// Each theme-color meta carries both colours (data-light, data-dark). Under
-// System each keeps the colour for its own media query, so the browser follows
-// the phone as it changes; Light or Dark gives both metas that theme's colour.
 /**
- * One <meta> tag of the page's head.
  * @typedef {{ content: string, media: string, dataset: DOMStringMap }} MetaTag
  */
 
 /**
- * The parts of `document` that applyTheme reads and writes; the page gives it
- * its <meta> tags as MetaTags.
  * @typedef {object} ThemeDocument
  * @property {{ dataset: DOMStringMap }} documentElement
  * @property {(selector: string) => Iterable<MetaTag>} querySelectorAll

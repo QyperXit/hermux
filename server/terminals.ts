@@ -1,6 +1,3 @@
-// Every herdr pane is a terminal: an agent or a plain shell. A terminal
-// record merges the pane (`pane list`) with its agent (`agent list`), if any,
-// and its workspace's label and its tab's label and number (`workspace list`, `tab list`).
 import { SHELL, type Agent, type Pane, type Tab, type Workspace } from "./herdr";
 
 export type Terminal = {
@@ -22,13 +19,10 @@ export type Terminal = {
   latest_line_error?: { code: string; message: string };
 };
 
-// A pane's tab: its herdr ID, label and number (`tab list`), each null when
-// herdr doesn't give it.
 export type TerminalTab = { id: string | null; label: string | null; number: number | null };
 
 const text = (value: unknown) => (typeof value === "string" ? value : null);
 
-// The tab of each tab ID, from `tab list`.
 export function tabsOf(tabs: Tab[]) {
   const byId = new Map(tabs.map((tab) => [tab.tab_id, tab]));
   return (tabId: unknown): TerminalTab => {
@@ -38,8 +32,6 @@ export function tabsOf(tabs: Tab[]) {
   };
 }
 
-// A Terminal's kind from herdr's `agent` field: the agent kind, or SHELL for a
-// pane with none.
 export const kindOf = (agent: unknown) => (agent === undefined ? SHELL : String(agent));
 
 // In herdr's pane order. A pane that herdr lists with an agent is an agent

@@ -1,13 +1,13 @@
 // How the server runs herdr's CLI; the only other way it talks to herdr is the
 // read-only event subscription in server/events.ts (`events.subscribe` on
-// herdr's socket, D20). Every call is an argument array passed straight to the
+// herdr's socket). Every call is an argument array passed straight to the
 // binary (never a shell). Only these subcommands exist here:
 //   agent list, get, read, prompt, send-keys;
 //   pane list, get, read (every pane is a terminal that can be listed and read);
 //   workspace list, tab list (labels and tab numbers only);
 //   pane send-text, pane send-keys, each straight after the re-check of the
 //     pane: `agent get` for an agent, `pane get` for a plain shell;
-//   terminal session observe (D30): a read-only stream of a pane's screen,
+//   terminal session observe: a read-only stream of a pane's screen,
 //     with stdin closed, so nothing can be typed through it.
 // Keys come from the shared grammar (web/key-grammar.js) only. Never pane run,
 // pane close, agent start, focus or rename, server stop, terminal session
@@ -20,7 +20,7 @@ const OUTPUT_LINES = 200;
 
 // herdr 0.9.5 accepts `agent prompt` and `agent send-keys` only for its built-in
 // agent kinds. These are the labels and aliases its parse_agent_label() knows
-// (src/detect/mod.rs, lookup_agent): 24 kinds. Atomic agents report `atomic`.
+// (src/detect/mod.rs, lookup_agent). Atomic agents report `atomic`.
 const BUILT_IN_KINDS = new Set([
   "pi",
   "claude", "claude-code",
@@ -62,7 +62,7 @@ export function isBuiltInKind(label: unknown): boolean {
 // A message to a custom-kind agent is one bracketed paste, then Enter. herdr's
 // `pane send-text` writes its text unchanged (it adds no paste markers), so the
 // server adds them, then waits as herdr's own `agent prompt` does (300 ms)
-// before Enter. Tests pass a shorter wait to createHerdr.
+// before Enter.
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
 const SUBMIT_DELAY_MS = 300;
@@ -71,10 +71,8 @@ const SUBMIT_DELAY_MS = 300;
 // so a target can never be read as an option such as --help.
 const PANE_ID = /^w[0-9A-Za-z]+:p[0-9A-Za-z]+$/;
 
-// The kind of a plain shell pane (no agent).
 export const SHELL = "shell";
 
-// What a caught value says, for the error text built from it.
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export class HerdrError extends Error {
@@ -100,11 +98,10 @@ export function checkTarget(paneId: string) {
   if (!PANE_ID.test(paneId)) throw new HerdrError("invalid_target", `Not a herdr pane ID: ${paneId}`);
 }
 
-// One frame of `terminal session observe` (D30), shapes probed read-only on
+// One frame of `terminal session observe`, shapes probed read-only on
 // herdr 0.9.5: the pane's screen as ANSI bytes drawn on a `width` x `height`
 // canvas, the whole screen (`full`, always the first) or only what changed.
 export type Frame = { full: boolean; width: number; height: number; seq: number; bytes: Uint8Array };
-// A running observe stream; stop() ends its herdr process by its own handle.
 export type Observation = { stop(): void };
 export type ObserveHandlers = { frame(frame: Frame): void; end(error: HerdrError): void };
 
@@ -120,7 +117,6 @@ const isFrameRow = (row: unknown): row is { full: boolean; width: number; height
 
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
-// The shapes the server relies on, checked where herdr's JSON is parsed.
 const isAgent = (row: unknown): row is Agent => isRecord(row) && typeof row.pane_id === "string" && typeof row.agent_status === "string";
 const isPane = (row: unknown): row is Pane => isRecord(row) && typeof row.pane_id === "string";
 const isWorkspace = (row: unknown): row is Workspace => isRecord(row) && typeof row.workspace_id === "string";
@@ -145,11 +141,9 @@ function failure(exitCode: number, stderr: string): HerdrError {
 
 // What herdr answers (exit 2, plain stderr, so code herdr_failed) when it
 // can't give a styled read: an unknown flag ("unknown option: --format" in
-// herdr 0.9.5, "unexpected argument '--format'" from other builds) or an
-// unknown format ("invalid read format: ansi").
+// herdr 0.9.5) or an unknown format ("invalid read format: ansi").
 const FORMAT_REFUSED = /--format\b|\bread format\b/;
 
-// The `result` object of herdr's answer, or an empty one when it has none.
 function parseResult(stdout: string): Record<string, unknown> {
   const parsed = parseJson(stdout);
   if (parsed === undefined || parsed === null) throw new HerdrError("herdr_bad_output", "herdr returned output the server couldn't read.");
@@ -177,11 +171,9 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     return stdout;
   }
 
-  // A pane's screen as it changes (D30): one JSON frame per line from
+  // A pane's screen as it changes: one JSON frame per line from
   // `terminal session observe`, drawn on a cols x rows canvas (herdr clips
-  // the pane's rows to it, or pads them; it never resizes the pane). The
-  // process runs until stop() kills it by its handle; if it ends by itself,
-  // or can't run, `end` hears why. A line that isn't a frame is skipped.
+  // the pane's rows to it, or pads them; it never resizes the pane).
   function observe(paneId: string, { cols, rows }: { cols: number; rows: number }, { frame, end }: ObserveHandlers): Observation {
     checkTarget(paneId);
     const proc = spawn(["terminal", "session", "observe", paneId, "--cols", String(cols), "--rows", String(rows)]);
@@ -234,19 +226,13 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     return rows;
   }
 
-  // Runs just before every send. `seenKind` is the kind the client saw: an
-  // agent kind, or SHELL for a plain shell. A plain shell is re-checked with
-  // `pane get` (it must still have no agent), an agent with `agent get` (it
-  // must still be the same kind). A pane that is gone answers pane_not_found;
-  // a pane whose kind changed is refused with terminal_changed. A shell gives
-  // null.
-  async function recheck(paneId: string, seenKind: string) {
+  async function recheck(paneId: string, seenKind: string): Promise<{ kind: "shell" } | { kind: "agent"; agent: Agent; builtIn: boolean }> {
     if (seenKind === SHELL) {
       const pane = await paneGet(paneId);
       if (pane.agent !== undefined) {
         throw new HerdrError("terminal_changed", `Pane ${paneId} now runs ${String(pane.agent)}, not a plain shell. Nothing was sent.`);
       }
-      return null;
+      return { kind: "shell" };
     }
     let agent: Agent;
     try {
@@ -260,26 +246,19 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
       const kindLabel = typeof agent.agent === "string" ? agent.agent : "no named agent";
       throw new HerdrError("terminal_changed", `Pane ${paneId} now runs ${kindLabel}, not ${seenKind}. Nothing was sent.`);
     }
-    return { agent, builtIn: isBuiltInKind(agent.agent) };
+    return { kind: "agent", agent, builtIn: isBuiltInKind(agent.agent) };
   }
 
-  // `kind` is the kind the caller saw, if it saw one. An agent kind is read
-  // with `agent read`; a plain shell, or a pane whose kind the caller doesn't
-  // know, with `pane read`, which reads any pane (for an agent pane it returns
-  // the same bytes as `agent read`).
   const readArgs = (paneId: string, kind: string | undefined) => {
     const group = kind === undefined || kind === SHELL ? "pane" : "agent";
     return [group, "read", paneId, "--source", "recent-unwrapped", "--lines", String(OUTPUT_LINES)];
   };
 
-  // Plain text, as the latest lines read it.
   async function read(paneId: string, kind?: string): Promise<string> {
     checkTarget(paneId);
     return run(readArgs(paneId, kind));
   }
 
-  // The styled read with --format ansi; if herdr can't give it, the plain one.
-  // Any other failure is answered as it is, without a second read.
   async function styled(args: string[], plain: () => Promise<string>) {
     try {
       return await run([...args, "--format", "ansi"]);
@@ -307,7 +286,6 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     }
   }
 
-  // The text has been typed, so it is never sent again, whatever Enter does.
   async function enterAfterText(paneId: string, what: string) {
     try {
       await run(["pane", "send-keys", paneId, "enter"]);
@@ -319,18 +297,14 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
   return {
     list: () => listOf(["agent", "list"], "agents", isAgent),
 
-    // Every pane, with the workspace and tab labels (read-only).
     panes: () => listOf(["pane", "list"], "panes", isPane),
     workspaces: () => listOf(["workspace", "list"], "workspaces", isWorkspace),
     tabs: () => listOf(["tab", "list"], "tabs", isTab),
     pane: paneGet,
-    // A pane's screen as a read-only stream of frames (D30).
     observe,
 
     get,
 
-    // The Terminal interface: reads and sends for any pane, each given the
-    // kind the caller saw.
     read,
 
     // The screen with Atomic's highlighting as ANSI SGR codes. If herdr can't
@@ -340,11 +314,8 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
       return styled(readArgs(paneId, kind), () => read(paneId, kind));
     },
 
-    // A message. A built-in agent kind gets `agent prompt`. A custom-kind agent
-    // (D10) gets one bracketed paste through `pane send-text`, then Enter, and
-    // nothing while it is blocked. A plain shell gets the exact text in one
-    // `pane send-text`, then Enter: herdr 0.9.5 doesn't report a pane's
-    // bracketed-paste mode, so no paste markers are added, and each line of the
+    // herdr 0.9.5 doesn't report a pane's bracketed-paste mode, so a plain
+    // shell's text is sent with no paste markers, and each line of the
     // text arrives as if typed. The text is one argv element, passed unchanged.
     // herdr reads its positionals first, so text such as "-v" or "--help" stays
     // text. No "--" is added: herdr would send it as the message.
@@ -352,7 +323,7 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
       checkTarget(paneId);
       checkText(text, kind !== SHELL);
       const target = await recheck(paneId, kind);
-      if (!target) {
+      if (target.kind === "shell") {
         await run(["pane", "send-text", paneId, text]);
         await enterAfterText(paneId, "terminal");
         return;
@@ -374,7 +345,7 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
       checkTarget(paneId);
       checkKeys(keys);
       const target = await recheck(paneId, kind);
-      await run([target?.builtIn ? "agent" : "pane", "send-keys", paneId, ...keys]);
+      await run([target.kind === "agent" && target.builtIn ? "agent" : "pane", "send-keys", paneId, ...keys]);
     },
   };
 }

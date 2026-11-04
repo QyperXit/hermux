@@ -1,6 +1,5 @@
 // Every key name herdr 0.9.5 accepts in the approved families (probed on
-// disposable panes), written out here independently of the server's
-// grammar in server/herdr.ts, so a change to the grammar fails the tests.
+// disposable panes).
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
 
 export const VALID_KEYS: readonly string[] = [
@@ -15,9 +14,9 @@ export const VALID_KEYS: readonly string[] = [
   ..."0123456789".split(""),
 ];
 
-// Key names that must be refused, written out independently too: names herdr
-// 0.9.5 has no key for, its aliases and other spellings, keys it accepts
-// outside the approved families, and malformed or hostile strings.
+// Key names that must be refused: names herdr 0.9.5 has no key for, its
+// aliases and other spellings, keys it accepts outside the approved families,
+// and malformed or hostile strings.
 export const REFUSED_KEYS: readonly string[] = [
   "pageup", "pagedown", "pgup", "home", "end", "delete", "insert",
   "escape", "ESC", "Enter", "return", "bs", "Ctrl+x", "CTRL+X", "ctrl+X", "control+x", "meta+x", "alt+X", "C-x", "Shift+Tab", "backtab",

@@ -1,40 +1,28 @@
-// Push notifications on the page (D32, D33): whether this phone gets them, the
-// bell key in the home and All headers that shows it, and the words and keys
-// of the panel the bell opens. The browser asks for permission only when the
-// user taps "Turn on", and subscribes through the service worker with the
-// server's key. No DOM here, so the tests can import it: the page passes in
-// the browser's push parts and the server calls.
 import { describeError } from "./api.js";
 import { icon } from "./html.js";
 
 /**
- * on: this browser is subscribed. off: it isn't, and may be. blocked: the user
- * denied it in the browser's settings. unsupported: this browser can't.
  * @typedef {"checking" | "unsupported" | "blocked" | "off" | "on"} Status
  */
 
 /**
- * What the bell and the panel draw. `message` is the last result, an error when `error`.
  * @typedef {{ status: Status, busy: boolean, message: string, error: boolean, demo: boolean }} View
  */
 
 /**
- * The browser's own subscription to the push service.
  * @typedef {{ endpoint: string, toJSON(): unknown, unsubscribe(): Promise<boolean> }} BrowserSubscription
  * @typedef {{ pushManager: { getSubscription(): Promise<BrowserSubscription | null>, subscribe(options: { userVisibleOnly: boolean, applicationServerKey: Uint8Array<ArrayBuffer> }): Promise<BrowserSubscription> } }} BrowserRegistration
  */
 
 /**
- * The browser parts push needs, or none of them where it can't push.
  * @typedef {object} Browser
  * @property {{ getRegistration(): Promise<BrowserRegistration | undefined>, ready: Promise<BrowserRegistration> } | undefined} serviceWorker
  * @property {{ permission: string, requestPermission(): Promise<string> } | undefined} notification
- * @property {boolean} pushManager whether the browser has push at all
- * @property {() => Promise<boolean>} [isBrave] answers whether this is Brave, which has its own push setting
+ * @property {boolean} pushManager
+ * @property {() => Promise<boolean>} [isBrave]
  */
 
 /**
- * The server's push routes (web/api.js).
  * @typedef {object} PushApi
  * @property {() => Promise<string>} key
  * @property {(subscription: unknown) => Promise<void>} subscribe
@@ -42,7 +30,6 @@ import { icon } from "./html.js";
  * @property {(endpoint: string) => Promise<void>} test
  */
 
-// The server's public key arrives as base64url text; the browser wants its bytes.
 /**
  * @param {string} text
  * @returns {Uint8Array<ArrayBuffer>}
@@ -53,7 +40,6 @@ export function keyBytes(text) {
 }
 
 /**
- * `demo` shows the bell and its panel but never asks the browser or the server for anything.
  * @param {{ browser: Browser, api: PushApi | null, demo?: boolean }} options
  */
 export function createNotifications({ browser, api, demo = false }) {
@@ -74,7 +60,6 @@ export function createNotifications({ browser, api, demo = false }) {
     return (await registration?.pushManager.getSubscription()) ?? null;
   }
 
-  // Reads where things stand; never asks for permission.
   async function refresh() {
     if (demo) return;
     if (!supported) return set({ status: "unsupported" });
@@ -82,7 +67,6 @@ export function createNotifications({ browser, api, demo = false }) {
     set({ status: browser.notification?.permission === "granted" && (await subscription()) ? "on" : "off" });
   }
 
-  // Where a refused subscribe is fixed depends on the browser.
   async function refusal() {
     return (await browser.isBrave?.()) ? BRAVE_REFUSED : REFUSED;
   }
@@ -128,7 +112,6 @@ export function createNotifications({ browser, api, demo = false }) {
     set({ busy: true, message: "", error: false });
     try {
       const own = await subscription();
-      // The phone stops either way; the server forgets it when it can.
       if (own) await api.unsubscribe(own.endpoint).catch(() => {});
       await own?.unsubscribe();
       set({ busy: false, status: "off", message: "Notifications are off." });
@@ -191,7 +174,7 @@ const BELL_WORDS = { checking: "checking", on: "on", off: "off", blocked: "block
 
 // The bell key of the home and All headers: a bell while it is on, a slashed
 // bell otherwise, muted (Legend Grey) while the browser blocks or can't push.
-// No new colours. Its label names the state; a tap opens the panel.
+// Its label names the state; a tap opens the panel.
 /**
  * @param {View} view
  * @param {boolean} expanded whether the panel is open
@@ -201,11 +184,9 @@ export function bellHtml(view, expanded) {
   return `<button class="bell-key${muted ? " is-muted" : ""}" type="button" aria-label="Notifications: ${BELL_WORDS[view.status]}. Open settings" aria-haspopup="dialog" aria-controls="notify-panel" aria-expanded="${expanded}">${icon(view.status === "on" ? "i-bell" : "i-bell-off")}</button>`;
 }
 
-// What the panel says: the state in words.
 /** @param {View} view */
 export const statusLine = (view) => (view.demo ? "Off. The sample data never turns notifications on." : LINES[view.status]);
 
-// The panel's keys: the one that turns it on or off, and Send test while it is on.
 /** @param {View} view */
 export function keysHtml(view) {
   const toggleable = !view.demo && !view.busy && (view.status === "on" || view.status === "off");

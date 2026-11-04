@@ -1,7 +1,3 @@
-// The key bar through its interface (web/key-bar.js): attached to a Terminal
-// screen, used with a finger or a keyboard, and asked to send keys and text and
-// to announce. The screen is a fake DOM, the clock a fake one and the phone's
-// storage memoryStorage() (test/support/key-bar.ts). No real DOM, no timers.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -244,9 +240,7 @@ describe("editing the bar", () => {
   });
 });
 
-describe("the key row", () => {
-  // A phone is the only layout engine that counts, but the rules that keep the
-  // row to one line are in the stylesheet, so they are read from it.
+describe("the key row's one-line rules, read from the stylesheet because the fake DOM has no layout", () => {
   const rule = (selector: string) => {
     const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8");
     const found = css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, "\\$&")} \\{([^}]*)\\}`));

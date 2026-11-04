@@ -1,9 +1,7 @@
-// The rows and sections of the home and All screens, as HTML. Every value
-// from the server goes through escapeHtml. No DOM here, so the tests can
-// import it.
 import { escapeHtml, icon } from "./html.js";
 import { calmLine, describe, olderKeyLabel } from "./home.js";
 import { STATE_WORDS, describeTerminal, lineErrorHtml, terminalName, terminalOfAgent } from "./terminals.js";
+import { terminalHref } from "./routes.js";
 
 /**
  * @typedef {import("./types.js").Agent} Agent
@@ -11,25 +9,16 @@ import { STATE_WORDS, describeTerminal, lineErrorHtml, terminalName, terminalOfA
  * @typedef {import("./home.js").Home} Home
  */
 
-/** @param {unknown} since when the server saw the change, in ms since the epoch */
-export function duration(since) {
-  if (typeof since !== "number" || !since) return "";
-  const minutes = Math.floor((Date.now() - since) / 60_000);
+/** @param {unknown} sinceMs */
+export function duration(sinceMs) {
+  if (typeof sinceMs !== "number" || !sinceMs) return "";
+  const minutes = Math.floor((Date.now() - sinceMs) / 60_000);
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes} min`;
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours} h` : `${Math.floor(hours / 24)} d`;
 }
 
-/** @param {string} paneId */
-export function terminalHref(paneId) {
-  return `#/agent/${encodeURIComponent(paneId)}`;
-}
-
-// One agent row: lamp, folder with the terminal's name (its pane ID only as
-// the name's title), a second line, and a time only when the server saw the
-// change (`since`). Idle rows show it only in Activity, where a just-stopped
-// agent says how long ago it stopped.
 /**
  * @param {Agent} agent
  * @param {{ lamp?: string, line?: string, inbox?: boolean, idleTime?: boolean, older?: boolean }} options
@@ -72,9 +61,6 @@ export function sectionHtml(title, rows, { count = true } = {}) {
     </section>`;
 }
 
-// A working or unclear agent's line stays in mono on one line; a stopped
-// agent's line is quieter, on up to two lines. The rows from the first older
-// one down sit under an "Older" label, and older rows fade.
 /** @param {Home["activity"]} activity */
 export function activityRowsHtml(activity) {
   const firstOlder = activity.findIndex(({ older }) => older);
@@ -102,21 +88,17 @@ export function homeBodyHtml(home) {
     </div>`;
 }
 
-// An agent's row on the All screen: its latest line, or why it couldn't be
-// read, or its state in words.
 /** @param {Agent} agent */
 export const allRowHtml = (agent) =>
   rowHtml(agent, { line: latestLineHtml(agent) || lineErrorHtml(agent) || `<span class="row-meta">${escapeHtml(STATE_WORDS[agent.agent_status] ?? agent.agent_status)}</span>` });
 
-// A plain shell's row: the shell glyph where an agent has its lamp, the
-// folder and the terminal's name, and the last thing it printed.
 /** @param {Terminal} terminal */
 export function shellRowHtml(terminal) {
   const { folder } = describeTerminal(terminal);
   const line = terminal.latest_line ? `<span class="row-tick">${escapeHtml(terminal.latest_line)}</span>` : lineErrorHtml(terminal) || `<span class="row-meta">Shell</span>`;
   return `
     <a class="row row-shell" href="${terminalHref(terminal.pane_id)}">
-      ${icon("i-shell", " shell-glyph")}
+      ${icon("i-shell", "shell-glyph")}
       <span class="row-text">
         <span class="visually-hidden">Shell. </span>
         <span class="row-title"><span class="row-folder">${escapeHtml(folder)}</span> ${tagHtml(terminalName(terminal), terminal.pane_id)}</span>

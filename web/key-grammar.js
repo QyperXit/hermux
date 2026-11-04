@@ -5,9 +5,7 @@
 // only: herdr's aliases (Escape, return, bs, control+x, meta+x, any case) and
 // keys outside these families are refused. herdr has no name for PgUp, PgDn,
 // Home, End or Delete.
-// No DOM here, so the server and the tests can import it.
 
-// Each family is [pattern, how the refusal names it].
 /** @type {[pattern: string, named: string][]} */
 const KEY_FAMILIES = [
   ["(?:ctrl|alt)\\+[a-z]", "ctrl+ or alt+ with a letter"],
@@ -21,7 +19,6 @@ const KEY_FAMILIES = [
 const KEY_GRAMMAR = new RegExp(`^(?:${KEY_FAMILIES.map(([pattern]) => pattern).join("|")})$`);
 const KEY_NAMES = KEY_FAMILIES.map(([, named]) => named);
 
-// What a refusal tells the sender to use instead.
 export const KEY_HELP = `Use ${KEY_NAMES.slice(0, -1).join(", ")} or ${KEY_NAMES.at(-1)}.`;
 
 /**

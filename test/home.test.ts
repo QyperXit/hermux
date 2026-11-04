@@ -1,8 +1,5 @@
-// Home (Inbox) and All screens: which agent goes where, and in what order.
-// The page keeps "the completion the user last opened" per pane in localStorage
-// (or, with ?demo, in memoryStorage()); these tests use memoryStorage(), which
-// has the same getItem/setItem/key/length calls.
 import { expect, test } from "bun:test";
+import { RECENT_IDLE_READS } from "../web/activity.js";
 import { activityLinePanes, allAgents, calmLine, homeLists, memoryStorage, missingActivityLines, olderKeyLabel, recordFirstSight, recordOpened, summaryLine } from "../web/home.js";
 import { listRenderer } from "../web/list-render.js";
 
@@ -35,19 +32,15 @@ test("a finished agent is in the Inbox until it is opened, and returns only when
   expect(panes(visit([brainDump], store).finished)).toEqual(["wA:pD"]);
 
   recordOpened(store, brainDump);
-  // herdr still says done (the app never focuses an agent), but it was opened.
   expect(panes(visit([brainDump], store).finished)).toEqual([]);
 
-  // Cleared on the laptop: idle, same completion. Still opened, still out.
   brainDump = agent("wA:pD", "idle", { state_change_seq: 384, completion_seq: 384 });
   expect(panes(visit([brainDump], store).finished)).toEqual([]);
 
-  // Working again: herdr drops completion_seq while it works.
   brainDump = agent("wA:pD", "working", { state_change_seq: 389 });
   expect(panes(visit([brainDump], store).finished)).toEqual([]);
   expect(panes(visit([brainDump], store).working)).toEqual(["wA:pD"]);
 
-  // Completes again: completion_seq increases, so it is back.
   brainDump = agent("wA:pD", "done", { state_change_seq: 390, completion_seq: 390 });
   expect(panes(visit([brainDump], store).finished)).toEqual(["wA:pD"]);
 });
@@ -82,7 +75,6 @@ test("a never-opened finished agent stays in the Inbox when it turns idle, and l
   const done = agent("wA:pD", "done", { state_change_seq: 10, completion_seq: 10 });
   expect(panes(visit([done], store).finished)).toEqual(["wA:pD"]);
 
-  // Cleared on the laptop: idle, same completion. It was never opened in the app.
   const cleared = agent("wA:pD", "idle", { state_change_seq: 11, completion_seq: 10 });
   expect(panes(visit([cleared], store).finished)).toEqual(["wA:pD"]);
 
@@ -128,7 +120,6 @@ test("app in use: a new pane first seen idle with a completion it finished while
   const store = storage();
   visit([agent("w8:p1", "idle", { state_change_seq: 118, completion_seq: 118 })], store);
 
-  // Started, finished and cleared on the laptop between two refreshes.
   const fresh = agent("wB:p1", "idle", { state_change_seq: 41, completion_seq: 40 });
   const list = [agent("w8:p1", "idle", { state_change_seq: 118, completion_seq: 118 }), fresh];
   expect(panes(visit(list, store).finished)).toEqual(["wB:p1"]);
@@ -164,7 +155,6 @@ test("opening an agent stores its completion_seq per pane, or null when it has n
   recordOpened(store, agent("wA:pD", "done", { state_change_seq: 384, completion_seq: 384 }));
   recordOpened(store, agent("w9:pE", "idle", { state_change_seq: 5 }));
   expect(stored(store)).toEqual({ "agents.opened-completion.wA:pD": "384", "agents.opened-completion.w9:pE": "null" });
-  // Opened with no completion yet: its first completion counts as new.
   expect(panes(visit([agent("w9:pE", "idle", { state_change_seq: 6, completion_seq: 6 })], store).finished)).toEqual(["w9:pE"]);
 });
 
@@ -187,7 +177,6 @@ test("home: blocked agents always in the Inbox, working and unknown always in Ac
   expect(panes(lists.working)).toEqual(["w1:p4", "w1:p2"]);
   expect(activity(lists)).toEqual(["w1:p4", "w1:p1", "w1:p2"]);
   expect(lists.olderCount).toBe(0);
-  // A blocked agent with a newer completion still shows once, as blocked.
   recordOpened(store, agent("w1:p3", "done", { completion_seq: 1 }));
   expect(panes(visit([agent("w1:p3", "blocked", { state_change_seq: 30, completion_seq: 25 })], store).finished)).toEqual([]);
 });
@@ -212,7 +201,6 @@ test("Activity: working agents plus the 5 most recently active others, newest st
   ];
   const lists = visit(list, store);
   expect(activity(lists)).toEqual(["w1:p2", "w1:p3", "w1:p4", "w1:p5", "w1:p6 older", "w1:p7 older", "w1:pA"]);
-  // Not shown above: w1:p8, w1:p1 and w1:p9 (no seq).
   expect(lists.olderCount).toBe(3);
   expect(olderKeyLabel(lists.olderCount)).toBe("3 more older sessions");
 });
@@ -222,7 +210,6 @@ test("Activity leaves out every Inbox agent, and the older-sessions count leaves
   recordFirstSight(store, [agent("w0:p0", "idle", { completion_seq: 1 })]);
   const list = [
     agent("w1:p1", "blocked", { state_change_seq: 100 }),
-    // Finished since opened (first seen after the first load): in the Inbox, not in Activity.
     agent("w1:p2", "idle", { state_change_seq: 99, completion_seq: 98 }),
     agent("w1:p3", "done", { state_change_seq: 97, completion_seq: 97 }),
     agent("w1:p4", "idle", { state_change_seq: 96 }),
@@ -236,10 +223,8 @@ test("Activity leaves out every Inbox agent, and the older-sessions count leaves
   expect(panes(lists.finished)).toEqual(["w1:p2", "w1:p3"]);
   expect(activity(lists)).toEqual(["w1:p4", "w1:p5", "w1:p6", "w1:p7 older", "w1:p8 older"]);
   expect(lists.olderCount).toBe(1);
-  // The key's text is the same literal template for every count, 1 included.
   expect(olderKeyLabel(lists.olderCount)).toBe("1 more older sessions");
 
-  // Once opened, a done agent is just recent activity.
   recordOpened(store, list[2]);
   const opened = visit(list, store);
   expect(activity(opened)).toEqual(["w1:p3", "w1:p4", "w1:p5", "w1:p6 older", "w1:p7 older"]);
@@ -247,8 +232,6 @@ test("Activity leaves out every Inbox agent, and the older-sessions count leaves
   expect(olderKeyLabel(opened.olderCount)).toBe("2 more older sessions");
 });
 
-// The server reads the 8 most recent idle agents. Finished idle agents in the
-// Inbox can use those up, so the page names the idle panes Activity shows.
 test("the page names the idle panes Activity shows, and asks again at once only when one of them wasn't read", () => {
   const store = storage();
   recordFirstSight(store, [agent("w0:p0", "idle", { completion_seq: 1 })]);
@@ -259,17 +242,14 @@ test("the page names the idle panes Activity shows, and asks again at once only 
   const list = [agent("w2:pW", "working", { state_change_seq: 98 }), opened, ...inboxIdle, ...older];
   const lists = visit(list, store);
   expect(panes(lists.finished)).toEqual(["w1:p5", "w1:p4", "w1:p3", "w1:p2", "w1:p1"]);
-  // Not the working or done rows, which are always read, and not the Inbox ones.
   expect(activityLinePanes(lists)).toEqual(["w3:p60", "w3:p50", "w3:p40", "w3:p30"]);
 
-  // The server read the 8 newest idle agents: the five in the Inbox and w3:p60, w3:p50, w3:p40.
   const read = (agents: Agent[], readPanes: string[]) =>
     agents.map((entry) => (readPanes.includes(entry.pane_id) ? { ...entry, latest_line: null } : entry));
-  const recentOnly = read(list, ["w2:pW", "w2:pD", ...panes(inboxIdle), "w3:p60", "w3:p50", "w3:p40"]);
+  const newestIdle = [...inboxIdle, ...older].sort((a, b) => (b.state_change_seq ?? 0) - (a.state_change_seq ?? 0)).slice(0, RECENT_IDLE_READS);
+  const recentOnly = read(list, ["w2:pW", "w2:pD", ...panes(newestIdle)]);
   expect(missingActivityLines(homeLists(recentOnly, store))).toBe(true);
-  // Read, even with no line (null), is enough.
   expect(missingActivityLines(homeLists(read(recentOnly, ["w3:p30"]), store))).toBe(false);
-  // A done or working row without a line never asks again.
   expect(missingActivityLines(homeLists(read(list, panes(older)), store))).toBe(false);
 });
 
@@ -298,7 +278,6 @@ test("an agent that stops keeps its place at the top of Activity", () => {
   const store = storage();
   const others = [10, 20, 30, 40, 50, 60].map((seq) => agent(`w2:p${seq}`, "idle", { state_change_seq: seq }));
   expect(activity(visit([agent("w1:p1", "working", { state_change_seq: 70 }), ...others], store))[0]).toBe("w1:p1");
-  // herdr gives the stop a new state_change_seq, so it is still the newest activity.
   expect(activity(visit([agent("w1:p1", "idle", { state_change_seq: 71 }), ...others], store))).toEqual([
     "w1:p1",
     "w2:p60",
@@ -338,17 +317,12 @@ test("home and All are rebuilt only when their HTML changed; a changed clock alo
   const view = listRenderer();
   const home = (html: string, freshness: string, shown = "home") => view.next({ screen: "home", shown, html, freshness });
   expect(home("<rows>", "Live · 14:05", "agent")).toBe("rebuild");
-  // A refresh that changed nothing: nothing to redraw.
   expect(home("<rows>", "Live · 14:05")).toBe("none");
   expect(home("<rows>", "Live · 14:05")).toBe("none");
-  // Only the clock moved.
   expect(home("<rows>", "Live · 14:06")).toBe("freshness");
   expect(home("<rows>", "Live · 14:06")).toBe("none");
-  // A row changed (a duration ticked, a line moved).
   expect(home("<rows changed>", "Live · 14:06")).toBe("rebuild");
-  // Another screen took the page in between, so the same HTML is drawn again.
   expect(home("<rows changed>", "Live · 14:06", "agent")).toBe("rebuild");
-  // All, then home with the same HTML: a different screen is always rebuilt.
   expect(view.next({ screen: "all", shown: "home", html: "<rows changed>" })).toBe("rebuild");
   expect(view.next({ screen: "all", shown: "all", html: "<rows changed>" })).toBe("none");
   expect(home("<rows changed>", "Live · 14:06", "all")).toBe("rebuild");

@@ -12,25 +12,15 @@ import { Database } from "bun:sqlite";
 import { CONTROL, matchKey } from "../web/wrap.js";
 import { HerdrError, isRecord, type Herdr } from "./herdr";
 
-// After the store fails to open, it is not tried again for this long: the
-// failure is logged once, and a store that appears later is used after it.
 export const STORE_RETRY_MS = 30_000;
 const DEFAULT_PAGE = 30;
 const MAX_PAGE = 100;
-// Raw entries read per query, and at most per walk through a session; a
-// request may walk more than once (tool results and other entries are
-// skipped, so a page may need several batches).
 const BATCH = 100;
 const MAX_SCAN = 3000;
-// How many sessions in the pane's folder are compared with its screen.
 const MAX_CANDIDATES = 40;
-// Lines of the latest assistant text are evidence of a match from this many
-// letters and digits; lines used to find the join, from this many.
-const MATCH_MIN = 24;
-const JOIN_MIN = 12;
-// Consecutive messages not on screen after which older ones are not checked.
+const MATCH_MIN_KEY_CHARS = 24;
+const JOIN_MIN_KEY_CHARS = 12;
 const JOIN_MISSES = 3;
-// A tool call is summarised in one line of at most this many characters.
 const SUMMARY_MAX = 80;
 
 export type Block = { kind: "text"; text: string } | { kind: "tool"; name: string; summary: string };
@@ -42,13 +32,10 @@ export type HistoryPage =
   | { history: { session: string; messages: Message[]; before: number | null; join?: number } }
   | { history: null; reason: "no_match" | "ambiguous" | "unavailable" };
 
-// What a page request may ask for (see `page` below).
 export type HistoryQuery = { before?: number; limit?: number; from?: number };
 
 const CANDIDATES_SQL =
   "SELECT id FROM session_sessions WHERE cwd = ?1 ORDER BY internal, modified_at DESC LIMIT ?2";
-// Only user and assistant messages come back with their JSON; other entries
-// (tool results, images, custom entries) come back as their seq alone.
 const ENTRIES_SQL =
   "SELECT seq, CASE WHEN json_extract(entry_json, '$.type') = 'message' AND json_extract(entry_json, '$.message.role') IN ('user', 'assistant') THEN entry_json END AS json " +
   "FROM session_entries WHERE session_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3";
@@ -65,10 +52,7 @@ export function openSessionStore(path: string) {
   const entries = db.query(ENTRIES_SQL);
   return {
     db,
-    // A session whose id isn't text is never a candidate.
     candidates: (cwd: string) => candidates.all(cwd, MAX_CANDIDATES).flatMap((row) => (isRecord(row) && typeof row.id === "string" ? [row.id] : [])),
-    // Newest first: entries with seq < before, at most `limit` of them. A row
-    // in another shape fails the request like any other store error.
     entriesBefore: (sessionId: string, before: number, limit: number): EntryRow[] => {
       const rows = entries.all(sessionId, before, limit);
       if (!rows.every(isEntryRow)) throw new Error("Atomic's session store returned an entry the server couldn't read.");
@@ -94,7 +78,6 @@ function firstString(value: unknown, depth = 0): string | undefined {
   return undefined;
 }
 
-// The tool's main argument (its command, path, query…) on one line.
 function toolSummary(args: unknown): string {
   let text: string | undefined;
   if (isRecord(args)) {
@@ -108,8 +91,6 @@ function toolSummary(args: unknown): string {
   return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line;
 }
 
-// A user or assistant message as text blocks and one-line tool calls. Thinking
-// (and its signature), images and other binary parts are skipped.
 function toMessage(seq: number, json: string): Message | null {
   let entry: unknown;
   try {
@@ -134,7 +115,6 @@ function toMessage(seq: number, json: string): Message | null {
   return blocks.length ? { seq, role, blocks } : null;
 }
 
-// A message as units, in order: each line of its text, and each tool call.
 type Unit = { block: number; key: string } & ({ kind: "text"; line: string } | { kind: "tool" });
 
 function unitsOf(message: Message): Unit[] {
@@ -145,7 +125,6 @@ function unitsOf(message: Message): Unit[] {
   );
 }
 
-// The units of `units[0..end)` as blocks again.
 function blocksOf(message: Message, units: Unit[]): Block[] {
   const blocks: Block[] = [];
   let last = -1;
@@ -159,17 +138,18 @@ function blocksOf(message: Message, units: Unit[]): Block[] {
   return blocks.filter((block) => block.kind === "tool" || block.text.trim());
 }
 
-// The units of a message just above `at` in the screen that are on it too.
-// Long lines may be anywhere above; a short line only counts when it ends right
-// where the line below it starts (it could be part of any line otherwise). A
-// blank line says nothing, and is only on screen with a line above it.
+function foundAbove(key: string, screen: string, at: number): number {
+  const above = screen.slice(0, at);
+  if (key.length >= JOIN_MIN_KEY_CHARS) return above.lastIndexOf(key);
+  return above.endsWith(key) ? at - key.length : -1;
+}
+
 function onScreenFrom(units: Unit[], end: number, at: number, screen: string): number {
   let top = end;
   for (let i = end - 1; i >= 0; i--) {
     const key = units[i].key;
     if (!key) continue;
-    const above = screen.slice(0, at);
-    const found = key.length >= JOIN_MIN ? above.lastIndexOf(key) : above.endsWith(key) ? at - key.length : -1;
+    const found = foundAbove(key, screen, at);
     if (found < 0) break;
     at = found;
     top = i;
@@ -177,20 +157,38 @@ function onScreenFrom(units: Unit[], end: number, at: number, screen: string): n
   return top;
 }
 
-// Is this message on the pane's screen? "yes" when one of its long enough lines
-// (or tool calls) is on it, "no" when none is, "unknown" when it has none.
 function onScreen(units: Unit[], screen: string): "yes" | "no" | "unknown" {
-  const evidence = units.filter((unit) => unit.key.length >= JOIN_MIN);
+  const evidence = units.filter((unit) => unit.key.length >= JOIN_MIN_KEY_CHARS);
   if (!evidence.length) return "unknown";
   return evidence.some((unit) => screen.includes(unit.key)) ? "yes" : "no";
 }
 
+function findJoin(messages: Iterable<Message>, screen: string): { message: Message; head: Block[] } | null {
+  let oldest: { message: Message; units: Unit[] } | null = null;
+  let misses = 0;
+  for (const message of messages) {
+    const units = unitsOf(message);
+    const seen = onScreen(units, screen);
+    if (seen === "yes") {
+      oldest = { message, units };
+      misses = 0;
+    } else if (oldest && seen === "no" && ++misses >= JOIN_MISSES) {
+      break;
+    }
+  }
+  if (!oldest) return null;
+  const first = oldest.units.findIndex((unit) => unit.key.length >= JOIN_MIN_KEY_CHARS && screen.includes(unit.key));
+  let end = onScreenFrom(oldest.units, first, screen.indexOf(oldest.units[first].key), screen);
+  while (end > 0 && !oldest.units[end - 1].key) end--;
+  return { message: oldest.message, head: blocksOf(oldest.message, oldest.units.slice(0, end)) };
+}
+
+type ScanCursor = { lowestSeqRead: number; reachedSessionStart: boolean };
+
 export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Herdr; openStore: () => SessionStore; now?: () => number }) {
   let store: SessionStore | null = null;
-  // When the store last failed to open; null while it hasn't failed since it last opened.
   let failedAt: number | null = null;
   const matches = new Map<string, { cwd: string; session: string }>();
-  // Panes with no (or no single) match, and the screen that showed it.
   const unmatched = new Map<string, { cwd: string; screen: string; reason: "no_match" | "ambiguous" }>();
 
   function getStore(): SessionStore | null {
@@ -206,46 +204,40 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
     return store;
   }
 
-  // Messages newest first, from seq < before, until the start of the session
-  // or MAX_SCAN entries. `scanned` is the lowest seq read so far.
-  function* walk(s: SessionStore, session: string, before: number, cursor: { scanned: number; atStart: boolean }) {
+  function* walk(s: SessionStore, session: string, before: number, cursor: ScanCursor) {
     let next = before;
     let read = 0;
     while (read < MAX_SCAN) {
       const rows = s.entriesBefore(session, next, BATCH);
       read += rows.length;
       for (const row of rows) {
-        cursor.scanned = row.seq;
+        cursor.lowestSeqRead = row.seq;
         const message = row.json === null ? null : toMessage(row.seq, row.json);
         if (message) yield message;
       }
       if (rows.length < BATCH) {
-        cursor.atStart = true;
+        cursor.reachedSessionStart = true;
         return;
       }
       next = rows[rows.length - 1].seq;
     }
   }
 
-  // The most recent assistant text of a session, as evidence keys.
   function latestTextKeys(s: SessionStore, session: string): string[] {
-    for (const message of walk(s, session, Number.MAX_SAFE_INTEGER, { scanned: 0, atStart: false })) {
+    for (const message of walk(s, session, Number.MAX_SAFE_INTEGER, { lowestSeqRead: 0, reachedSessionStart: false })) {
       if (message.role !== "assistant") continue;
       const text = message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])).join("\n");
       if (!text.trim()) continue;
-      const lines = text.split("\n").map((line) => matchKey(withoutLinkTargets(line))).filter((key) => key.length >= MATCH_MIN);
+      const lines = text.split("\n").map((line) => matchKey(withoutLinkTargets(line))).filter((key) => key.length >= MATCH_MIN_KEY_CHARS);
       if (lines.length) return lines;
       const whole = matchKey(withoutLinkTargets(text));
-      return whole.length >= JOIN_MIN ? [whole] : [];
+      return whole.length >= JOIN_MIN_KEY_CHARS ? [whole] : [];
     }
     return [];
   }
 
   const shows = (s: SessionStore, session: string, screen: string) => latestTextKeys(s, session).some((key) => screen.includes(key));
 
-  // The pane's session: the cached one while its latest assistant text is still
-  // on screen, else the one session in the pane's folder whose latest assistant
-  // text is on screen. None or several: no match.
   function match(s: SessionStore, paneId: string, cwd: string, screen: string): string | "no_match" | "ambiguous" {
     const cached = matches.get(paneId);
     if (cached && cached.cwd === cwd && shows(s, cached.session, screen)) return cached.session;
@@ -266,7 +258,6 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
   return {
     // `from`: only messages with this seq or a later one (see `join`).
     async page(paneId: string, { before, limit = DEFAULT_PAGE, from = 0 }: HistoryQuery = {}): Promise<HistoryPage> {
-      // The screen is read as the page's output route reads it, with no kind.
       const [agent, text] = await Promise.all([herdr.get(paneId), herdr.read(paneId)]);
       const s = getStore();
       if (!s) return { history: null, reason: "unavailable" };
@@ -275,15 +266,13 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
       const session = cwd ? match(s, paneId, cwd, screen) : "no_match";
       if (session === "no_match" || session === "ambiguous") return { history: null, reason: session };
 
-      const cursor = { scanned: before ?? Number.MAX_SAFE_INTEGER, atStart: false };
+      const cursor: ScanCursor = { lowestSeqRead: before ?? Number.MAX_SAFE_INTEGER, reachedSessionStart: false };
       const messages: Message[] = [];
       let join: number | undefined;
-      // Messages older than the join (or than `before`) until the page is full
-      // or `from` is reached.
       const fill = (older: Iterable<Message>) => {
         for (const message of older) {
           if (message.seq < from) {
-            cursor.atStart = true;
+            cursor.reachedSessionStart = true;
             return;
           }
           if (messages.length >= limit) return;
@@ -292,39 +281,18 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
       };
       const messagesWalk = walk(s, session, before ?? Number.MAX_SAFE_INTEGER, cursor);
       if (before === undefined) {
-        // The join: the screen holds the newest messages, down to the oldest one
-        // with a line on it. The first page starts just above that line, so
-        // nothing is shown twice; lines of that message above the screen come
-        // first, as a partial message.
-        let oldest: { message: Message; units: Unit[] } | null = null;
-        let misses = 0;
-        for (const message of messagesWalk) {
-          const units = unitsOf(message);
-          const seen = onScreen(units, screen);
-          if (seen === "yes") {
-            oldest = { message, units };
-            misses = 0;
-          } else if (oldest && seen === "no" && ++misses >= JOIN_MISSES) {
-            break;
-          }
-        }
-        if (!oldest) return { history: null, reason: "no_match" };
-        const first = oldest.units.findIndex((unit) => unit.key.length >= JOIN_MIN && screen.includes(unit.key));
-        let end = onScreenFrom(oldest.units, first, screen.indexOf(oldest.units[first].key), screen);
-        // Blank lines at the bottom of the head add nothing.
-        while (end > 0 && !oldest.units[end - 1].key) end--;
-        const head = blocksOf(oldest.message, oldest.units.slice(0, end));
-        join = oldest.message.seq;
-        if (head.length && join >= from) messages.push({ seq: join, role: oldest.message.role, blocks: head, partial: true });
-        cursor.atStart = join <= from;
-        cursor.scanned = join;
-        if (!cursor.atStart) fill(walk(s, session, join, cursor));
+        const found = findJoin(messagesWalk, screen);
+        if (!found) return { history: null, reason: "no_match" };
+        join = found.message.seq;
+        if (found.head.length && join >= from) messages.push({ seq: join, role: found.message.role, blocks: found.head, partial: true });
+        cursor.reachedSessionStart = join <= from;
+        cursor.lowestSeqRead = join;
+        if (!cursor.reachedSessionStart) fill(walk(s, session, join, cursor));
       } else {
         fill(messagesWalk);
       }
-      // A full page continues below its oldest message; else below what was scanned.
-      const full = messages.length >= limit && !cursor.atStart;
-      const next = full ? messages[messages.length - 1].seq : cursor.atStart ? null : cursor.scanned;
+      const full = messages.length >= limit && !cursor.reachedSessionStart;
+      const next = full ? messages[messages.length - 1].seq : cursor.reachedSessionStart ? null : cursor.lowestSeqRead;
       return { history: { session, messages: messages.reverse(), before: next, ...(join === undefined ? {} : { join }) } };
     },
   };

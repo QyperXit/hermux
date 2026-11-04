@@ -1,8 +1,5 @@
-// The service worker (web/sw.js, D29), driven through its events on a fake
-// worker scope: which requests it keeps and which it leaves to the network,
-// stale-while-revalidate, versions and the hand-over to a new version.
 import { describe, expect, test } from "bun:test";
-import { terminalHref } from "../web/rows.js";
+import { terminalHref } from "../web/routes.js";
 import { CACHE_PREFIX, SKIP_WAITING, start } from "../web/sw.js";
 
 const ORIGIN = "https://agents.example.com";
@@ -11,7 +8,6 @@ const FILES = ["./", "app.css", "app.js", "reader.js", "sample-data.js", "manife
 
 type Body = string | { status: number; body: string };
 
-// The caches every worker version on the phone shares.
 function fakeCaches() {
   const stores = new Map<string, Map<string, Response>>();
   return {
@@ -26,7 +22,6 @@ function fakeCaches() {
     },
     keys: async () => [...stores.keys()],
     delete: async (name: string) => stores.delete(name),
-    // The text kept under each key of one cache.
     async texts(name: string) {
       const store = stores.get(name);
       if (!store) return null;
@@ -35,7 +30,6 @@ function fakeCaches() {
   };
 }
 
-// The laptop as the worker's fetch sees it: each URL's answer, or no answer at all.
 function fakeNetwork(answers: Record<string, Body> = {}) {
   const calls: { url: string; cache: RequestCache | undefined }[] = [];
   let offline = false;
@@ -58,13 +52,11 @@ const allFiles = (version: string): Record<string, string> =>
 type Listener = (event: Parameters<Parameters<Parameters<typeof start>[0]["addEventListener"]>[1]>[0]) => void;
 
 type Shown = { title: string; options: { body?: string; tag?: string; icon?: string; data?: unknown; renotify: boolean } };
-// An open window of the app, as the worker's clients list it.
 function fakeWindow(url: string) {
   const calls: string[] = [];
   return { url, calls, focus: async () => void calls.push("focus"), navigate: async (to: string) => void calls.push(`navigate ${to}`) };
 }
 
-// One worker version: its scope, and its events as the browser fires them.
 function worker(version: string, caches = fakeCaches(), network = fakeNetwork(allFiles(version))) {
   const listeners = new Map<string, Listener>();
   const shown: Shown[] = [];
@@ -87,8 +79,6 @@ function worker(version: string, caches = fakeCaches(), network = fakeNetwork(al
     },
     { version, files: FILES },
   );
-  // Fires one event; `responded` is what the worker answered with, or null
-  // when it left the request to the network.
   async function fire(type: string, { request = new Request(SCOPE), data, notification }: { request?: Request; data?: unknown; notification?: { close(): void; data: unknown } } = {}) {
     const waits: Promise<unknown>[] = [];
     let responded: Promise<Response> | null = null;
@@ -279,7 +269,7 @@ describe("picking up a new version", () => {
   });
 });
 
-describe("push notifications (D32)", () => {
+describe("push notifications", () => {
   const push = (payload: unknown) => ({ data: { json: () => payload } });
   const payload = { title: "weather-app · tab 2 needs you", body: "Which database should I use?", pane_id: "w8:p1", tag: "pane-w8:p1" };
 

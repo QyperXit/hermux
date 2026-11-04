@@ -1,8 +1,3 @@
-// Earlier messages from Atomic's session store, drawn in the Reader's
-// style above the live screen. The server sends each message as text blocks
-// (the agent's markdown, or the user's own words) and one-line tool calls. Every
-// piece of text is HTML-escaped, so a message can never add markup. Drawing
-// only: when they load is web/earlier.js. No DOM here, so the tests can import it.
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml, linkedTextHtml } from "./links.js";
 
@@ -18,10 +13,6 @@ const HEADING = /^\s*#{1,6}\s+(.*)$/;
 const LIST_ITEM = /^(\s*)(?:[-*+]|(\d+[.)]))\s+(.*)$/;
 const QUOTE = /^\s*>\s?(.*)$/;
 
-// Inline markdown: code spans become chips, **bold**, *italic* and _italic_
-// keep their emphasis, and a [link](url) shows its text as a link does on the
-// live screen, opening the address when it is http(s). Anything else is plain
-// text, with its addresses as links and laptop paths copyable (web/links.js).
 const INLINE = /`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|\b_([^_\s][^_]*)_\b|\[([^\]]+)\]\(([^)\s]*)\)/g;
 
 /** @param {string} text */
@@ -46,9 +37,6 @@ const indentStyle = (ch) => (ch > 0 ? ` style="margin-left:${Math.min(ch, MAX_IN
 /** @param {string[]} rows */
 const monoBlock = (rows) => `<div class="block">${rows.map((row) => linkedTextHtml(row, "press")).join("\n")}</div>`;
 
-// The agent's markdown as Reader prose: paragraphs (its soft wraps joined),
-// hanging list items, bold headings, 1px rules, and code blocks and tables in
-// one mono block that scrolls sideways.
 /** @param {string} text */
 export function markdownHtml(text) {
   const lines = text.split("\n");
@@ -83,7 +71,6 @@ export function markdownHtml(text) {
       html.push(`<p class="p li"${indentStyle(indent.length)}>${escapeHtml(number ?? "•")} ${inlineHtml(rest)}</p>`);
       i++;
     } else {
-      // A paragraph runs until a blank line or a line that starts something else.
       const joined = [line.match(QUOTE)?.[1] ?? line.trim()];
       i++;
       while (
@@ -100,7 +87,6 @@ export function markdownHtml(text) {
   return html.join("");
 }
 
-// The user's own words keep their line breaks, on the "you" band.
 /** @param {string} text */
 const userHtml = (text) =>
   text
@@ -112,8 +98,6 @@ const userHtml = (text) =>
 const toolRowHtml = ({ name, summary }) =>
   `<div class="line"><span class="a-b">${escapeHtml(name)}</span>${summary ? ` ${linkedTextHtml(summary)}` : ""}</div>`;
 
-// One message: the user's on the "you" band, the agent's as prose with its tool
-// calls on the tool band, one line each.
 /** @param {Message} message */
 export function messageHtml({ seq, role, blocks }) {
   /** @type {string[]} */
@@ -146,7 +130,6 @@ export const historyHtml = (messages) => messages.map(messageHtml).join("");
  * @typedef {"idle" | "done" | "capped" | "error" | "none"} HistoryStatus
  */
 
-// What the line at the top of the earlier messages says.
 /**
  * @param {{ status: HistoryStatus | "loading", reason?: string | null, error?: string | null, count: number, cap: number }} note
  */
@@ -156,7 +139,6 @@ export function historyNote({ status, reason, error, count, cap }) {
   if (status === "capped") return `Showing the ${cap} earlier messages nearest the screen`;
   if (status === "error") return `Earlier messages not loaded. ${error} Scroll up to try again.`;
   if (status === "none") {
-    // With messages already shown, a no-match on an older page doesn't mean there are none.
     const lead = count ? "Earlier messages unavailable" : "No earlier messages";
     return reason === "unavailable" ? `${lead}: the laptop can't read Atomic's sessions.` : `${lead}: this pane's Atomic session wasn't found.`;
   }

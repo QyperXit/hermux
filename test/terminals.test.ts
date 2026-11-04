@@ -1,15 +1,9 @@
-// Every herdr pane is a terminal, an agent or a plain shell, that can be
-// listed and read the same way; sends are in send.test.ts. The fake herdr
-// mirrors the shapes of herdr 0.9.5's `pane list`, `pane get`, `workspace list`
-// and `tab list`.
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { shellLatestLine } from "../server/latest-line";
 import { RECENT_IDLE_READS } from "../server/roster";
 import type { FakeConfig } from "./fake-herdr";
-import { FORMAT_REFUSALS, FORMAT_UNSUPPORTED, OTHER_READ_FAILURES, disposeFakes, herdrError, sorted } from "./support/http";
-import { AGENTS, ATOMIC, CONFIG, OTHER_AGENT, OUTPUTS, PI, SERVER_SHELL, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
-
-afterAll(disposeFakes);
+import { FORMAT_REFUSALS, FORMAT_UNSUPPORTED, OTHER_READ_FAILURES, herdrError, sorted } from "./support/http";
+import { AGENTS, ATOMIC, CONFIG, BLOCKED_ATOMIC, OUTPUTS, PI, SERVER_SHELL, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
 
 const agentRead = (paneId: string) => ["agent", "read", paneId, "--source", "recent-unwrapped", "--lines", "200"];
 const paneRead = (paneId: string) => ["pane", "read", paneId, "--source", "recent-unwrapped", "--lines", "200"];
@@ -25,12 +19,12 @@ describe.concurrent("terminal inventory", () => {
         { pane_id: SHELL_PANE, kind: "shell", status: null, workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:t2", label: "1", number: 1 }, cwd: "/home/you/usage-dashboard", title: "you@laptop:~/usage-dashboard", latest_line: "you@laptop:~/usage-dashboard$" },
         { pane_id: ATOMIC, kind: "atomic", status: "idle", workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:tD", label: "next work", number: 2 }, cwd: "/home/you/usage-dashboard", title: "atomic - next work - usage-dashboard", state_change_seq: 30, completion_seq: 29, latest_line: "Finished the chart fix." },
         { pane_id: PI, kind: "pi", status: "working", workspace: { id: "w9", label: "usage-dashboard" }, tab: { id: "w9:tE", label: "3", number: 3 }, cwd: "/home/you/usage-dashboard", title: "pi - usage-dashboard", state_change_seq: 40, latest_line: "Running the chart tests" },
-        { pane_id: OTHER_AGENT, kind: "atomic", status: "blocked", workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:t1", label: "1", number: 1 }, cwd: "/home/you/hermux", title: "atomic - hermux", state_change_seq: 7, latest_line: "Which port should it use?" },
+        { pane_id: BLOCKED_ATOMIC, kind: "atomic", status: "blocked", workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:t1", label: "1", number: 1 }, cwd: "/home/you/hermux", title: "atomic - hermux", state_change_seq: 7, latest_line: "Which port should it use?" },
         { pane_id: SERVER_SHELL, kind: "shell", status: null, workspace: { id: "wF", label: "hermux" }, tab: { id: "wF:tM", label: "server", number: 2 }, cwd: "/home/you/hermux", title: "bun server/main.ts", latest_line: "Agents server listening on http://127.0.0.1:8787" },
       ],
     });
     // Agents are read with `agent read` (Atomic's chrome is cut), shells with `pane read`.
-    expect(sorted(calls())).toEqual(sorted([...LISTS, agentRead(ATOMIC), agentRead(PI), agentRead(OTHER_AGENT), paneRead(SHELL_PANE), paneRead(SERVER_SHELL)]));
+    expect(sorted(calls())).toEqual(sorted([...LISTS, agentRead(ATOMIC), agentRead(PI), agentRead(BLOCKED_ATOMIC), paneRead(SHELL_PANE), paneRead(SERVER_SHELL)]));
   });
 
   test("a shell's latest line is the last line with anything on it, trimmed; none when the screen is blank", () => {
@@ -72,7 +66,7 @@ describe.concurrent("terminal inventory", () => {
   });
 });
 
-describe.concurrent("tab names (D31)", () => {
+describe.concurrent("tab names", () => {
   const tabLists = (calls: string[][]) => calls.filter((call) => call.join(" ") === "tab list").length;
 
   test("GET /api/agents gives each agent its tab, the same as the terminal list gives its pane", async () => {
@@ -82,7 +76,7 @@ describe.concurrent("tab names (D31)", () => {
     expect(agents.map(({ pane_id, tab }) => [pane_id, tab])).toEqual([
       [ATOMIC, { id: "w9:tD", label: "next work", number: 2 }],
       [PI, { id: "w9:tE", label: "3", number: 3 }],
-      [OTHER_AGENT, { id: "wF:t1", label: "1", number: 1 }],
+      [BLOCKED_ATOMIC, { id: "wF:t1", label: "1", number: 1 }],
     ]);
     for (const agent of agents) expect(agent.tab).toEqual(terminals.find((terminal) => terminal.pane_id === agent.pane_id)?.tab);
   });

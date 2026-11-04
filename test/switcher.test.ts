@@ -1,6 +1,3 @@
-// What the terminal switcher sheet, the screen header and the All list say
-// about each terminal (web/terminals.js), and the name tags of the home and
-// All rows (web/rows.js). No DOM: the page's own functions.
 import { expect, test } from "bun:test";
 import { allRowHtml, homeBodyHtml, shellRowHtml } from "../web/rows.js";
 import {
@@ -44,7 +41,7 @@ const terminal = (pane_id: string, kind: string, over: Partial<Terminal> = {}): 
   ...over,
 });
 
-test("a terminal's name (D31): an agent's session, else its tab's own label, else 'tab N', else its pane ID", () => {
+test("a terminal's name: an agent's session, else its tab's own label, else 'tab N', else its pane ID", () => {
   const tab = (label: string | null, number: number | null) => ({ tab: { id: label === null && number === null ? null : "t", label, number } });
   expect(terminalName(terminal("wF:p1", "atomic", { ...tab("new next", 4), title: "atomic - fix the build - hermux" }))).toBe("fix the build");
   expect(terminalName(terminal("wF:p1", "atomic", tab("new next", 4)))).toBe("new next");
@@ -115,7 +112,7 @@ test("the sheet's rows are escaped: a tab name or last line with markup is text,
   expect(html).toContain('href="#/agent/wF%3ApM"');
 });
 
-test("home, All and shell rows and the sheet's rows show the terminal's name, never its pane ID; the pane ID is only a title (D31)", () => {
+test("home, All and shell rows and the sheet's rows show the terminal's name, never its pane ID; the pane ID is only a title", () => {
   const row = { pane_id: "w8:p3", agent: "atomic", agent_status: "blocked", cwd: "/home/you/projects/hermux", terminal_title_stripped: "atomic - hermux", tab: { id: "w8:t3", label: "2", number: 3 } };
   const named = { ...row, pane_id: "w8:p4", agent_status: "idle", tab: { id: "w8:t4", label: "notes", number: 4 } };
   const session = { ...row, pane_id: "w8:p5", agent_status: "working", terminal_title_stripped: "atomic - fix the build - hermux", tab: { id: "w8:t5", label: "notes", number: 5 } };

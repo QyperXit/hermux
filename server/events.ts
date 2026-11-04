@@ -1,15 +1,9 @@
-// Live updates (D20): one long-lived, read-only subscription to herdr's event
-// stream, and the page events made from it.
-//
 // herdr 0.9.5's CLI has no streaming subscribe, so this talks to herdr's own
 // socket (newline-delimited JSON, its shapes probed read-only). Every
 // connection sends exactly one request, `events.subscribe`, and nothing
 // else: no other method is ever written to the socket. herdr
 // takes one subscribe per connection and needs a pane for each
-// `pane.agent_status_changed` entry, so the panes come from `pane list` (the
-// server's existing read) and a pane created or closed opens a new
-// subscription before the old one is closed. A dropped subscription is opened
-// again with back-off; while it is down the pages poll as before.
+// `pane.agent_status_changed` entry.
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { isRecord } from "./herdr";
@@ -49,7 +43,6 @@ export type LiveEvent =
   | { type: "change"; changed?: ChangedTerminal[]; refetch: true }
   | { type: "output"; pane_id: string };
 
-// One socket connection, as the subscription uses it.
 export type EventSocket = { write(text: string): void; end(): void };
 export type Connect = (path: string, handlers: { data(text: string): void; close(): void }) => Promise<EventSocket>;
 
@@ -101,7 +94,6 @@ export function createLiveEvents({
   resubscribeMs = 200,
 }: {
   socketPath: string;
-  // The pane IDs to follow, from `herdr pane list`.
   panes: () => Promise<string[]>;
   connect?: Connect;
   retryMs?: { first: number; max: number };
@@ -110,10 +102,9 @@ export function createLiveEvents({
   const listeners = new Set<(event: LiveEvent) => void>();
   let live = false;
   let stopped = true;
-  // `active` is the subscription herdr has started; `pending` one being opened.
-  let active: Subscription | null = null;
-  let pending: Subscription | null = null;
-  let again = false;
+  let startedSub: Subscription | null = null;
+  let openingSub: Subscription | null = null;
+  let panesChangedWhileOpening = false;
   let wait = retryMs.first;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let count = 0;
@@ -142,29 +133,28 @@ export function createLiveEvents({
     sub.socket?.end();
   }
 
-  // The connection has gone, or herdr refused the request.
   function lost(sub: Subscription) {
-    if (sub.ended && sub !== active && sub !== pending) return;
+    if (sub.ended && sub !== startedSub && sub !== openingSub) return;
     end(sub);
-    if (sub === pending) {
-      pending = null;
+    if (sub === openingSub) {
+      openingSub = null;
       retryLater();
-    } else if (sub === active) {
-      active = null;
+    } else if (sub === startedSub) {
+      startedSub = null;
       setLive(false);
       retryLater();
     }
   }
 
   function started(sub: Subscription) {
-    const previous = active;
-    active = sub;
-    pending = null;
+    const previous = startedSub;
+    startedSub = sub;
+    openingSub = null;
     wait = retryMs.first;
     if (previous) end(previous);
     setLive(true);
-    if (again) {
-      again = false;
+    if (panesChangedWhileOpening) {
+      panesChangedWhileOpening = false;
       schedule(resubscribeMs);
     }
   }
@@ -192,26 +182,25 @@ export function createLiveEvents({
     }
     if (!isRecord(message)) return;
     if (message.id === sub.id) {
-      if (isRecord(message.result) && message.result.type === "subscription_started" && sub === pending) started(sub);
+      if (isRecord(message.result) && message.result.type === "subscription_started" && sub === openingSub) started(sub);
       // herdr's error (events_lost, a pane that has gone): it closes the
       // connection, and a new subscription starts afresh.
       else if (message.error !== undefined) lost(sub);
       return;
     }
-    if (sub !== active || typeof message.event !== "string") return;
+    if (sub !== startedSub || typeof message.event !== "string") return;
     onEvent(message.event.replaceAll(".", "_"), isRecord(message.data) ? message.data : {});
   }
 
   async function subscribe() {
     if (stopped) return;
-    if (pending) {
-      again = true;
+    if (openingSub) {
+      panesChangedWhileOpening = true;
       return;
     }
     const sub: Subscription = { id: `agents-events-${++count}`, socket: null, buffer: "", ended: false };
-    pending = sub;
-    // This subscription lists the panes afresh; only a change from now on asks for another.
-    again = false;
+    openingSub = sub;
+    panesChangedWhileOpening = false;
     try {
       sub.socket = await connect(socketPath, {
         data(text) {
@@ -236,7 +225,7 @@ export function createLiveEvents({
   }
 
   function resubscribeSoon() {
-    if (pending) again = true;
+    if (openingSub) panesChangedWhileOpening = true;
     else schedule(resubscribeMs);
   }
 
@@ -249,9 +238,9 @@ export function createLiveEvents({
     stop() {
       stopped = true;
       clearTimeout(timer);
-      for (const sub of [active, pending]) if (sub) end(sub);
-      active = null;
-      pending = null;
+      for (const sub of [startedSub, openingSub]) if (sub) end(sub);
+      startedSub = null;
+      openingSub = null;
       setLive(false);
     },
     // A listener hears the current `live` state at once, then every event.

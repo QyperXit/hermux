@@ -1,6 +1,3 @@
-// The page's Terminal session (web/session.js), scenario by scenario through
-// its interface: a fake client over a small Herdr world, a fake event stream
-// and fake timers. No DOM.
 import { expect, test } from "bun:test";
 import { homeLists, memoryStorage } from "../web/home.js";
 import { createSession } from "../web/session.js";
@@ -33,7 +30,6 @@ const agent = (pane_id: string, kind: string, agent_status: string, seq: number)
   latest_line: `list line of ${pane_id}`,
 });
 
-// The laptop as the server reports it: two Agents and a Shell in one workspace.
 function world() {
   const agents = [agent("w9:pD", "pi", "working", 3), agent("w9:pE", "atomic", "idle", 2)];
   const shell: Terminal = {
@@ -53,20 +49,15 @@ function world() {
   return { agents, terminals };
 }
 
-// A held call waits until the test answers it, or refuses it.
 type Held = { settle?: (refusal: Error | null) => void };
 
 const failure = (code: string, message: string) => Object.assign(new Error(message), { code });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-// With `namedIdleLines` the server reads an idle Agent's Latest line only when
-// the list request names its pane (by default it reads only the most recent idle ones).
 function setup({ route = { name: "home" } as Route, visible = true, sample = false, namedIdleLines = false } = {}) {
   const herdr = world();
   const calls: string[] = [];
-  // The idle panes each list request named.
   const asked: string[][] = [];
-  // The next call of a name in `holds` waits until the test settles it; one in `failing` is refused.
   const holds = new Map<string, Held>();
   const failing = new Map<string, Error>();
   const answer = async <T>(call: string, value: () => T): Promise<T> => {
@@ -131,7 +122,6 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
     sources,
     failing,
     stream: () => sources[sources.length - 1],
-    // The next call of this name waits; answer or refuse it with the returned handle.
     hold(call: string) {
       const held: Held = {};
       holds.set(call, held);
@@ -140,7 +130,6 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
         fail: (error: Error) => held.settle?.(error),
       };
     },
-    // Runs the timers due in the next `ms`, letting each one's reads answer.
     async advance(ms: number) {
       const end = now + ms;
       for (;;) {
@@ -168,7 +157,6 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
 
 test("home is drawn once the list answers, which asks again at once for an idle Activity line the server didn't read; later reads name those panes, and once the stream is live, no list polls run", async () => {
   const page = setup({ namedIdleLines: true });
-  // The second request waits, and answers with a pane that appeared since the first.
   const again = page.hold("agents");
   await flush();
   expect(page.asked).toEqual([[], ["w9:pE"]]);
@@ -183,7 +171,6 @@ test("home is drawn once the list answers, which asks again at once for an idle 
     ["w9:pE", "idle", "list line of w9:pE"],
     ["w9:pF", "idle", undefined],
   ]);
-  // A pane first seen once the app is in use is finished on home from its first completion.
   expect(homeLists(page.session.snapshot().agents, page.opened).finished.map((row) => row.pane_id)).toEqual(["w9:pF"]);
   await page.live();
   expect(page.session.snapshot().streaming).toBe(true);
@@ -236,7 +223,6 @@ test("a status event updates the one roster at once, for home, the open Terminal
     ["w9:p2", null],
   ]);
   expect(page.calls).toEqual(["agents"]);
-  // The list was asked for once: no second read follows the first.
   await flush();
   expect(page.calls).toEqual(["agents", "workspace w9"]);
 });
@@ -250,7 +236,6 @@ test("an open Agent's output is re-read every 2 s only while it is working, afte
   await page.advance(6_000);
   expect(page.count("output w9:pD")).toBe(3);
   expect(page.changes).toEqual(["output", "output", "output"]);
-  // It finishes: the server says so, and that its screen changed.
   page.herdr.agents[0].agent_status = "idle";
   page.stream().fire("change", { changed: [{ pane_id: "w9:pD", agent_status: "idle" }], refetch: true });
   page.stream().fire("output", { pane_id: "w9:pD" });
@@ -258,11 +243,9 @@ test("an open Agent's output is re-read every 2 s only while it is working, afte
   page.reset();
   await page.advance(10_000);
   expect(page.calls).toEqual([]);
-  // An output event for another pane reads nothing.
   page.stream().fire("output", { pane_id: "w9:pE" });
   await flush();
   expect(page.calls).toEqual([]);
-  // A read that fails is drawn (its error), and retried on the timer until one works.
   page.reset();
   page.failing.set("output w9:pD", failure("server_unavailable", "herdr said: busy (server_unavailable)."));
   page.stream().fire("output", { pane_id: "w9:pD" });
@@ -278,7 +261,6 @@ test("an open Agent's output is re-read every 2 s only while it is working, afte
   page.reset();
   await page.advance(10_000);
   expect(page.calls).toEqual([]);
-  // Blocked or done, it is at rest too.
   for (const status of ["blocked", "done"]) {
     page.herdr.agents[0].agent_status = status;
     page.stream().fire("change", { changed: [{ pane_id: "w9:pD", agent_status: status }], refetch: true });
@@ -287,7 +269,6 @@ test("an open Agent's output is re-read every 2 s only while it is working, afte
     await page.advance(10_000);
     expect([status, page.calls]).toEqual([status, []]);
   }
-  // The stream drops: its output is read at once, then every 2 s even at rest.
   page.reset();
   page.stream().fail(CONNECTING);
   await flush();
@@ -301,12 +282,9 @@ test("a Shell opened by link is looked up in the full list, then a swap inside i
   const page = setup({ route: { name: "agent", paneId: "w9:p2" } });
   expect(page.session.snapshot()).toMatchObject({ terminal: null, missing: null });
   await flush();
-  // Not yet in the agent list: the full list is read for its workspace, read
-  // once and again after the agent list answers.
   expect(page.calls).toEqual(["output w9:p2", "terminals", "agents", "workspace w9", "workspace w9"]);
   const shell = page.session.snapshot();
   expect(shell.terminal).toMatchObject({ pane_id: "w9:p2", kind: "shell", status: null, tab: { label: "server" } });
-  // The switcher's title is its workspace's label.
   expect(shell.workspace).toMatchObject({ id: "w9", label: "usage-dashboard" });
   expect(shell.workspace?.terminals.map((row) => row.latest_line)).toEqual(["workspace line of w9:pD", "workspace line of w9:pE", "$ ls"]);
   page.reset();
@@ -317,7 +295,6 @@ test("a Shell opened by link is looked up in the full list, then a swap inside i
   expect(swapped.output).toEqual({ text: null, error: null });
   await flush();
   expect(page.calls).toEqual(["output w9:pD", "workspace w9"]);
-  // Home still has the agent list's own Latest lines.
   expect(swapped.agents.map((row) => row.latest_line)).toEqual(["list line of w9:pD", "list line of w9:pE"]);
 });
 
@@ -341,8 +318,6 @@ test("answers for a screen that was left are dropped: its output, and its worksp
   };
   await leaveWhileHeld("output w9:pD", (held) => held.resolve());
   await leaveWhileHeld("output w9:pD", (held) => held.fail(failure("server_unavailable", "herdr said: busy (server_unavailable).")));
-  // A swap inside the workspace re-reads it; that the workspace went, said for
-  // pD's screen, doesn't make pE gone.
   await leaveWhileHeld("workspace w9", (held) => held.fail(failure("workspace_not_found", "That workspace is gone.")));
 
   const workspace = page.hold("workspace w9");
@@ -412,7 +387,6 @@ test("while Live, a lookup error left by an Agent's screen keeps no list poll ru
   page.failing.set("workspace w9", failure("unreachable", "The laptop didn't answer."));
   await flush();
   await page.live();
-  // On the Agent's screen the error polls the list.
   page.reset();
   await page.advance(3_000);
   expect(page.count("agents")).toBe(1);
@@ -435,15 +409,14 @@ test("a Terminal no list holds is gone only once the agent list has loaded, and 
   const page = setup({ route: { name: "agent", paneId: "w9:pZ" } });
   page.failing.set("agents", failure("unreachable", "The laptop didn't answer."));
   await flush();
-  // The full list answered without it, but the agent list hasn't loaded: nothing yet.
   expect(page.calls).toContain("terminals");
   expect(page.session.snapshot()).toMatchObject({ loaded: false, terminal: null, missing: null });
   page.failing.clear();
   await page.advance(3_000);
   expect(page.session.snapshot()).toMatchObject({ loaded: true, terminal: null, missing: { gone: true } });
   page.reset();
-  expect(await page.session.sendText("hello")).toBeNull();
-  expect(await page.session.sendKey("enter")).toBeNull();
+  expect(await page.session.sendText("hello")).toEqual({ status: "ignored" });
+  expect(await page.session.sendKey("enter")).toEqual({ status: "ignored" });
   await flush();
   expect(page.calls).toEqual([]);
   expect(page.changes).toEqual([]);
@@ -456,7 +429,6 @@ test("a link to a pane no list holds, opened from another Agent's screen, is nei
   expect(page.session.snapshot()).toMatchObject({ terminal: null, missing: null });
   await flush();
   expect(page.session.snapshot()).toMatchObject({ terminal: null, missing: { gone: true } });
-  // An Agent's screen whose lookup failed leaves its error behind.
   page.failing.set("workspace w9", failure("unreachable", "The laptop didn't answer."));
   page.session.open({ name: "agent", paneId: "w9:pD" });
   await flush();
@@ -501,18 +473,15 @@ test("an agent list answer updates the one copy of a pane, its tab included, and
   await page.live();
   page.session.open({ name: "agent", paneId: "w9:pE" });
   await flush();
-  // The list answers while the workspace's own read is held.
   const workspace = page.hold("workspace w9");
   page.herdr.agents[1].agent_status = "working";
   page.herdr.agents[1].tab = { id: "t-w9:pE", label: "renamed", number: 1 };
   page.stream().fire("change", { changed: [], refetch: true });
   await flush();
   expect(page.session.snapshot().terminal).toMatchObject({ pane_id: "w9:pE", status: "working", tab: { id: "t-w9:pE", label: "renamed", number: 1 }, workspace: dashboard });
-  // Home and All draw their rows, and the rows' names, from these.
   expect(page.session.snapshot().agents.find((row) => row.pane_id === "w9:pE")?.tab).toEqual({ id: "t-w9:pE", label: "renamed", number: 1 });
   workspace.resolve();
   await flush();
-  // pD closes while home is open, and comes back: its workspace label is not kept.
   page.session.open({ name: "home" });
   const [pD] = page.herdr.agents.splice(0, 1);
   page.stream().fire("change", { changed: [], refetch: true });
@@ -529,7 +498,6 @@ test("a send goes to the open Terminal as its kind, one message at a time, then 
   await flush();
   await page.live();
   page.reset();
-  // Whether "Sending…" shows, each time the screen is drawn.
   const drawn: boolean[] = [];
   page.session.subscribe((change) => {
     if (change === "screen") drawn.push(page.session.snapshot().sending);
@@ -539,12 +507,11 @@ test("a send goes to the open Terminal as its kind, one message at a time, then 
   const list = page.hold("agents");
   const sending = page.session.sendText("summarize what you changed");
   expect(drawn).toEqual([true]);
-  expect(await page.session.sendText("again")).toBeNull();
+  expect(await page.session.sendText("again")).toEqual({ status: "ignored" });
   prompt.resolve();
-  expect(await sending).toMatchObject({ terminal: { pane_id: "w9:pE" }, error: null });
+  expect(await sending).toMatchObject({ status: "sent", terminal: { pane_id: "w9:pE" }, error: null });
   expect(drawn).toEqual([true, false]);
   expect(page.calls).toEqual(["prompt w9:pE atomic summarize what you changed", "output w9:pE", "agents"]);
-  // Its output answers and is drawn; the list answers and is drawn, then its workspace.
   page.reset();
   output.resolve();
   await flush();
@@ -554,30 +521,27 @@ test("a send goes to the open Terminal as its kind, one message at a time, then 
   expect(page.calls).toEqual(["workspace w9"]);
   expect(page.changes).toEqual(["output", "screen", "screen"]);
 
-  // Blank text sends nothing.
   page.reset();
-  expect(await page.session.sendText("   ")).toBeNull();
+  expect(await page.session.sendText("   ")).toEqual({ status: "ignored" });
   await flush();
   expect(page.calls).toEqual([]);
   expect(page.changes).toEqual([]);
 
   page.reset();
-  expect(await page.session.sendKey("enter")).toMatchObject({ error: null });
+  expect(await page.session.sendKey("enter")).toMatchObject({ status: "sent", error: null });
   await flush();
   expect(page.calls).toEqual(["keys w9:pE atomic enter", "output w9:pE", "agents", "workspace w9"]);
 
-  // Refused because the Terminal changed or went: nothing was sent, and the screen is read again.
   for (const code of ["terminal_changed", "pane_not_found"]) {
     page.reset();
     page.failing.set("keys w9:pE atomic enter", failure(code, "That terminal changed since this screen loaded. Nothing was sent."));
-    expect(await page.session.sendKey("enter")).toMatchObject({ error: { code } });
+    expect(await page.session.sendKey("enter")).toMatchObject({ status: "refused", error: { code } });
     await flush();
     expect([code, page.calls]).toEqual([code, ["keys w9:pE atomic enter", "agents", "output w9:pE", "workspace w9"]]);
   }
-  // Refused for another reason: nothing more is read.
   page.reset();
   page.failing.set("keys w9:pE atomic enter", failure("agent_blocked", "It's waiting on a question."));
-  expect(await page.session.sendKey("enter")).toMatchObject({ error: { code: "agent_blocked" } });
+  expect(await page.session.sendKey("enter")).toMatchObject({ status: "refused", error: { code: "agent_blocked" } });
   await flush();
   expect(page.calls).toEqual(["keys w9:pE atomic enter"]);
 });
@@ -625,7 +589,7 @@ test("the sample data opens no stream, so its list is polled every 3 s, each ans
   expect(page.session.snapshot().updatedAt).toBe(9_000);
 });
 
-// Live output (D30): the open Terminal is watched on the page's named stream.
+// Live output: the open Terminal is watched on the page's named stream.
 async function streamedPage(paneId = "w9:pD") {
   const page = setup({ route: { name: "agent", paneId } });
   await flush();
@@ -646,7 +610,6 @@ test("live output: the open Terminal is watched on the page's named stream; once
   page.stream().fire("stream", { id: "s1" });
   await flush();
   expect(page.calls).toContain("watch w9:pD s1");
-  // Watched but not yet streamed: still polled (it is working).
   page.reset();
   await page.advance(2_000);
   expect(page.count("output w9:pD")).toBe(1);
@@ -655,7 +618,6 @@ test("live output: the open Terminal is watched on the page's named stream; once
   await flush();
   expect(page.session.snapshot().output).toEqual({ text: "pushed one", error: null });
   page.reset();
-  // Working, yet no poll; an output hint without text reads nothing; each push is drawn.
   await page.advance(10_000);
   page.stream().fire("output", { pane_id: "w9:pD" });
   page.stream().fire("output", { pane_id: "w9:pD", text: "pushed two" });
@@ -663,7 +625,6 @@ test("live output: the open Terminal is watched on the page's named stream; once
   expect(page.calls).toEqual([]);
   expect(page.changes).toEqual(["output"]);
   expect(page.session.snapshot().output).toEqual({ text: "pushed two", error: null });
-  // Output pushed for another pane is not drawn.
   page.stream().fire("output", { pane_id: "w9:pE", text: "not this one" });
   await flush();
   expect(page.session.snapshot().output.text).toBe("pushed two");
@@ -687,7 +648,6 @@ test("live output: when the server stops streaming it, or the stream drops, the 
   page.reset();
   await page.advance(4_000);
   expect(page.count("output w9:pD")).toBe(2);
-  // Streamed again, then the stream drops: read at once, polled every 2 s.
   page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
   await flush();
   page.reset();
@@ -699,7 +659,6 @@ test("live output: when the server stops streaming it, or the stream drops, the 
   page.reset();
   await page.advance(4_000);
   expect(page.count("output w9:pD")).toBe(2);
-  // The reconnected stream has a new name: the Terminal is watched on it, and streamed once the server says so.
   page.stream().fire("stream", { id: "s2" });
   await page.live();
   expect(page.calls).toContain("watch w9:pD s2");
@@ -717,7 +676,6 @@ test("live output: swapping Terminals moves the watch; leaving the screen or hid
   await flush();
   expect(page.calls).toContain("watch w9:pE s1");
   expect(page.calls).not.toContain("unwatch w9:pD s1");
-  // The old pane's push and streaming state are not this screen's.
   page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
   page.stream().fire("output", { pane_id: "w9:pD", text: "old pane" });
   await flush();
@@ -726,7 +684,6 @@ test("live output: swapping Terminals moves the watch; leaving the screen or hid
   page.session.open({ name: "home" });
   await flush();
   expect(page.calls).toContain("unwatch w9:pE s1");
-  // Back to a Terminal, then the page is hidden: the watch ends and the stream closes.
   page.session.open({ name: "agent", paneId: "w9:pD" });
   await flush();
   page.reset();
@@ -734,7 +691,6 @@ test("live output: swapping Terminals moves the watch; leaving the screen or hid
   await flush();
   expect(page.calls).toEqual(["unwatch w9:pD s1"]);
   expect(page.stream().closed).toBe(true);
-  // Shown again: the new stream's name brings the watch back.
   page.session.visible();
   page.stream().fire("stream", { id: "s3" });
   await flush();
@@ -755,7 +711,6 @@ test("live output: a watch request that fails leaves the page polling", async ()
 
 test("live output: a read that began before a push is dropped, so an older screen never replaces a pushed one", async () => {
   const page = await streamedPage();
-  // A send re-reads the output; the push lands while that read is on its way.
   const read = page.hold("output w9:pD");
   await page.session.sendKey("enter");
   page.stream().fire("output", { pane_id: "w9:pD", text: "pushed after the key" });

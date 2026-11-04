@@ -1,12 +1,9 @@
-// Live updates (D20), the server side: the subscription to herdr's events (a
-// fake herdr socket), its reconnects, and the page's event stream
-// (GET /api/events) through the real app.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { createApp } from "../server/app";
 import { LIFECYCLE, createLiveEvents, herdrSocketPath, type LiveEvent, type LiveEvents } from "../server/events";
 import { createHerdr } from "../server/herdr";
 import { makeFakeHerdr } from "./fake-herdr";
-import { ALLOWED_LOGIN, auditCalls, disposeFakes } from "./support/http";
+import { ALLOWED_LOGIN, auditCalls } from "./support/http";
 import { makeFakeEvents, until, type FakeEvents } from "./support/fake-events";
 import { WEB } from "./support/agents";
 
@@ -18,7 +15,6 @@ afterEach(() => hubs.splice(0).forEach((hub) => hub.stop()));
 afterAll(() => {
   fakes.forEach((fake) => fake.dispose());
   herdrFakes.forEach((fake) => fake.dispose());
-  disposeFakes();
 });
 
 // The subscription to a fake herdr socket, with the panes `pane list` gives
@@ -71,7 +67,6 @@ describe("the subscription to herdr's events", () => {
       { type: "pane.agent_status_changed", pane_id: "w1:p2" },
     ]);
     expect(heard).toEqual([{ type: "live", live: false }, { type: "live", live: true }]);
-    // The only herdr command it ran is `pane list`.
     expect(herdrFake.calls()).toEqual([["pane", "list"]]);
     auditCalls(herdrFake.calls());
     auditRequests(events);
@@ -85,7 +80,6 @@ describe("the subscription to herdr's events", () => {
     events.push("pane.agent_status_changed", { agent: "atomic", agent_status: "blocked", pane_id: "w1:p1", workspace_id: "w1" });
     events.push("pane_updated", { pane: { pane_id: "w1:p2", agent_status: "working", revision: 3 }, type: "pane_updated" });
     events.push("tab_renamed", { tab_id: "w1:t1", workspace_id: "w1", label: "x", type: "tab_renamed" });
-    // An event herdr may add later is still a refetch.
     events.push("something_new", {});
     await until(() => heard.length >= 6);
     expect(heard).toEqual([
@@ -106,9 +100,7 @@ describe("the subscription to herdr's events", () => {
     events.push("pane_created", { pane: { pane_id: "w1:p3" }, type: "pane_created" });
     await until(() => events.requests.length === 2 && events.subscribers() === 1, 2_000, "the new subscription");
     expect(subscriptionsOf(events.requests[1]).filter((entry) => entry.type === "pane.agent_status_changed").map((entry) => entry.pane_id)).toEqual([...PANES, "w1:p3"]);
-    // Live throughout: the old subscription was closed only after the new one started.
     expect(heard.filter((event) => event.type === "live")).toEqual([{ type: "live", live: false }, { type: "live", live: true }]);
-    // Events come from the new subscription.
     heard.length = 0;
     events.push("pane.agent_status_changed", { agent_status: "working", pane_id: "w1:p3", workspace_id: "w1" });
     await until(() => heard.length >= 2);
@@ -126,7 +118,6 @@ describe("the subscription to herdr's events", () => {
     expect(heard.filter((event) => event.type === "live").map((event) => event.type === "live" && event.live)).toEqual([false, true, false, true]);
     expect(events.requests).toHaveLength(2);
 
-    // herdr's events_lost (it closes the connection): the same.
     events.answerWith({ code: "events_lost", message: "subscriber fell behind" });
     events.drop();
     await until(() => events.requests.length >= 4, 2_000, "retries");
@@ -168,6 +159,7 @@ describe("the subscription to herdr's events", () => {
   });
 
   test("reconnects back off, doubling up to the limit", async () => {
+    const retryMs = { first: 20, max: 80 };
     const tries: number[] = [];
     const hub = createLiveEvents({
       socketPath: "/nowhere/herdr.sock",
@@ -176,17 +168,17 @@ describe("the subscription to herdr's events", () => {
         tries.push(Date.now());
         throw new Error("no socket");
       },
-      retryMs: { first: 20, max: 80 },
+      retryMs,
     });
     hubs.push(hub);
     hub.start();
     await until(() => tries.length >= 6, 2_000, "six tries");
     hub.stop();
     const gaps = tries.slice(1).map((at, index) => at - tries[index]);
-    // 20, 40, 80, 80, 80 ms (timers fire a little late, never early).
-    expect(gaps.map((gap, index) => gap >= [20, 40, 80, 80, 80][index] - 2)).toEqual([true, true, true, true, true]);
-    expect(gaps[1]).toBeLessThan(80);
-    expect(gaps.slice(2).every((gap) => gap < 160)).toBe(true);
+    const schedule = [retryMs.first, retryMs.first * 2, retryMs.max, retryMs.max, retryMs.max];
+    expect(gaps.map((gap, index) => gap >= schedule[index] - 2)).toEqual([true, true, true, true, true]);
+    expect(gaps[1]).toBeLessThan(retryMs.max);
+    expect(gaps.slice(2).every((gap) => gap < retryMs.max * 2)).toBe(true);
   });
 
   test("the socket is the one the herdr CLI would use", () => {
@@ -233,7 +225,6 @@ describe("GET /api/events, the page's stream", () => {
     events.push("pane.agent_status_changed", { agent: "atomic", agent_status: "working", pane_id: "w1:p2", workspace_id: "w1" });
     text = await readUntil(reader, (so) => so.includes("event: output"));
     expect(text).toBe('event: change\ndata: {"changed":[{"pane_id":"w1:p2","agent_status":"working","agent":"atomic"}],"refetch":true}\n\nevent: output\ndata: {"pane_id":"w1:p2"}\n\n');
-    // The subscription drops: the page is told, and told again when it is back.
     events.drop();
     text = await readUntil(reader, (so) => so.includes('{"live":true}'));
     expect(text).toBe('event: live\ndata: {"live":false}\n\nevent: live\ndata: {"live":true}\n\n');

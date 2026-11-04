@@ -1,11 +1,3 @@
-// A small stand-in for the page's DOM, enough for the key bar (web/key-bar.js)
-// to draw into and be used through: markup set with innerHTML or
-// insertAdjacentHTML is parsed into elements, so markup that escaped its
-// escaping shows up as elements or attributes that shouldn't be there.
-// Selectors: tags, #id, .class, [attr], [attr="value"], :disabled and :not()
-// of those, descendants, and lists. Events bubble. Focus goes only to an
-// attached element that isn't disabled or inside a hidden one. No layout.
-
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"]);
 const RAW_TEXT = new Set(["script", "style", "textarea", "title"]);
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" };
@@ -51,7 +43,6 @@ export class FakeEvent {
 
 type Listener = (event: FakeEvent) => void;
 
-// The document an element tree belongs to: its root, and which element has focus.
 export class FakeDocument {
   activeElement: FakeElement | null = null;
   root: FakeElement;
@@ -203,7 +194,6 @@ export class FakeElement {
     this.childNodes = nodes;
   }
 
-  // Takes `node` out of where it is and puts it before `before` (at the end for null).
   insertBefore(node: FakeNode, before: FakeNode | null) {
     if (node.parent) {
       node.parent.childNodes = node.parent.childNodes.filter((other) => other !== node);
@@ -221,7 +211,6 @@ export class FakeElement {
     detach(this);
   }
 
-  // Every element under this one, in document order.
   descendants(): FakeElement[] {
     return this.children.flatMap((child) => [child, ...child.descendants()]);
   }
@@ -240,7 +229,6 @@ export class FakeElement {
     return null;
   }
 
-  // This element or one inside it.
   contains(node: FakeElement | null) {
     return node !== null && (node === this || this.descendants().includes(node));
   }
@@ -251,7 +239,6 @@ export class FakeElement {
     return element === this.ownerDocument.root;
   }
 
-  // Shown, as far as the markup says: neither it nor any element around it is hidden.
   get shown() {
     for (let element: FakeElement | null = this; element; element = element.parent) if (element.hidden) return false;
     return this.isConnected;
@@ -272,7 +259,6 @@ export class FakeElement {
     this.listeners.set(type, (this.listeners.get(type) ?? []).filter((other) => other !== listener));
   }
 
-  // Dispatches the event here and then on each element around this one.
   dispatchEvent(event: FakeEvent) {
     event.target = this;
     for (let element: FakeElement | null = this; element; element = element.parent) {
@@ -344,7 +330,6 @@ function parse(html: string, doc: FakeDocument): FakeNode[] {
 
 type Compound = { tag?: string; id?: string; classes: string[]; attributes: { name: string; value?: string }[]; disabled?: boolean; not: Compound[] };
 
-// "a b, c" to [[a, b], [c]]: commas and spaces outside brackets, quotes and parentheses.
 function split(selector: string, separator: string) {
   const parts: string[] = [];
   let depth = 0;
@@ -408,7 +393,6 @@ function matchesComplex(element: FakeElement, parts: Compound[]): boolean {
   return true;
 }
 
-// A page with `html` drawn in its root element (`<main id="app" class="app">`).
 export function fakePage(html: string) {
   const doc = new FakeDocument();
   doc.root.setAttribute("id", "app");
@@ -417,7 +401,4 @@ export function fakePage(html: string) {
   return { doc, root: doc.root };
 }
 
-// The fake stands in for the page's element where the key bar takes one. It
-// has every member the key bar uses, not all of HTMLElement's, so this is the
-// one place it is handed over as one.
 export const asPageElement = (element: FakeElement) => element as unknown as HTMLElement;

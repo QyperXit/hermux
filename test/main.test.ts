@@ -1,6 +1,3 @@
-// Runs the real entry point (server/main.ts) as a child process. Every run
-// names its own session store (ATOMIC_SESSION_STORE), so the real
-// ~/.atomic store is never opened.
 import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -9,7 +6,7 @@ import { join, resolve } from "node:path";
 import { makeFakeHerdr } from "./fake-herdr";
 import { makeFakeEvents, until } from "./support/fake-events";
 import { sorted } from "./support/http";
-import { CWD, makeStore, removeStores, type Entry } from "./support/session-store";
+import { CWD, makeStore, type Entry } from "./support/session-store";
 
 const MAIN = resolve(import.meta.dir, "../server/main.ts");
 
@@ -17,17 +14,12 @@ const fakes: ReturnType<typeof makeFakeHerdr>[] = [];
 const scratch = mkdtempSync(join(tmpdir(), "main-test-"));
 afterAll(() => {
   fakes.forEach((fake) => fake.dispose());
-  removeStores();
   rmSync(scratch, { recursive: true, force: true });
 });
 
-// A store path that doesn't exist, for runs that don't read history.
 const NO_STORE = join(scratch, "missing.sqlite");
-// Where every run keeps its push keys, so none writes into the repo (D32).
 const PUSH_DIR = join(scratch, "push");
-// A herdr socket that doesn't exist, so no run ever subscribes to the real herdr's events.
 const NO_SOCKET = join(scratch, "missing.sock");
-// The login every run allows unless a test says otherwise.
 const LOGIN = "you@example.com";
 
 function env(overrides: Record<string, string | undefined>) {
@@ -138,7 +130,6 @@ test("with HERDR_ENV=1 it listens on 127.0.0.1 only and enforces the login check
   }
 });
 
-// Starts main.ts with HERDR_ENV=1 on a free port and answers its address.
 async function startMain(overrides: Record<string, string>) {
   const proc = Bun.spawn([process.execPath, MAIN], { env: env({ HERDR_ENV: "1", PORT: "0", ...overrides }), stdout: "pipe", stderr: "pipe" });
   const reader = proc.stdout.getReader();
@@ -158,7 +149,6 @@ const assistant = (text: string): Entry => ({ type: "message", message: { role: 
 const AGENT = { agent: "atomic", pane_id: "w8:p1", agent_status: "idle", state_change_seq: 1, cwd: CWD };
 const SCREEN = ` question number 3 about the release\n ${LAST}\n ───────\n ❯ \n (anthropic) claude-opus-5-5 • ~/weather-app\n`;
 
-// GET /api/terminals/w8:p1/history from main.ts started with this store path.
 async function historyWith(store: string) {
   const fake = makeFakeHerdr({ agents: [AGENT], outputs: { [AGENT.pane_id]: SCREEN } });
   fakes.push(fake);
@@ -221,7 +211,7 @@ test("main.ts subscribes to herdr's events on the socket HERDR_SOCKET_PATH names
   }
 });
 
-// Push notifications (D32): the real entry point makes its keys in the folder it is
+// Push notifications: the real entry point makes its keys in the folder it is
 // told (never in the repo), keeps them across restarts, and serves the public one.
 test("makes its push keys on first start in AGENTS_PUSH_DIR, reuses them after a restart, and serves only the public key", async () => {
   const fake = makeFakeHerdr();

@@ -1,13 +1,8 @@
-// GET /api/agents: the list home uses, each agent with its latest line. Reads
-// and sends of one terminal are on the terminal routes (terminals.test.ts,
-// send.test.ts).
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { RECENT_IDLE_READS } from "../server/roster";
-import { disposeFakes, sorted } from "./support/http";
+import { sorted } from "./support/http";
 import { FOOTER } from "./support/screens";
-import { AGENTS, BLOCKED, CUSTOM, PANE, TABS, setup } from "./support/agents";
-
-afterAll(disposeFakes);
+import { AGENTS, BLOCKED_ATOMIC_PANE, ATOMIC_PANE, PI_PANE, TABS, setup } from "./support/agents";
 
 describe.concurrent("agent list", () => {
   const read = (pane: string) => ["agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200"];
@@ -21,24 +16,24 @@ describe.concurrent("agent list", () => {
     const { request, calls } = setup({
       agents: AGENTS,
       tabs: TABS,
-      outputs: { [BLOCKED]: `Upload to which track?${FOOTER}`, [PANE]: `Running the chart tests\n ∀ Gestating...${FOOTER}`, [CUSTOM]: `idle words${FOOTER}` },
+      outputs: { [BLOCKED_ATOMIC_PANE]: `Upload to which track?${FOOTER}`, [PI_PANE]: `Running the chart tests\n ∀ Gestating...${FOOTER}`, [ATOMIC_PANE]: `idle words${FOOTER}` },
     });
     expect(await listAgents(request)).toEqual([
       { ...AGENTS[0], tab: { id: "w8:t3", label: "2", number: 3 }, latest_line: "Upload to which track?" },
       { ...AGENTS[1], tab: { id: "w9:tD", label: "next work", number: 13 }, latest_line: "Running the chart tests" },
       { ...AGENTS[2], tab: { id: "w9:tE", label: "5", number: 14 }, latest_line: "idle words" },
     ]);
-    expect(sorted(calls())).toEqual(sorted([["agent", "list"], ["tab", "list"], read(BLOCKED), read(PANE), read(CUSTOM)]));
+    expect(sorted(calls())).toEqual(sorted([["agent", "list"], ["tab", "list"], read(BLOCKED_ATOMIC_PANE), read(PI_PANE), read(ATOMIC_PANE)]));
   });
 
   test("the list answers normally whatever `lines` holds", async () => {
-    const { request, calls } = setup({ agents: [AGENTS[2]], outputs: { [CUSTOM]: `idle words${FOOTER}` } });
+    const { request, calls } = setup({ agents: [AGENTS[2]], outputs: { [ATOMIC_PANE]: `idle words${FOOTER}` } });
     for (const query of ["", "?lines=", "?lines=,,,", "?lines=%2C%25zz", `?lines=${"x".repeat(5000)}`, "?lines=a&lines=b"]) {
       const response = await request("GET", `/api/agents${query}`);
       expect(response.status).toBe(200);
       expect((await response.json()).agents[0].latest_line).toBe("idle words");
     }
-    expect(calls().filter((call) => call[1] === "read").map((call) => call[2])).toEqual([CUSTOM]);
+    expect(calls().filter((call) => call[1] === "read").map((call) => call[2])).toEqual([ATOMIC_PANE]);
   });
 
   test("`lines` names idle panes, comma-separated, that the list reads beyond the recent ones", async () => {

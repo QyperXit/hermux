@@ -1,13 +1,10 @@
-// How herdr's failures and unknown routes become HTTP answers.
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createApp } from "../server/app";
 import { createHerdr } from "../server/herdr";
 import type { FakeConfig } from "./fake-herdr";
-import { ALLOWED_LOGIN, disposeFakes, herdrError } from "./support/http";
-import { AGENTS, PANE, WEB, setup } from "./support/agents";
+import { ALLOWED_LOGIN, herdrError } from "./support/http";
+import { AGENTS, PI_PANE, WEB, setup } from "./support/agents";
 import { CONFIG, PI, SHELL_PANE, keys, path, prompt, setup as terminalSetup } from "./support/terminals";
-
-afterAll(disposeFakes);
 
 describe.concurrent("error mapping", () => {
   test("an unknown pane becomes 404 pane_not_found on every terminal route", async () => {
@@ -42,7 +39,7 @@ describe.concurrent("error mapping", () => {
     const out = (result: unknown) => ({ exit: 0, stdout: JSON.stringify({ id: "cli:request", result }) });
     const cases: [string, FakeConfig["answers"]][] = [
       ["an agent list row without pane_id", { list: out({ agents: [{ agent: "pi", agent_status: "idle" }] }) }],
-      ["an agent list row without agent_status", { list: out({ agents: [{ agent: "pi", pane_id: PANE }] }) }],
+      ["an agent list row without agent_status", { list: out({ agents: [{ agent: "pi", pane_id: PI_PANE }] }) }],
       ["an agent list row that isn't an object", { list: out({ agents: ["w9:pD"] }) }],
       ["a result that isn't an object", { list: out("agents") }],
     ];
@@ -100,13 +97,9 @@ describe.concurrent("error mapping", () => {
     expect(calls()).toEqual([]);
   });
 
-  // D25: reads and sends of one pane are on /api/terminals only. The agent list
-  // names no pane routes, so collectionApi answers each of these as an unknown
-  // action, 404 not_found, before it looks at the method (405 is only for a
-  // route that exists, such as POST /api/agents).
   test("the removed per-agent routes answer as unknown routes: 404 not_found for every method, and herdr never runs", async () => {
     const { request, calls } = setup();
-    for (const paneId of [PANE, SHELL_PANE, "w99:p99"]) {
+    for (const paneId of [PI_PANE, SHELL_PANE, "w99:p99"]) {
       for (const action of ["", "/output", "/history", "/prompt", "/keys", "/focus"]) {
         const route = `/api/agents/${encodeURIComponent(paneId)}${action}`;
         for (const method of ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH"]) {

@@ -1,6 +1,3 @@
-// Live output streaming (D30), the server side: herdr's observe stream (a fake
-// herdr binary), the headless emulator's screen, and the watcher that keeps a
-// stream only for the panes a page views and pushes their output.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Terminal } from "@xterm/headless";
 import { HerdrError, createHerdr, type Herdr, type ObserveHandlers } from "../server/herdr";
@@ -33,7 +30,6 @@ describe("herdr's observe stream through the emulator", () => {
         "w1:p1": {
           frames: [
             fullFrame(["$ make", `${ESC}[0;1;39;49mbuilding${ESC}[0;39;49m 3 files`, `${ESC}[0;38;5;208;49mwarning${ESC}[0;39;49m: old`]),
-            // A line that isn't a frame is skipped.
             { type: "something.else" },
             partialFrame([[3, 1, `${ESC}[0;38;2;0;200;0;49mok${ESC}[0;39;49m${ESC}[K`], [4, 1, "$ "]]),
             partialFrame([[2, 10, `${ESC}[0;3;4;39;49m4${ESC}[0;39;49m`]], { seq: 3 }),
@@ -69,23 +65,23 @@ describe("herdr's observe stream through the emulator", () => {
   });
 
   test("a stream that ends by itself, or a pane that has gone, is reported with herdr's error", async () => {
-    const fake = makeFakeHerdr({ shells: [{ pane_id: "w1:p1" }], observe: { "w1:p1": { frames: [fullFrame(["x"])], exit: 1, stderr: JSON.stringify({ error: { code: "server_unreachable", message: "down" } }) } } });
+    const fake = makeFakeHerdr({
+      shells: [{ pane_id: "w1:p1" }, { pane_id: "w1:p2" }],
+      observe: { "w1:p1": { frames: [fullFrame(["x"])], exit: 1, stderr: JSON.stringify({ error: { code: "server_unreachable", message: "down" } }) }, "w1:p2": "gone" },
+    });
     fakes.push(fake);
     const herdr = createHerdr(fake.bin);
-    for (const [paneId, code] of [["w1:p1", "server_unreachable"], ["w1:p9", "pane_not_found"]]) {
+    for (const [paneId, code] of [["w1:p1", "server_unreachable"], ["w1:p2", "pane_not_found"], ["w1:p9", "pane_not_found"]]) {
       const ends: string[] = [];
       herdr.observe(paneId, { cols: 30, rows: 4 }, { frame: () => {}, end: (error) => ends.push(error.code) });
       await until(() => ends.length === 1, 3_000, "the end");
       expect(ends).toEqual([code]);
     }
-    // Anything but a pane ID is refused before herdr runs.
     expect(() => herdr.observe("--help", { cols: 30, rows: 4 }, { frame: () => {}, end: () => {} })).toThrow("Not a herdr pane ID");
     auditCalls(fake.calls());
   });
 });
 
-// The watcher on an in-memory herdr: the test pushes frames, ends streams and
-// says what each read returns.
 function setup({ graceMs = 60, debounceMs = 10, retryMs = { first: 20, max: 80 } } = {}) {
   const observations: { paneId: string; size: { cols: number; rows: number }; handlers: ObserveHandlers; stopped: boolean; at: number }[] = [];
   const reads: string[] = [];
@@ -124,7 +120,6 @@ function setup({ graceMs = 60, debounceMs = 10, retryMs = { first: 20, max: 80 }
     current,
     failReads: (error: HerdrError | null) => (readFailure = error),
     failPane: (error: HerdrError | null) => (paneFailure = error),
-    // Sends a frame on the pane's open stream.
     frame(paneId: string, frame: ReturnType<typeof fullFrame>) {
       const [observation] = current(paneId);
       if (!observation) throw new Error(`No open stream of ${paneId}`);
@@ -149,7 +144,6 @@ describe("the watcher", () => {
     await Bun.sleep(20);
     expect(world.observations).toHaveLength(1);
     expect(world.watcher.watched()).toEqual(["w1:p1"]);
-    // Its first frame: one read, and both viewers hear it is streamed, with the text.
     world.frame("w1:p1", fullFrame(SCREEN));
     await world.settle();
     expect(world.reads).toEqual(["w1:p1"]);
@@ -159,14 +153,13 @@ describe("the watcher", () => {
         { type: "output", pane_id: "w1:p1", text: "text of w1:p1" },
       ]);
     }
-    // A viewer that comes once it streams hears so at once, with the latest text.
     const third = world.viewer();
     world.watcher.watch(third, "w1:p1");
     expect(third.heard).toEqual(first.heard);
     expect(world.reads).toEqual(["w1:p1"]);
   });
 
-  test("viewed says whether a page views the pane now: not before, not another pane, and not during the grace period after the last one leaves (D32)", async () => {
+  test("viewed says whether a page views the pane now: not before, not another pane, and not during the grace period after the last one leaves", async () => {
     const world = setup({ graceMs: 80 });
     const first = world.viewer();
     const second = world.viewer();
@@ -177,10 +170,8 @@ describe("the watcher", () => {
     world.watcher.unwatch(first);
     expect(world.watcher.viewed("w1:p1")).toBe(true);
     world.watcher.unwatch(second);
-    // The stream is kept for the grace period, but nobody is looking.
     expect(world.watcher.watched()).toEqual(["w1:p1"]);
     expect(world.watcher.viewed("w1:p1")).toBe(false);
-    // A viewer that moves to another pane is no longer viewing the first.
     world.watcher.watch(first, "w1:p1");
     world.watcher.watch(first, "w1:p2");
     expect([world.watcher.viewed("w1:p1"), world.watcher.viewed("w1:p2")]).toEqual([false, true]);
@@ -200,21 +191,18 @@ describe("the watcher", () => {
     world.reads.length = 0;
     viewer.heard.length = 0;
 
-    // One change.
     world.texts.set("w1:p1", "text two");
     world.frame("w1:p1", partialFrame([[3, 1, "done"]]));
     await world.settle();
     expect(world.reads).toEqual(["w1:p1"]);
     expect(viewer.heard).toEqual([{ type: "output", pane_id: "w1:p1", text: "text two" }]);
 
-    // Frames that change nothing: the full screen again, the same text written again, a cursor move.
     world.frame("w1:p1", fullFrame(["$ make", "building", "done", ""]));
     world.frame("w1:p1", partialFrame([[1, 1, "$ make"]]));
     world.frame("w1:p1", partialFrame([[4, 3, ""]]));
     await world.settle();
     expect(world.reads).toEqual(["w1:p1"]);
 
-    // A burst within the debounce: one read, one push.
     world.texts.set("w1:p1", "text three");
     for (const [index, word] of ["a", "ab", "abc", "abcd"].entries()) world.frame("w1:p1", partialFrame([[4, 1, word]], { seq: 3 + index }));
     await world.settle();
@@ -224,7 +212,6 @@ describe("the watcher", () => {
       { type: "output", pane_id: "w1:p1", text: "text three" },
     ]);
 
-    // The screen changed but the read didn't (e.g. only the clock moved off the read's lines): no push.
     world.frame("w1:p1", partialFrame([[4, 1, "abcde"]]));
     await world.settle();
     expect(world.reads).toHaveLength(3);
@@ -239,7 +226,6 @@ describe("the watcher", () => {
     world.frame("w1:p1", fullFrame(["", "", "", `${" ".repeat(29)}x`]));
     await world.settle();
     world.reads.length = 0;
-    // Wider: an x at column 35. Without the resize it would land on column 30, already an x.
     world.frame("w1:p1", partialFrame([[4, 35, "x"]], { width: 40 }));
     await world.settle();
     expect(world.reads).toEqual(["w1:p1"]);
@@ -254,24 +240,20 @@ describe("the watcher", () => {
     await until(() => world.observations.length === 1);
     world.watcher.unwatch(first);
     world.watcher.unwatch(second);
-    // Within the grace period it still runs, and a viewer coming back keeps it.
     await Bun.sleep(40);
     expect(world.observations[0].stopped).toBe(false);
     world.watcher.watch(first, "w1:p1");
     await Bun.sleep(120);
     expect(world.observations).toHaveLength(1);
     expect(world.observations[0].stopped).toBe(false);
-    // Unwatching a pane it doesn't view changes nothing.
     world.watcher.unwatch(first, "w1:p2");
     await Bun.sleep(120);
     expect(world.observations[0].stopped).toBe(false);
-    // Gone for good: stopped after the grace period, and nothing is streamed.
     world.watcher.unwatch(first, "w1:p1");
     await Bun.sleep(40);
     expect(world.observations[0].stopped).toBe(false);
     await until(() => world.observations[0].stopped, 1_000, "the stream to stop");
     expect(world.watcher.watched()).toEqual([]);
-    // A later viewer starts a new one.
     world.watcher.watch(second, "w1:p1");
     await until(() => world.observations.length === 2);
   });
@@ -284,7 +266,6 @@ describe("the watcher", () => {
     world.watcher.watch(viewer, "w1:p2");
     await until(() => world.observations.length === 2 && world.observations[0].stopped, 1_000, "the swap");
     expect(world.watcher.watched()).toEqual(["w1:p2"]);
-    // It hears only of the pane it views now.
     world.frame("w1:p2", fullFrame(SCREEN));
     await world.settle();
     expect(viewer.heard.map((event) => event.pane_id)).toEqual(["w1:p2", "w1:p2"]);
@@ -302,18 +283,15 @@ describe("the watcher", () => {
     world.observations[0].handlers.end(new HerdrError("herdr_failed", "herdr exited with status 1"));
     expect(viewer.heard).toEqual([{ type: "watch", pane_id: "w1:p1", streaming: false }]);
     await until(() => world.observations.length === 2, 1_000, "a retry");
-    // It fails again at once, and again: the waits double up to the limit.
     world.observations[1].handlers.end(new HerdrError("herdr_failed", "again"));
     await until(() => world.observations.length === 3, 1_000, "a second retry");
     world.observations[2].handlers.end(new HerdrError("herdr_failed", "again"));
     await until(() => world.observations.length === 4, 1_000, "a third retry");
     const gaps = [1, 2, 3].map((index) => world.observations[index].at - world.observations[index - 1].at);
     expect([gaps[0] >= 28, gaps[1] >= 58, gaps[2] >= 58, gaps[2] < 100]).toEqual([true, true, true, true]);
-    // An end from a stream that was replaced changes nothing.
     world.observations[0].handlers.end(new HerdrError("herdr_failed", "late"));
     expect(viewer.heard).toEqual([{ type: "watch", pane_id: "w1:p1", streaming: false }]);
 
-    // Back: the first frame reads, and the viewer streams again, with the text even if unchanged.
     world.frame("w1:p1", fullFrame(SCREEN));
     await world.settle();
     expect(viewer.heard).toEqual([

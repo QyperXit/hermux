@@ -1,3 +1,5 @@
+import { RECENT_IDLE_READS } from "./activity.js";
+
 /**
  * @typedef {import("./types.js").Agent} Agent
  * @typedef {import("./types.js").Terminal} Terminal
@@ -112,18 +114,14 @@ const agents = [
     agent_status: "idle",
     state_change_seq: 120 - i * 9,
     ...(i % 4 === 1 ? { completion_seq: 120 - i * 9 } : {}),
-    // The server reads the 8 most recently active idle agents.
-    ...(i < 8 ? { latest_line: "Ready." } : {}),
+    ...(i < RECENT_IDLE_READS ? { latest_line: "Ready." } : {}),
     cwd,
     terminal_title_stripped,
   })),
 ];
 
-// Plain shell terminals, in the workspaces above. A shell has no status.
 /** @type {Record<string, string>} */
 const WORKSPACES = { w8: "weather-app", w9: "usage-dashboard", wA: "todo-cli", wB: "recipe-book", wD: "budget-tracker", wE: "portfolio-site", wF: "hermux" };
-// Each pane's tab: its label and number. herdr labels an unnamed tab with its
-// place in the workspace, which can differ from its number.
 /** @type {Record<string, [label: string, number: number]>} */
 const TABS = {
   "w8:p1": ["release", 1],
@@ -222,8 +220,6 @@ function appendOutput(paneId, text) {
 /** @param {string | undefined} workspaceId */
 const workspaceLabel = (workspaceId) => (workspaceId === undefined ? null : WORKSPACES[workspaceId]);
 
-// What the server's `Terminal` record holds for every sample pane: the agents
-// (in the agent list's order), then the shells.
 /** @returns {Terminal[]} */
 function sampleTerminals() {
   /** @param {string} cwd */
@@ -257,14 +253,12 @@ function sampleTerminals() {
 /** @param {Shell} shell */
 function shellLastLine(shell) {
   const text = shellOutputs[shell.pane_id] ?? shellOutput(shell);
-  // The last thing the shell printed; its bare prompt only when it printed nothing.
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   let last = lines.length - 1;
   while (last >= 0 && lines[last].endsWith("$")) last--;
   return last >= 0 ? lines[last] : lines.pop();
 }
 
-// A shell just echoes what was typed, then shows its prompt again.
 /**
  * @param {Shell} shell
  * @param {string} text
@@ -290,7 +284,6 @@ export function createSampleClient() {
       return sampleTerminals();
     },
 
-    // Every pane in the workspace has its latest line (idle agents too).
     async listWorkspaceTerminals(workspaceId) {
       await pause(120);
       const terminals = sampleTerminals().filter((terminal) => terminal.workspace.id === workspaceId);
@@ -309,7 +302,6 @@ export function createSampleClient() {
       return outputs[paneId] ?? idleOutput(agent.cwd.split("/").pop());
     },
 
-    // The sample data has no Atomic session store.
     async readHistory() {
       await pause(80);
       return { history: null, reason: "unavailable" };
@@ -345,7 +337,7 @@ export function createSampleClient() {
       }
     },
 
-    // The sample data has no event stream, so nothing is ever watched (D30).
+    // The sample data has no event stream, so nothing is ever watched.
     async watchOutput() {},
     async unwatchOutput() {},
   };

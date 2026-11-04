@@ -1,6 +1,3 @@
-// Earlier messages drawn in the page (web/history.js): how they render and
-// what the note above them says. When they load is tested through
-// web/earlier.js (test/earlier.test.ts). No DOM and no server here.
 import { describe, expect, test } from "bun:test";
 import { historyHtml, historyNote, markdownHtml } from "../web/history.js";
 

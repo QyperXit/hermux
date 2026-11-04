@@ -1,17 +1,11 @@
-// Sends on /api/terminals: one matrix over the three ways a terminal is sent
-// to (a herdr built-in agent kind, a custom-kind agent and a plain shell), with
-// every guard on the way: the body and key checks, the re-check of the pane
-// just before each send, and D10's rules for custom-kind agents.
-import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createApp } from "../server/app";
 import { createHerdr, isBuiltInKind } from "../server/herdr";
 import { makeFakeHerdr, type FakeConfig } from "./fake-herdr";
 import { WEB } from "./support/agents";
-import { ALLOWED_LOGIN, auditCalls, disposeFakes, herdrError, paste } from "./support/http";
+import { ALLOWED_LOGIN, auditCalls, herdrError, paste } from "./support/http";
 import { REFUSED_KEYS, REPRESENTATIVE_KEYS } from "./support/key-grammar";
-import { AGENTS, ATOMIC, CONFIG, OTHER_AGENT, PI, SHELLS, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
-
-afterAll(disposeFakes);
+import { AGENTS, ATOMIC, CONFIG, BLOCKED_ATOMIC, PI, SHELLS, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
 
 type Call = string[];
 type Target = {
@@ -89,8 +83,6 @@ describe.concurrent("messages", () => {
     }
   }
 
-  // An agent's message is pasted (by herdr's `agent prompt`, or by the server for
-  // a custom kind), so it can't hold the paste end; a shell's is typed as it is.
   test("text holding the paste end ESC [201~ is refused with 400 for agents before herdr runs; a shell gets it as typed", async () => {
     const text = "before \x1b[201~ after";
     const { request, calls } = setup();
@@ -142,7 +134,6 @@ describe.concurrent("messages", () => {
     });
   }
 
-  // The tests' harness skips the wait; the server itself waits as herdr's own `agent prompt` does.
   test.serial("without a submit delay given, the server waits 300 ms between a custom-kind agent's paste and Enter", async () => {
     const fake = makeFakeHerdr(CONFIG);
     const app = createApp({ herdr: createHerdr(fake.bin), allowedLogin: ALLOWED_LOGIN, webRoot: WEB });
@@ -295,11 +286,10 @@ describe.concurrent("the pane is re-checked just before every send", () => {
 });
 
 describe.concurrent("blocked agents", () => {
-  // OTHER_AGENT is an atomic agent waiting on a question.
   test("custom-kind agent: a message is refused with 409 agent_blocked and nothing is sent", async () => {
     const { request, calls } = setup();
-    expect(await errorOf(await request("POST", ...prompt(OTHER_AGENT, "should not arrive", "atomic")))).toEqual([409, "agent_blocked"]);
-    expect(calls()).toEqual([["agent", "get", OTHER_AGENT]]);
+    expect(await errorOf(await request("POST", ...prompt(BLOCKED_ATOMIC, "should not arrive", "atomic")))).toEqual([409, "agent_blocked"]);
+    expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC]]);
   });
 
   test("custom-kind agent: the re-check catches a block between sends", async () => {
@@ -322,8 +312,8 @@ describe.concurrent("blocked agents", () => {
   test("keys still reach a blocked agent of either kind, so its question can be answered", async () => {
     const blocked = { ...CONFIG, agents: AGENTS.map((agent) => (agent.pane_id === PI ? { ...agent, agent_status: "blocked" } : agent)) };
     const { request, calls } = setup(blocked);
-    expect((await request("POST", ...keys(OTHER_AGENT, ["2", "enter"], "atomic"))).status).toBe(200);
+    expect((await request("POST", ...keys(BLOCKED_ATOMIC, ["2", "enter"], "atomic"))).status).toBe(200);
     expect((await request("POST", ...keys(PI, ["2", "enter"], "pi"))).status).toBe(200);
-    expect(calls()).toEqual([["agent", "get", OTHER_AGENT], ["pane", "send-keys", OTHER_AGENT, "2", "enter"], BUILT_IN.recheck, ...BUILT_IN.keys(["2", "enter"])]);
+    expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], ["pane", "send-keys", BLOCKED_ATOMIC, "2", "enter"], BUILT_IN.recheck, ...BUILT_IN.keys(["2", "enter"])]);
   });
 });

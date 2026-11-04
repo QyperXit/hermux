@@ -1,7 +1,3 @@
-// HTML escaping: escapeHtml itself (web/html.js) with hostile inputs, and
-// hostile server text pushed through the page's own renderers for the home
-// and All rows, the switcher sheet, the Reader's links and copy keys, Earlier
-// messages and the key bar. None of them may let a tag or an attribute through.
 import { describe, expect, test } from "bun:test";
 import { memoryStorage } from "../web/home.js";
 import { escapeHtml } from "../web/html.js";
@@ -13,8 +9,6 @@ import { asPageElement, fakePage, type FakeElement } from "./support/fake-dom";
 import { drawComposer } from "../web/composer.js";
 import { keyBarScreen } from "./support/key-bar";
 
-// Markup, attribute breakers in both quote styles, entity-looking text and
-// backticks.
 const HOSTILE = [
   `<script>alert("x")</script>`,
   `"><img src=x onerror=alert(1)>`,
@@ -24,8 +18,6 @@ const HOSTILE = [
   `</a></span><a href="javascript:alert(1)">`,
 ];
 
-// No tag or attribute can come from the hostile text: after removing the
-// renderer's own markup, no < > or " is left, and every & starts an entity.
 const ownTags = /<\/?(a|span|small|svg|use|li|section|h2|div|p|button|label|textarea)\b(?:[^<>"]|"[^"<>]*")*>/g;
 function expectInert(html: string) {
   const text = html.replace(ownTags, "");
@@ -92,7 +84,7 @@ describe("the page's renderers with hostile server text", () => {
       expect(rowHtml(row, { line: "" })).toContain(escapeHtml(value));
     });
 
-    test(`a row tagged by its tab's label (D31) keeps ${JSON.stringify(value)} as text`, () => {
+    test(`a row tagged by its tab's label keeps ${JSON.stringify(value)} as text`, () => {
       const tabbed = { ...agent(value), terminal_title_stripped: "", tab: { id: "w9:tD", label: value, number: 4 } };
       const tag = `>${escapeHtml(value)}</small>`;
       for (const html of [rowHtml(tabbed, { line: "" }), allRowHtml(tabbed), homeBodyHtml({ blocked: [{ ...tabbed, agent_status: "blocked" }], finished: [], activity: [{ agent: tabbed, older: false }], working: [tabbed], olderCount: 0 }), shellRowHtml(shell(value))]) {
@@ -108,7 +100,7 @@ describe("the page's renderers with hostile server text", () => {
       expect(lineErrorHtml(failed(value))).toContain(escapeHtml(value));
     });
 
-    test(`the screen header shows a tab labelled ${JSON.stringify(value)} as text, with the pane ID only as its title (D31)`, () => {
+    test(`the screen header shows a tab labelled ${JSON.stringify(value)} as text, with the pane ID only as its title`, () => {
       const { root } = fakePage(`<span class="identity-name"></span>`);
       const name = root.querySelector(".identity-name") as FakeElement;
       showTerminalName(asPageElement(name), shell(value));
@@ -119,7 +111,7 @@ describe("the page's renderers with hostile server text", () => {
       expect(asPageElement(name).title).toBe("w9:p2");
     });
 
-    test(`Reader links, copy keys and Earlier messages keep ${JSON.stringify(value)} as text (D29)`, () => {
+    test(`Reader links, copy keys and Earlier messages keep ${JSON.stringify(value)} as text`, () => {
       const text = `See https://example.com/${value} and /tmp/${value} or ~/${value}.`;
       expectInert(readerHtml(` ${text}\n╭ BOX ─╮\n│ ${text} │\n╰──────╯`));
       expectInert(messageHtml({ seq: 1, role: "assistant", blocks: [{ kind: "text", text: `${text} [${value}](https://example.com/${value}) \`${text}\`` }] }));
@@ -127,12 +119,8 @@ describe("the page's renderers with hostile server text", () => {
     });
   }
 
-  // The key bar draws into a fake DOM that parses its markup, so hostile text
-  // that escaped its escaping would come out as elements or attributes the
-  // key bar never draws, or as a different label.
   test("the key bar keeps hostile key labels and saved commands as text, and sends the commands as written", () => {
     const shape = (root: FakeElement) => new Set([root, ...root.descendants()].map((element) => [element.localName, ...element.attributes.keys()].join(" ")));
-    // What the key bar draws for ordinary labels and commands, through the same steps.
     const clean = keyBarScreen();
     clean.click(clean.button("Add a key"));
     clean.tap(clean.button("Edit Esc"));
@@ -141,7 +129,6 @@ describe("the page's renderers with hostile server text", () => {
     clean.click(clean.button("Edit saved commands"));
     const drawn = shape(clean.root);
 
-    // A saved bar keeps labels of up to 12 characters; the picker adds a longer one.
     const labels = HOSTILE.map((value) => value.slice(0, 12));
     const bar = labels.map((label, index) => ({ key: `f${index + 1}`, label }));
     const storage = memoryStorage();
@@ -170,8 +157,6 @@ describe("the page's renderers with hostile server text", () => {
     expect([...shape(screen.root)].filter((element) => !drawn.has(element))).toEqual([]);
   });
 
-  // The composer names its target in the placeholder, the field's label, the
-  // arrow's label and the popover's label; a hostile name must stay text in all four.
   test("the message box keeps a hostile Terminal name as text where it names the target", () => {
     const shape = (root: FakeElement) => [root, ...root.descendants()].map((element) => [element.localName, ...element.attributes.keys()].join(" "));
     const clean = keyBarScreen();

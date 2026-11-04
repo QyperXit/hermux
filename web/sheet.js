@@ -1,8 +1,3 @@
-// The switcher sheet, listing every pane in the open terminal's workspace.
-// It is a modal dialog: the page behind it is inert, focus stays inside it and
-// returns to the terminals key when it closes. A tap outside, a swipe down on
-// its header (or on the list when scrolled to its top) or Esc closes it.
-// No DOM is touched on import, so the tests can import it.
 import { find, findAll, need } from "./dom.js";
 import { closesOnSwipe, hasSwitcher, sheetRowsHtml, sheetTitle, switcherRows } from "./terminals.js";
 
@@ -14,8 +9,6 @@ import { closesOnSwipe, hasSwitcher, sheetRowsHtml, sheetTitle, switcherRows } f
 // The sheet slides out for this long before it is taken off the page.
 const SHEET_EXIT_MS = 200;
 
-// The sheet stays open only while its workspace has another pane to switch
-// to and still holds the open pane.
 /**
  * @param {Pick<Terminal, "pane_id">[]} terminals
  * @param {string | undefined} paneId
@@ -24,8 +17,6 @@ export function sheetFits(terminals, paneId) {
   return hasSwitcher(terminals) && terminals.some((terminal) => terminal.pane_id === paneId);
 }
 
-// Tab and Shift+Tab go round the rows: from `at` (-1 when focus isn't on a
-// row) to the next row's index.
 /**
  * @param {number} at
  * @param {number} count
@@ -35,10 +26,6 @@ export function nextRow(at, count, backwards) {
   return backwards ? (at <= 0 ? count - 1 : at - 1) : at === count - 1 ? 0 : at + 1;
 }
 
-// `app` is the page, `root` the element the sheet is drawn in; both are
-// touched only once the sheet opens. `hrefOf` gives a pane's link; `onSwap`
-// opens another pane of the workspace once the sheet has closed. `open` and
-// `render` are given the open screen's workspace and pane.
 /**
  * @param {{
  *   app: HTMLElement | null,
@@ -57,10 +44,8 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     throw new Error(`The switcher has no ${what}.`);
   };
 
-  // The sheet while it is open: { trigger, html }.
   /** @type {{ trigger: HTMLElement, html: string } | null} */
   let sheet = null;
-  // The open screen's workspace and pane, as last given.
   /** @type {Workspace | null} */
   let workspace = null;
   /** @type {string | undefined} */
@@ -123,8 +108,6 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     else setTimeout(done, SHEET_EXIT_MS);
   }
 
-  // The rows are redrawn only when they changed, so a refresh doesn't move the
-  // list or the focus.
   /**
    * @param {Workspace | null} nextWorkspace
    * @param {string | undefined} nextPaneId
@@ -138,7 +121,6 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
   function draw() {
     const terminals = workspace?.terminals ?? [];
     if (!sheet) return;
-    // A workspace left with one pane has nothing to switch to.
     if (!sheetFits(terminals, paneId)) {
       close();
       return;
@@ -158,7 +140,6 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     updateMore();
   }
 
-  // Rows cut off at the bottom of the list say how many more there are.
   function updateMore() {
     const list = find(root(), ".switcher-list");
     const more = find(root(), ".switcher-more");
@@ -200,10 +181,6 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     rows[next].focus();
   }
 
-  // A swipe down moves the sheet with the finger and closes it when it went far
-  // enough (or was a quick flick); otherwise it springs back. The header takes
-  // pointer events (mouse or touch); the list takes touch events, and only
-  // while it is scrolled to its top, so scrolling the list is never a swipe.
   /**
    * @param {HTMLElement} panel
    * @param {HTMLElement} head
@@ -246,7 +223,6 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     list.addEventListener("touchmove", (event) => {
       if (!drag) return;
       if (event.touches[0].clientY <= drag.y) {
-        // Moving up: the list scrolls, as it always does.
         end(true);
         return;
       }

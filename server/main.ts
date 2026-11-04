@@ -27,28 +27,19 @@ if (allowedLogin === "") {
 const HOSTNAME = "127.0.0.1";
 const port = Number(process.env.PORT || 8787);
 const herdrBin = process.env.HERDR_BIN || "herdr";
-// Atomic's session store, opened read-only for earlier messages.
 const sessionStore = process.env.ATOMIC_SESSION_STORE || resolve(homedir(), ".atomic/workflows/journal.sqlite");
 
-// Push notifications (D32): the VAPID keys and the phones' subscriptions stay in
-// this folder (git-ignored), readable by the user only.
 const pushDir = process.env.AGENTS_PUSH_DIR || resolve(import.meta.dir, "../.push");
 // Web Push asks the sender to name itself with a mailto: or https: address.
 const pushSubject = process.env.AGENTS_PUSH_SUBJECT || undefined;
 
 const herdr = createHerdr(herdrBin);
-// Live updates (D20): herdr's events, read-only, from the socket of the Herdr
-// session the server runs in.
 const socketPath = herdrSocketPath();
 const events = createLiveEvents({ socketPath, panes: async () => (await herdr.panes()).map((pane) => pane.pane_id) });
 events.start();
-// Live output (D30): a read-only observe stream of each Terminal a page is
-// viewing, only while one is.
 const watcher = createWatcher({ herdr });
 const pushStore = createPushStore(pushDir);
 const push = createPush({ store: pushStore, send: webPushSend(pushStore, pushSubject) });
-// An Agent that needs you or finishes is pushed to the phones that opted in,
-// unless a page is viewing it.
 createNotifier({ events, herdr, roster: createRoster(herdr, Date.now), push, watcher }).start();
 
 const server = Bun.serve({

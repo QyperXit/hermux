@@ -1,6 +1,3 @@
-// Sending a notification (D32), with web-push's send replaced by a fake push
-// service: who gets it, what a dead subscription does, what is tried again,
-// and that nothing secret is logged.
 import { afterAll, describe, expect, test } from "bun:test";
 import { createPush, type Payload } from "../server/push";
 import { makePush, removePushFolders, subscription } from "./support/push";

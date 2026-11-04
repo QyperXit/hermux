@@ -1,10 +1,8 @@
-// The home and All screens' markup (web/screens.js): the notifications bell and
-// the theme key sit together in each header (D33), and the All screen no longer
-// ends in a Notifications section; the rest of each screen is as it was.
 import { describe, expect, test } from "bun:test";
 import { memoryStorage, homeLists } from "../web/home.js";
 import { bellHtml } from "../web/notifications.js";
-import { allScreenHtml, homeScreenHtml } from "../web/screens.js";
+import { FRESHNESS_SLOT, allScreenHtml, homeScreenHtml } from "../web/screens.js";
+import { fakePage } from "./support/fake-dom";
 import type { Snapshot } from "../web/session.js";
 
 const agents = [
@@ -56,6 +54,12 @@ describe("the home screen", () => {
   test("it shows the summary and the lamp for an agent that needs you", () => {
     expect(html).toContain("1 needs you · 1 working");
     expect(html).toContain('data-status="blocked"');
+  });
+
+  test("its freshness line has one slot, so the page compares the HTML without the clock and then fills the slot", () => {
+    const slotted = homeScreenHtml({ view: { ...view, route: { name: "home" } }, home, freshness: FRESHNESS_SLOT, keys });
+    expect(fakePage(slotted).root.querySelectorAll(".freshness")).toHaveLength(1);
+    expect(slotted.replace(FRESHNESS_SLOT, '<span class="freshness">Live</span>')).toBe(html);
   });
 
   test("it has no notifications section either", () => {

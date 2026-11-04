@@ -1,7 +1,3 @@
-// The browser's HTTP client (web/api.js) against the real app over real HTTP,
-// with a fake herdr and a fixture session store. The page's relative URLs are
-// sent to the test server with the login header tailscale serve adds; every
-// request the client makes is recorded as it went out.
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createApp } from "../server/app";
 import { createHerdr } from "../server/herdr";
@@ -11,7 +7,7 @@ import { lineErrorText } from "../web/terminals.js";
 import { makeFakeHerdr, type FakeConfig } from "./fake-herdr";
 import { ALLOWED_LOGIN, HERDR_COMMANDS, auditCalls, paste } from "./support/http";
 import { FOOTER } from "./support/screens";
-import { CWD, makeStore, removeStores, type Entry } from "./support/session-store";
+import { CWD, makeStore, type Entry } from "./support/session-store";
 
 const ATOMIC = "w8:p1";
 const PI = "w8:p3";
@@ -20,7 +16,6 @@ const LAST = "the latest answer is on the screen right now";
 
 const user = (text: string): Entry => ({ type: "message", message: { role: "user", content: [{ type: "text", text }], timestamp: 1 } });
 const assistant = (text: string): Entry => ({ type: "message", message: { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" } });
-// Six turns: seq 1-12, the last answer on screen.
 const entries = Array.from({ length: 6 }, (_, index) => [user(`question number ${index + 1} about the release`), assistant(index === 5 ? LAST : `answer number ${index + 1} for the release notes`)]).flat();
 const screen = ` question number 6 about the release\n ${LAST}${FOOTER}`;
 
@@ -48,13 +43,11 @@ const servers: ReturnType<typeof Bun.serve>[] = [];
 let fake: ReturnType<typeof makeFakeHerdr>;
 let sent: Sent[];
 
-// The page of earlier messages the server answered; the test fails if it has none.
 function held(answer: HistoryPage) {
   if (!answer.history) throw new Error(`Expected a page of earlier messages, got ${answer.reason}.`);
   return answer.history;
 }
 
-// A server for the real app; the page's fetch goes to it.
 function serve(fetch: (request: Request) => Response | Promise<Response>) {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch });
   servers.push(server);
@@ -84,7 +77,6 @@ afterEach(() => {
 afterAll(() => {
   for (const server of servers) server.stop(true);
   for (const each of fakes) each.dispose();
-  removeStores();
 });
 
 describe("reads", () => {
@@ -173,7 +165,6 @@ describe("sends", () => {
 test("watchOutput and unwatchOutput send the stream's name as JSON to the pane's watch route; a refusal comes back as an error", async () => {
   const client = createHttpClient();
   const path = `api/terminals/${encodeURIComponent(SHELL_PANE)}/watch`;
-  // This app has no event stream, so no such stream exists.
   for (const call of [() => client.watchOutput(SHELL_PANE, "s1"), () => client.unwatchOutput(SHELL_PANE, "s1")]) {
     const error = await call().then(() => null, (thrown: Error & { code?: string }) => thrown);
     expect(error?.code).toBe("not_found");
