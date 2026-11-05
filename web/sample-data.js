@@ -23,19 +23,27 @@ const SKETCHES = "/home/you/projects/hermux/sketches";
 
 /**
  * @param {string} label
- * @param {string} body
+ * @param {string} screen
  */
-const sketch = (label, body) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="412" height="915" viewBox="0 0 412 915"><rect width="412" height="915" fill="#ebe8e2"/><rect x="24" y="32" width="240" height="28" rx="4" fill="#121211"/>${body}<rect x="24" y="851" width="160" height="40" rx="4" fill="#121211"/><text x="40" y="878" font-family="sans-serif" font-size="20" font-weight="600" fill="#f7f6f2">${label}</text></svg>`;
-const LINES = `<rect x="24" y="84" width="364" height="16" rx="4" fill="#cbc6bc"/><rect x="24" y="112" width="260" height="16" rx="4" fill="#cbc6bc"/>`;
+const sketch = (label, screen) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="720" viewBox="0 0 960 720"><rect width="960" height="720" fill="#d9d5cd"/><rect x="40" y="36" width="${label.length * 14 + 40}" height="48" rx="8" fill="#121211"/><text x="60" y="68" font-family="sans-serif" font-size="24" font-weight="600" fill="#f7f6f2">${label}</text><g transform="translate(330 108)"><rect width="300" height="580" rx="28" fill="#1d1d1b"/><rect x="10" y="10" width="280" height="560" rx="20" fill="#ebe8e2"/><rect x="26" y="34" width="150" height="18" rx="4" fill="#121211"/><circle cx="262" cy="43" r="8" fill="#e2560f"/><line x1="10" y1="70" x2="290" y2="70" stroke="#cbc6bc" stroke-width="2"/>${screen}</g></svg>`;
+/**
+ * @param {number} y
+ * @param {boolean} [lit]
+ */
+const ROW = (y, lit = false) =>
+  `<circle cx="34" cy="${y + 14}" r="7" fill="${lit ? "#e2560f" : "#d6d1c7"}"/><rect x="52" y="${y}" width="150" height="12" rx="3" fill="#121211"/><rect x="52" y="${y + 20}" width="210" height="10" rx="3" fill="#cbc6bc"/>`;
 
 /** @type {Record<string, string>} */
 const PICTURES = {
-  [`${SKETCHES}/left.png`]: sketch("Sketch A", `${LINES}<circle cx="36" cy="164" r="12" fill="#e2560f"/><rect x="24" y="200" width="364" height="620" rx="4" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/>`),
-  [`${SKETCHES}/middle.png`]: sketch("Sketch B", `<rect x="24" y="84" width="364" height="600" rx="4" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/><rect x="24" y="708" width="172" height="56" rx="4" fill="#cbc6bc"/><rect x="216" y="708" width="172" height="56" rx="4" fill="#cbc6bc"/>`),
+  [`${SKETCHES}/left.png`]: sketch("Sketch A · Inbox first", [90, 140, 200, 250, 300, 350].map((y, i) => ROW(y, i === 0)).join("")),
+  [`${SKETCHES}/middle.png`]: sketch(
+    "Sketch B · Big cards",
+    `${[90, 250].map((y, i) => `<rect x="24" y="${y}" width="252" height="140" rx="8" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/>${ROW(y + 16, i === 0)}<rect x="40" y="${y + 70}" width="200" height="10" rx="3" fill="#cbc6bc"/><rect x="40" y="${y + 90}" width="160" height="10" rx="3" fill="#cbc6bc"/>`).join("")}`,
+  ),
   [`${SKETCHES}/right.png`]: sketch(
-    "Sketch C",
-    `${LINES}${[0, 1, 2, 3].map((i) => `<rect x="${24 + (i % 2) * 190}" y="${156 + Math.floor(i / 2) * 340}" width="174" height="320" rx="4" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/>`).join("")}`,
+    "Sketch C · Grid",
+    [0, 1, 2, 3, 4, 5].map((i) => `<rect x="${24 + (i % 2) * 130}" y="${90 + Math.floor(i / 2) * 150}" width="122" height="138" rx="8" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/><circle cx="${46 + (i % 2) * 130}" cy="${112 + Math.floor(i / 2) * 150}" r="7" fill="${i === 0 ? "#e2560f" : "#d6d1c7"}"/><rect x="${40 + (i % 2) * 130}" y="${132 + Math.floor(i / 2) * 150}" width="80" height="10" rx="3" fill="#121211"/>`).join(""),
   ),
 };
 

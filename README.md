@@ -4,11 +4,12 @@ hermux is a phone web app for watching and steering coding agents that run in [H
 
 It installs to your home screen as "Agents".
 
-<p>
-  <img src="docs/screenshots/home.png" alt="Home: the Inbox with a blocked and a finished agent, then Activity" width="240">
-  <img src="docs/screenshots/reader.png" alt="An agent's screen in the Reader, with keys, saved commands and the message box" width="240">
-  <img src="docs/screenshots/switcher.png" alt="The switcher listing every terminal in the agent's workspace" width="240">
-</p>
+| | | |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/home.png" alt="Home: the Inbox with a blocked and a finished agent, then Activity" width="240"> | <img src="docs/screenshots/question.png" alt="An agent asking a question, answered with the number and arrow keys" width="240"> | <img src="docs/screenshots/attach.png" alt="The clip menu: take a photo or choose a picture, with an attached image above the message bar" width="240"> |
+| **Home**: who needs you, what finished, what's working | **Answer questions** with big keys | **Send pictures**: camera or gallery |
+| <img src="docs/screenshots/picture-paths.png" alt="An agent's screen in the Reader, with view and copy keys after picture paths" width="240"> | <img src="docs/screenshots/viewer.png" alt="A picture from the computer opened full screen, 1 of 3" width="240"> | <img src="docs/screenshots/switcher.png" alt="The switcher listing every terminal in the agent's workspace" width="240"> |
+| **Reader**: picture paths get a view key | **Open computer pictures** full screen | **Switcher**: every terminal in the workspace |
 
 The screenshots use the built-in sample data (`?demo`).
 
@@ -18,7 +19,10 @@ The screenshots use the built-in sample data (`?demo`).
 - **Activity.** Working agents first, then the most recently active others. Older sessions are one tap away.
 - **Reader.** An agent's screen as readable text. Scroll up to load its earlier messages. Links open in a new tab.
 - **Keys.** Esc, Tab, arrows and Enter, number keys while an agent is asking, and a Ctrl+C you hold to send. You can add your own keys.
-- **Saved commands.** One-tap replies you write yourself.
+- **Saved commands.** One-tap replies you write yourself, behind the "/" button in the message bar.
+- **Send pictures.** Attach a screenshot, a photo from your gallery, or a new one from the camera. The picture is saved on the computer and its path goes into your message, so the agent can open it.
+- **Open computer pictures.** A picture path in an agent's output gets a view key. It opens full screen, with zoom and swipe between pictures. Only pictures in your home folder or `/tmp`, outside hidden folders, can be opened.
+- **Notifications.** Optional push notifications when an agent needs you or finishes, turned on from the bell.
 - **Switcher.** Every terminal in a Herdr workspace, agents and plain shells, one tap apart.
 - **Live updates.** Status changes and new output stream from Herdr as they happen. If the stream drops, the app polls until it's back.
 - **Instant open.** The app's files are cached on the phone, so it opens before the network answers.
