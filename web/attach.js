@@ -61,11 +61,14 @@ const SAMPLE_CHIP = { name: "screenshot.png", size: 1_258_291, preview: null, st
 export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare = prepareImage }) {
   /** @type {HTMLElement | null} */
   let screen = null;
+  /** @type {HTMLElement | null} */
+  let outsideTapTarget = null;
   /** @type {Picked | null} */
   let picked = null;
   /** @type {AbortController | null} */
   let upload = null;
   let counter = 0;
+  let menuOpen = false;
 
   /** @returns {HTMLElement} */
   const page = () => {
@@ -128,24 +131,82 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
     draw();
   }
 
+  function openMenu() {
+    const menu = need(page(), ".clip-menu");
+    menuOpen = true;
+    menu.hidden = false;
+    need(page(), ".attach").setAttribute("aria-expanded", "true");
+    need(menu, ".clip-item").focus();
+  }
+
+  /** @param {{ focus?: boolean }} [options] */
+  function closeMenu({ focus = true } = {}) {
+    if (!menuOpen) return;
+    const clip = need(page(), ".attach");
+    menuOpen = false;
+    need(page(), ".clip-menu").hidden = true;
+    clip.setAttribute("aria-expanded", "false");
+    if (focus) clip.focus();
+  }
+
+  /** @param {Event} event */
+  function closeOnOutsideTap(event) {
+    if (!menuOpen) return;
+    const clip = find(page(), ".attach");
+    const menu = find(page(), ".clip-menu");
+    // The page has moved on from this screen; the next one starts closed.
+    if (!clip || !menu) return;
+    const target = /** @type {Element | null} */ (event.target);
+    if (menu.contains(target) || clip.contains(target)) return;
+    closeMenu({ focus: false });
+    const doc = page().ownerDocument;
+    const active = doc.activeElement;
+    if (!active || active === doc.body || menu.contains(active)) clip.focus();
+  }
+
   return {
     // A newly drawn Terminal screen (`drawn` holds its composer): the
-    // attach button opens the phone's picker, and a picked image becomes the
-    // chip. The demo's chip is a made-up one, and nothing is uploaded for it.
+    // attach button opens the clip menu, whose rows open the phone's camera
+    // or its pictures, and a picked image becomes the chip. The demo's chip is
+    // a made-up one, and nothing is uploaded for it.
     /** @param {HTMLElement} drawn */
     attach(drawn) {
       drop();
       screen = drawn;
-      /** @type {HTMLInputElement} */
-      const input = need(drawn, ".attach-input");
-      need(drawn, ".attach").addEventListener("click", () => input.click());
-      input.addEventListener("change", () => {
-        const [file] = input.files ?? [];
-        input.value = "";
-        if (file) pick(file);
+      menuOpen = false;
+      if (outsideTapTarget !== drawn) {
+        drawn.addEventListener("click", closeOnOutsideTap);
+        outsideTapTarget = drawn;
+      }
+      need(drawn, ".attach").addEventListener("click", () => (menuOpen ? closeMenu() : openMenu()));
+      need(drawn, ".composer").addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !menuOpen) return;
+        event.preventDefault();
+        closeMenu();
       });
+      for (const [rowSelector, inputSelector] of [
+        [".clip-camera", ".attach-camera"],
+        [".clip-gallery", ".attach-input"],
+      ]) {
+        /** @type {HTMLInputElement} */
+        const input = need(drawn, inputSelector);
+        need(drawn, rowSelector).addEventListener("click", () => {
+          closeMenu();
+          input.click();
+        });
+        input.addEventListener("change", () => {
+          const [file] = input.files ?? [];
+          input.value = "";
+          if (file) pick(file);
+        });
+      }
       if (client.isSample) picked = { id: ++counter, ...SAMPLE_CHIP };
       draw();
+    },
+
+    /** @param {boolean} blocked */
+    setBlocked(blocked) {
+      if (blocked) closeMenu({ focus: false });
     },
 
     /**

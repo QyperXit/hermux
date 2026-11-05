@@ -216,7 +216,14 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       } finally {
         clearTimeout(timer);
       }
-      if (response.ok) return response.blob();
+      if (response.ok) {
+        try {
+          return await response.blob();
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          throw new ApiError("unreachable", PICTURE_UNREACHABLE);
+        }
+      }
       const { code = `http_${response.status}` } = errorOf(await response.json().catch(() => null));
       throw new ApiError(code, pictureProblem(response.status));
     },

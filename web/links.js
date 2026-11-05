@@ -53,8 +53,10 @@ const linkOpen = (url) => `<a class="a-link" href="${escapeHtml(url)}" target="_
 /** @param {string} path */
 export const copyKeyHtml = (path) => `<button class="copy-key" type="button" data-copy="${escapeHtml(path)}" aria-label="Copy ${escapeHtml(path)}">copy</button>`;
 
+// The laptop never shows a picture through a hidden folder, so such a path
+// gets no way to view it.
 /** @param {string} path */
-const isPicturePath = (path) => /\.(?:png|jpe?g|webp|gif)$/i.test(path);
+const canView = (path) => /\.(?:png|jpe?g|webp|gif)$/i.test(path) && !/\/\./.test(path);
 
 /** @param {string} path */
 const viewKeyHtml = (path) => `<button class="view-key" type="button" data-view="${escapeHtml(path)}" aria-label="View ${escapeHtml(path)}">${icon("i-picture")}view</button>`;
@@ -94,11 +96,11 @@ export function linkedRunsHtml(runs, copy) {
       const piece = escapeHtml(text.slice(at, pieceEnd));
       if (!target || !inTarget) inner += piece;
       else if (target.kind === "url") inner += `${linkOpen(target.text)}${piece}</a>`;
-      else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}"${isPicturePath(target.text) ? pathViewAttributes(target.text) : ""}>${piece}</span>`;
+      else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}"${canView(target.text) ? pathViewAttributes(target.text) : ""}>${piece}</span>`;
       else inner += piece;
       at = pieceEnd;
       if (inTarget && target.kind === "path" && copy === "key" && target.end === at) {
-        html += `${open}${inner}${close}${copyKeyHtml(target.text)}${isPicturePath(target.text) ? viewKeyHtml(target.text) : ""}`;
+        html += `${open}${inner}${close}${copyKeyHtml(target.text)}${canView(target.text) ? viewKeyHtml(target.text) : ""}`;
         inner = "";
       }
     }

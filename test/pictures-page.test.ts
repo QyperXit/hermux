@@ -23,6 +23,23 @@ describe("which paths get a view key", () => {
     expect(html).toContain(copyKey("/tmp/a.svg"));
   });
 
+  test("a picture in a hidden folder gets no view key, since the laptop never shows one, but keeps its copy key", () => {
+    const hidden = ["/home/x/.uploads/a.png", "/tmp/.hidden/b.jpg", "~/.cache/c.png", "/home/you/proj/.git/d.webp", "/tmp/.e.gif", "/tmp/./f.png", "/tmp/../g.png"];
+    const html = readerHtml(` See ${hidden.join(" and ")} now`);
+    expect(viewed(html)).toEqual([]);
+    for (const path of hidden) expect(html).toContain(copyKey(path));
+    const visible = ["/home/x/uploads/a.png", "/tmp/not.hidden/b.jpg", "~/cache./c.png", "/tmp/a.b/c.d.png"];
+    expect(viewed(readerHtml(` See ${visible.join(" and ")} now`))).toEqual(visible);
+    const earlier = messageHtml({ seq: 1, role: "assistant", blocks: [{ kind: "text", text: "Saved `~/.cache/shot.png` and /tmp/shot.png." }] });
+    expect(viewed(earlier)).toEqual(["/tmp/shot.png"]);
+  });
+
+  test("in a box-drawn block a picture in a hidden folder is long-pressed to copy, but not tapped to view", () => {
+    const html = readerHtml(["╭────────────────────────────╮", "│ /home/x/.uploads/shot.png  │", "╰────────────────────────────╯"].join("\n"));
+    expect(html).toContain(`│ <span class="path" data-copy="/home/x/.uploads/shot.png">/home/x/.uploads/shot.png</span>  │`);
+    expect(html).not.toContain("data-view");
+  });
+
   test("Earlier messages get the view key too: the user's words, the agent's prose and code spans, and tool rows", () => {
     const user = messageHtml({ seq: 1, role: "user", blocks: [{ kind: "text", text: "look at /tmp/shot.png" }] });
     const agent = messageHtml({ seq: 2, role: "assistant", blocks: [{ kind: "text", text: "Saved `~/sketch/left.webp` and **/home/you/b.gif**." }] });
@@ -135,6 +152,42 @@ describe("asking the laptop for a picture", () => {
     await createHttpClient({ readTimeoutMs: 50 }).readPicture("/tmp/a.png", { signal: closing.signal });
     closing.abort();
     expect(more[0].init?.signal?.aborted).toBe(true);
+  });
+
+  test("a connection that drops halfway through the picture reads as unreachable, not in the browser's own words", async () => {
+    answering(
+      () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array([0x89, 0x50]));
+              controller.error(new TypeError("network error"));
+            },
+          }),
+          { headers: { "content-type": "image/png" } },
+        ),
+    );
+    const error = await failure("/tmp/a.png");
+    expect([error.code, error.message]).toEqual(["unreachable", "Can't reach the laptop."]);
+  });
+
+  test("closing the viewer halfway through the picture stops it as before, with the browser's own abort", async () => {
+    const closing = new AbortController();
+    globalThis.fetch = (async (_url: string, init?: RequestInit) =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array([0x89, 0x50]));
+            init?.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
+          },
+        }),
+      )) as unknown as typeof fetch;
+    const reading = createHttpClient().readPicture("/tmp/a.png", { signal: closing.signal });
+    await Bun.sleep(10);
+    closing.abort();
+    const error = await reading.then(() => null, (thrown: unknown) => thrown);
+    expect(error).toBe(closing.signal.reason);
+    expect(error).toBeInstanceOf(DOMException);
   });
 
   test("the demo shows view keys on its hermux agent's three sketches, draws them itself, and asks nothing of the laptop", async () => {

@@ -7,11 +7,16 @@ export const composerHtml = () => `
         <div class="composer-box">
           <label class="visually-hidden" for="message">Message</label>
           <textarea id="message" name="message" rows="1" placeholder="Message" enterkeyhint="enter" spellcheck="true" autocapitalize="sentences"></textarea>
-          <button class="attach" type="button" aria-label="Attach an image">${icon("i-clip")}</button>
+          <button class="attach" type="button" aria-label="Attach an image" aria-haspopup="dialog" aria-controls="clip-menu" aria-expanded="false">${icon("i-clip")}</button>
           <button class="slash" type="button" aria-label="Saved commands" aria-haspopup="dialog" aria-controls="saved-commands" aria-expanded="false">/</button>
           <button class="send" type="submit" aria-label="Send">${icon("i-up", "send-arrow")}${icon("i-sending", "send-busy")}</button>
         </div>
         <input class="attach-input" type="file" accept="image/*" tabindex="-1" hidden>
+        <input class="attach-camera" type="file" accept="image/*" capture="environment" tabindex="-1" hidden>
+        <div class="clip-menu" id="clip-menu" role="dialog" aria-label="Attach an image" hidden>
+          <button class="clip-item clip-camera" type="button">${icon("i-camera")}Take a photo</button>
+          <button class="clip-item clip-gallery" type="button">${icon("i-picture")}Choose a picture</button>
+        </div>
         <div class="saved" id="saved-commands" role="dialog" aria-label="Saved commands" hidden>
           <div class="saved-list"></div>
           <button class="saved-edit" type="button" aria-label="Edit saved commands" aria-controls="commands-editor">Edit</button>

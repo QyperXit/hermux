@@ -9,6 +9,7 @@ import { composerHtml, drawComposer } from "../web/composer.js";
 import { WEB } from "./support/agents";
 import { asPageElement, fakePage, type FakeElement } from "./support/fake-dom";
 import { ALLOWED_LOGIN } from "./support/http";
+import { keyBarScreen } from "./support/key-bar";
 import { image, makeUploads, removeUploadFolders } from "./support/uploads";
 
 afterAll(removeUploadFolders);
@@ -98,12 +99,12 @@ describe("the attach button", () => {
     expect(button().textContent.trim()).toBe("");
   });
 
-  test("opens the phone's picker for one image: images only, never several", () => {
+  test("its gallery input takes one image: images only, never several, and no camera", () => {
     const { root, button, pickerOpened } = composer();
     const input = root.querySelector(".attach-input")!;
-    expect([input.getAttribute("type"), input.getAttribute("accept"), input.hasAttribute("multiple")]).toEqual(["file", "image/*", false]);
+    expect([input.getAttribute("type"), input.getAttribute("accept"), input.hasAttribute("multiple"), input.hasAttribute("capture")]).toEqual(["file", "image/*", false, false]);
     button().dispatch("click");
-    expect(pickerOpened.times).toBe(1);
+    expect(pickerOpened.times).toBe(0);
   });
 
   test("uploads nothing until an image is picked, and shows no chip", () => {
@@ -375,6 +376,191 @@ describe("the chip and the message box together", () => {
   });
 });
 
+// A Terminal screen as the app draws it: the key bar first, then the attachment.
+function clipScreen() {
+  const screen = keyBarScreen();
+  const uploads: Upload[] = [];
+  const attachment = createAttachment({
+    client: {
+      isSample: false,
+      uploadImage: (blob: Blob, name: string, options?: { signal?: AbortSignal }) => {
+        const upload = new Upload(blob, name, options?.signal);
+        uploads.push(upload);
+        return upload.promise;
+      },
+    } as unknown as Parameters<typeof createAttachment>[0]["client"],
+    previews: { create: () => "blob:preview", revoke: () => {} },
+    prepare: async (file) => ({ blob: file, name: file.name }),
+  });
+  const opened: string[] = [];
+  const draw = () => {
+    attachment.attach(asPageElement(screen.root));
+    Object.assign(screen.root.querySelector(".attach-camera")!, { click: () => void opened.push("camera") });
+    Object.assign(screen.root.querySelector(".attach-input")!, { click: () => void opened.push("gallery") });
+  };
+  draw();
+  const menu = () => screen.dialog("Attach an image");
+  const clip = () => screen.button("Attach an image");
+  return {
+    ...screen,
+    attachment,
+    uploads,
+    opened,
+    menu,
+    clip,
+    menuState: () => [menu().shown, clip().getAttribute("aria-expanded")],
+    rows: () => menu().querySelectorAll("button").filter((row) => row.shown).map((row) => row.getAttribute("aria-label") ?? row.textContent.trim()),
+    open: () => screen.click(clip()),
+    redraw() {
+      screen.root.innerHTML = `<div class="output" tabindex="0"></div><div class="controls">${composerHtml()}<p class="notice"></p></div>`;
+      screen.keyBar.attach(asPageElement(screen.root), { sendKey: () => {}, sendText: () => {}, announce: () => {} });
+      draw();
+    },
+  };
+}
+
+describe("the clip menu", () => {
+  test("a tap on the paperclip opens a small menu instead of a picker, with Take a photo and Choose a picture, and the focus on Take a photo", () => {
+    const screen = clipScreen();
+    const clip = screen.clip();
+    expect([clip.getAttribute("aria-haspopup"), clip.getAttribute("aria-controls"), clip.getAttribute("aria-expanded")]).toEqual(["dialog", screen.menu().id, "false"]);
+    expect(screen.menu().shown).toBe(false);
+    screen.open();
+    expect(screen.menuState()).toEqual([true, "true"]);
+    expect(screen.rows()).toEqual(["Take a photo", "Choose a picture"]);
+    expect(screen.focused()).toBe(screen.button("Take a photo"));
+    expect(screen.menu().querySelectorAll("button use").map((use) => use.getAttribute("href"))).toEqual(["#i-camera", "#i-picture"]);
+    expect(screen.opened).toEqual([]);
+  });
+
+  test("Esc, a tap outside it and a second tap on the paperclip each close it, with the focus back on the paperclip and no picker opened", () => {
+    const screen = clipScreen();
+    const closes = [
+      () => screen.focused()!.dispatch("keydown", { key: "Escape" }),
+      () => screen.click(screen.root.querySelector(".output")!),
+      () => screen.open(),
+    ];
+    for (const close of closes) {
+      screen.open();
+      expect(screen.menu().shown).toBe(true);
+      close();
+      expect(screen.menuState()).toEqual([false, "false"]);
+      expect(screen.focused()).toBe(screen.clip());
+    }
+    expect(screen.opened).toEqual([]);
+  });
+
+  test("Esc says it handled the key, and does nothing while the menu is closed", () => {
+    const screen = clipScreen();
+    screen.open();
+    expect(screen.focused()!.dispatch("keydown", { key: "Escape" }).defaultPrevented).toBe(true);
+    expect(screen.root.querySelector("#message")!.dispatch("keydown", { key: "Escape" }).defaultPrevented).toBe(false);
+    screen.open();
+    expect(screen.focused()!.dispatch("keydown", { key: "Enter" }).defaultPrevented).toBe(false);
+    expect(screen.menu().shown).toBe(true);
+  });
+
+  test("a tap inside the menu that isn't on a row leaves it open", () => {
+    const screen = clipScreen();
+    screen.open();
+    screen.click(screen.menu());
+    expect(screen.menu().shown).toBe(true);
+  });
+
+  test("Take a photo opens the camera and Choose a picture the gallery; either closes the menu and gives the focus back to the paperclip", () => {
+    const screen = clipScreen();
+    screen.open();
+    screen.click(screen.button("Take a photo"));
+    expect([screen.opened, screen.menu().shown, screen.focused()]).toEqual([["camera"], false, screen.clip()]);
+    screen.open();
+    screen.click(screen.button("Choose a picture"));
+    expect([screen.opened, screen.menu().shown, screen.focused()]).toEqual([["camera", "gallery"], false, screen.clip()]);
+  });
+
+  test("the camera's input asks for the back camera, for one image; the gallery's doesn't ask for a camera", () => {
+    const { root } = clipScreen();
+    const camera = root.querySelector(".attach-camera")!;
+    const gallery = root.querySelector(".attach-input")!;
+    expect([camera.getAttribute("type"), camera.getAttribute("accept"), camera.getAttribute("capture"), camera.hasAttribute("multiple"), camera.hidden]).toEqual(["file", "image/*", "environment", false, true]);
+    expect([gallery.getAttribute("accept"), gallery.hasAttribute("capture")]).toEqual(["image/*", false]);
+  });
+
+  test("a photo from the camera or a picture from the gallery becomes the chip and goes up once, and its input is ready for the same file again", async () => {
+    for (const selector of [".attach-camera", ".attach-input"]) {
+      const screen = clipScreen();
+      const input = screen.root.querySelector(selector)!;
+      Object.assign(input, { files: [shot("photo.jpg")] });
+      input.value = "C:\\fakepath\\photo.jpg";
+      input.dispatch("change");
+      await flush();
+      expect(screen.uploads.map((upload) => upload.name)).toEqual(["photo.jpg"]);
+      expect(input.value).toBe("");
+      screen.uploads[0].settle(SAVED);
+      await flush();
+      const chip = screen.root.querySelector(".attachment")!;
+      expect([chip.shown, chip.getAttribute("data-state")]).toEqual([true, "attached"]);
+      const sent: string[] = [];
+      await screen.attachment.send("look", async (message) => Boolean(sent.push(message)));
+      expect(sent).toEqual([`look ${SAVED.path}`]);
+    }
+  });
+
+  test("opening / closes the clip menu, and opening the clip menu closes /, each taking the focus", () => {
+    const screen = clipScreen();
+    const saved = () => screen.root.querySelector(".saved")!;
+    const slash = () => screen.button("Saved commands");
+    screen.open();
+    screen.click(slash());
+    expect([screen.menu().shown, screen.clip().getAttribute("aria-expanded"), saved().shown]).toEqual([false, "false", true]);
+    expect(screen.focused()).toBe(screen.button("continue"));
+    screen.open();
+    expect([saved().shown, slash().getAttribute("aria-expanded"), screen.menu().shown]).toEqual([false, "false", true]);
+    expect(screen.focused()).toBe(screen.button("Take a photo"));
+  });
+
+  test("a blocked Agent closes it with the message box, and it stays closed when the Agent isn't blocked", () => {
+    const screen = clipScreen();
+    const draw = (blocked: boolean) => {
+      drawComposer(asPageElement(screen.root), { target: "weather-app", sending: false, blocked });
+      screen.keyBar.setBlocked(blocked);
+      screen.attachment.setBlocked(blocked);
+    };
+    draw(false);
+    screen.open();
+    draw(false);
+    expect(screen.menu().shown).toBe(true);
+    draw(true);
+    expect([screen.menu().shown, screen.root.querySelector(".attach")!.shown]).toEqual([false, false]);
+    draw(false);
+    expect(screen.menuState()).toEqual([false, "false"]);
+    screen.open();
+    expect(screen.menu().shown).toBe(true);
+  });
+
+  test("a newly drawn screen starts with it closed, and the first tap on its paperclip opens it", () => {
+    const screen = clipScreen();
+    screen.open();
+    screen.redraw();
+    expect(screen.menu().shown).toBe(false);
+    screen.open();
+    expect([screen.menu().shown, screen.focused()]).toEqual([true, screen.button("Take a photo")]);
+  });
+
+  test("leaving the screen with it open: a later tap on whatever the page shows next is ignored, not an error", () => {
+    const screen = clipScreen();
+    screen.open();
+    screen.root.innerHTML = '<button type="button">A home row</button>';
+    const homeRow = screen.root.querySelectorAll("button")[0];
+    expect(() => screen.click(homeRow)).not.toThrow();
+    expect(() => screen.click(homeRow)).not.toThrow();
+  });
+
+  test("its two icons are drawn in the page's sprite", () => {
+    const page = readFileSync(join(import.meta.dir, "../web/index.html"), "utf8");
+    expect(["i-camera", "i-picture"].filter((id) => !page.includes(`<symbol id="${id}" viewBox="0 0 24 24">`))).toEqual([]);
+  });
+});
+
 describe("?demo", () => {
   test("shows the button and a made-up attached chip, and uploads nothing", async () => {
     const { state, text, uploads, button, thumbHasImage } = Object.assign(composer({ sample: true }), { thumbHasImage: () => false });
@@ -407,6 +593,19 @@ describe("the stylesheet's targets for the chip and the button, read because the
     expect([declarations(".attach").width, declarations(".attach").height]).toEqual(["var(--key)", "var(--key)"]);
     expect([declarations(".attachment-remove").width, declarations(".attachment-remove").height]).toEqual(["var(--key)", "var(--key)"]);
     expect(declarations(".attachment").height).toBe("var(--key)");
+  });
+
+  test("the clip menu's rows are at least 56px tall, and the menu is raised like the / popover, above the box", () => {
+    expect([declarations(".clip-item")["min-height"], declarations(":root")["--row"]]).toEqual(["var(--row)", "56px"]);
+    expect(declarations(".clip-menu")).toEqual(declarations(".saved"));
+    expect(declarations(".clip-menu")["box-shadow"]).toBe("0 -4px 16px var(--switcher-shade)");
+    expect(declarations(".clip-menu[hidden]").display).toBe("none");
+  });
+
+  test("while the clip menu is open the paperclip's face has the same ink ring as / while its popover is open", () => {
+    const ring = declarations('.attach[aria-expanded="true"]::before');
+    expect(ring["box-shadow"]).toBe("inset 0 0 0 2px var(--ink)");
+    expect(ring).toEqual(declarations('.slash[aria-expanded="true"]::before'));
   });
 });
 

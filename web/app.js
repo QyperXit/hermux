@@ -250,6 +250,7 @@ function updateTerminalScreen(view) {
   need(app, ".state-word").textContent = word;
   drawComposer(app, { target: sendTarget(terminal), sending: view.sending, blocked });
   keyBar.setBlocked(blocked);
+  attachment.setBlocked(blocked);
 }
 
 /** @param {Snapshot} view */
