@@ -42,6 +42,10 @@ _Avoid_: seam (that word is reserved for the architecture meaning)
 The last line an Agent or Shell wrote, shown in lists, without Atomic's own screen furniture.
 _Avoid_: last output, preview
 
+**Picture viewer**:
+The full-screen view of a picture file on the laptop, opened from its path in the Live screen or Earlier messages, with the screen's other pictures a swipe away.
+_Avoid_: lightbox, gallery, preview
+
 ## Notifications
 
 **Notification**:

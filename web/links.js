@@ -1,4 +1,4 @@
-import { escapeHtml } from "./html.js";
+import { escapeHtml, icon } from "./html.js";
 
 /** @typedef {import("./screen.js").Run} Run */
 
@@ -53,6 +53,15 @@ const linkOpen = (url) => `<a class="a-link" href="${escapeHtml(url)}" target="_
 /** @param {string} path */
 export const copyKeyHtml = (path) => `<button class="copy-key" type="button" data-copy="${escapeHtml(path)}" aria-label="Copy ${escapeHtml(path)}">copy</button>`;
 
+/** @param {string} path */
+const isPicturePath = (path) => /\.(?:png|jpe?g|webp|gif)$/i.test(path);
+
+/** @param {string} path */
+const viewKeyHtml = (path) => `<button class="view-key" type="button" data-view="${escapeHtml(path)}" aria-label="View ${escapeHtml(path)}">${icon("i-picture")}view</button>`;
+
+/** @param {string} path */
+const pathViewAttributes = (path) => ` data-view="${escapeHtml(path)}" role="button" tabindex="0" aria-label="View ${escapeHtml(path)}"`;
+
 /** @param {string} cls */
 const isCode = (cls) => cls.split(" ").includes("a-code");
 
@@ -85,11 +94,11 @@ export function linkedRunsHtml(runs, copy) {
       const piece = escapeHtml(text.slice(at, pieceEnd));
       if (!target || !inTarget) inner += piece;
       else if (target.kind === "url") inner += `${linkOpen(target.text)}${piece}</a>`;
-      else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}">${piece}</span>`;
+      else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}"${isPicturePath(target.text) ? pathViewAttributes(target.text) : ""}>${piece}</span>`;
       else inner += piece;
       at = pieceEnd;
       if (inTarget && target.kind === "path" && copy === "key" && target.end === at) {
-        html += `${open}${inner}${close}${copyKeyHtml(target.text)}`;
+        html += `${open}${inner}${close}${copyKeyHtml(target.text)}${isPicturePath(target.text) ? viewKeyHtml(target.text) : ""}`;
         inner = "";
       }
     }
@@ -130,5 +139,43 @@ export function bindCopy(root, { writeText, announce }) {
     if (!path) return;
     event.preventDefault();
     copy(path);
+  });
+}
+
+/**
+ * The distinct picture paths in `root`, in the order they first appear.
+ * @param {ParentNode} root
+ */
+export const picturePaths = (root) => [...new Set([...root.querySelectorAll("[data-view]")].map((element) => element.getAttribute("data-view") ?? ""))];
+
+const CLICK_AFTER_LONG_PRESS_MS = 1000;
+
+/**
+ * @param {HTMLElement} root
+ * @param {(trigger: HTMLElement, paths: string[]) => void} open
+ */
+export function bindView(root, open) {
+  /** @param {Event} event */
+  const triggerOf = (event) => /** @type {HTMLElement | null | undefined} */ (/** @type {Element | null} */ (event.target)?.closest("[data-view]"));
+  /** @type {{ trigger: HTMLElement, at: number } | null} */
+  let pressed = null;
+  root.addEventListener("contextmenu", (event) => {
+    const trigger = triggerOf(event);
+    pressed = trigger?.matches(".path") ? { trigger, at: event.timeStamp } : null;
+  });
+  root.addEventListener("pointerdown", () => {
+    pressed = null;
+  });
+  root.addEventListener("click", (event) => {
+    const trigger = triggerOf(event);
+    const afterPress = pressed !== null && pressed.trigger === trigger && event.timeStamp - pressed.at < CLICK_AFTER_LONG_PRESS_MS;
+    pressed = null;
+    if (trigger && !afterPress) open(trigger, picturePaths(root));
+  });
+  root.addEventListener("keydown", (event) => {
+    const trigger = triggerOf(event);
+    if (!trigger?.matches(".path") || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    open(trigger, picturePaths(root));
   });
 }

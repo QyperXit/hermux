@@ -43,6 +43,22 @@ export function errorMessage(code, detail, status) {
   return FRIENDLY[code] ?? (detail ? `herdr said: ${detail} (${code}).` : `The laptop answered ${status}.`);
 }
 
+export const NOT_A_PICTURE = "Not a picture. The laptop shows PNG, JPEG, WebP and GIF files.";
+
+/** @type {Record<number, string>} */
+const PICTURE_PROBLEMS = {
+  400: "That path can't be opened as a picture.",
+  403: "Not allowed. The laptop shows pictures in your home folder or /tmp only, never in a hidden folder.",
+  404: "Not found on the laptop.",
+  413: "Too big to show. The limit is 25 MB.",
+  415: NOT_A_PICTURE,
+};
+
+/** @param {number} status */
+export const pictureProblem = (status) => PICTURE_PROBLEMS[status] ?? `The laptop answered ${status}.`;
+
+export const PICTURE_UNREACHABLE = "Can't reach the laptop.";
+
 /**
  * @param {unknown} error
  * @param {string} [fallback]
@@ -183,6 +199,26 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       const form = new FormData();
       form.append("image", file, name);
       return request("api/uploads", { method: "POST", headers: { [UPLOAD_HEADER]: "1" }, body: form, signal });
+    },
+
+    // The time limit covers only the wait for the laptop to start answering.
+    async readPicture(path, { signal } = {}) {
+      const answering = new AbortController();
+      const timer = setTimeout(() => answering.abort(), readTimeoutMs);
+      let response;
+      try {
+        response = await fetch(`api/pictures?path=${encodeURIComponent(path)}`, {
+          cache: "no-store",
+          signal: signal ? AbortSignal.any([signal, answering.signal]) : answering.signal,
+        });
+      } catch {
+        throw new ApiError("unreachable", PICTURE_UNREACHABLE);
+      } finally {
+        clearTimeout(timer);
+      }
+      if (response.ok) return response.blob();
+      const { code = `http_${response.status}` } = errorOf(await response.json().catch(() => null));
+      throw new ApiError(code, pictureProblem(response.status));
     },
   };
 }

@@ -3,6 +3,7 @@ import { HerdrError, checkTarget, type Herdr } from "./herdr";
 import type { LiveEvent, LiveEvents } from "./events";
 import { parseHistoryQuery, type createHistory } from "./history";
 import { parseSubscription } from "./push-store";
+import type { Pictures } from "./pictures";
 import type { Push } from "./push";
 import { createRoster } from "./roster";
 import type { Uploads } from "./uploads";
@@ -26,7 +27,9 @@ const STATUS: Record<string, number> = {
   invalid_target: 400,
   key_not_allowed: 400,
   cross_site_request: 403,
+  path_not_allowed: 403,
   not_found: 404,
+  picture_not_found: 404,
   subscription_not_found: 404,
   agent_not_found: 404,
   pane_not_found: 404,
@@ -158,6 +161,7 @@ export function createApp({
   watcher,
   push,
   uploads,
+  pictures,
 }: {
   herdr: Herdr;
   webRoot: string;
@@ -173,6 +177,7 @@ export function createApp({
   push?: Push;
   // Images attached to messages; without it the upload route is unknown (404).
   uploads?: Uploads;
+  pictures?: Pictures;
 }) {
   const root = resolve(webRoot);
   const roster = createRoster(herdr, now);
@@ -367,6 +372,12 @@ export function createApp({
       // A form upload needs no CORS preflight, so another site's page could send one; it can't add a custom header without one.
       if (request.headers.get(UPLOAD_HEADER) !== "1") throw new HerdrError("cross_site_request", "Uploads come only from this app's own page.");
       return json(await uploads.accept(request));
+    }
+    if (resource === "pictures" && target === undefined && pictures) {
+      if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
+      refuseCrossSiteRead(request);
+      const { bytes, type } = await pictures.read(url.searchParams.get("path"));
+      return new Response(bytes, { headers: { "content-type": type, "content-length": String(bytes.length), "x-content-type-options": "nosniff", "cache-control": "private, no-store" } });
     }
     if (resource === "workspaces" && target !== undefined && action === "terminals") {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");

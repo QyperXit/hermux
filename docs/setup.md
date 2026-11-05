@@ -99,7 +99,7 @@ tailscale serve --https=443 off
 
 ## Demo mode
 
-`http://…/?demo` shows built-in sample data instead of real agents and sends nothing to herdr. A Terminal there shows the paperclip and a made-up image chip, and nothing is uploaded.
+`http://…/?demo` shows built-in sample data instead of real agents and sends nothing to herdr. A Terminal there shows the paperclip and a made-up image chip, and nothing is uploaded. Picture paths there get the view key too, which opens built-in sample pictures without asking the laptop for anything.
 
 ## Sending images to a Terminal
 
@@ -110,6 +110,14 @@ In a Terminal's message box the paperclip opens the phone's picker (photos, scre
 - **Limits.** One image per upload, at most 15 MB. The server checks the file's own first bytes, not what the phone says it is, and accepts PNG, JPEG, WebP, GIF and HEIC. Anything else is refused ("Not an image the laptop can take") and nothing is saved. HEIC is accepted when its file header says so, and goes up as it is: the phone's browser can't make a thumbnail of it, and the agent has to be able to read HEIC itself.
 - **Large images.** The page makes an image smaller before it goes up only when its longest side is over 2560 px or the file is over 5 MB: then it is redrawn as a JPEG (longest side at most 2560 px, quality 90), unless that isn't smaller, or it is a GIF, which stays as it is. Smaller screenshots go up untouched and stay crisp.
 - **Same guards as everything else.** `POST /api/uploads` needs the login (403 without it), refuses requests from other sites (403), and takes only a multipart form with an `image` file or the image's own type as the body (415 for anything else, 413 over the limit).
+
+## Opening laptop pictures on the phone
+
+Where the Reader or Earlier messages show a laptop path to a picture (a name ending in `.png`, `.jpg`, `.jpeg`, `.webp` or `.gif`), a "view" key opens it full screen. The page asks the server for it with `GET /api/pictures?path=<the path>`, a read-only route that never writes anything.
+
+- **Where it may look.** Absolute paths only (a leading `~` is your home folder). After following links, the file has to be inside your home folder or `/tmp`. A path with a hidden part (any name starting with `.`), whether as written or after following links, is refused, so `.push/`, `.uploads/`, `.ssh/` and every other hidden folder are never shown. Only regular files are read; folders and pipes count as "not found".
+- **What it sends.** Only PNG, JPEG, WebP and GIF, at most 25 MB, recognised by the file's own first bytes, never by its name. HEIC isn't shown. The answer is marked private and not to be stored, and the service worker never caches it.
+- **Same guards as everything else.** It needs the login (403 without it) and refuses requests from other sites (403). Other answers: 400 for a missing or relative path, 403 outside the allowed places or through a hidden folder, 404 when there's no such file, 413 over 25 MB, 415 when the file isn't one of the four picture types.
 
 ## Sending to Atomic agents (herdr 0.9.5)
 

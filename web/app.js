@@ -5,11 +5,12 @@ import { createAttachment } from "./attach.js";
 import { composerHtml, drawComposer } from "./composer.js";
 import { createKeyBar } from "./key-bar.js";
 import { escapeHtml, icon } from "./html.js";
-import { bindCopy } from "./links.js";
+import { bindCopy, bindView } from "./links.js";
 import { listRenderer } from "./list-render.js";
 import { bellHtml, createNotifications, looksLikeBrave } from "./notifications.js";
 import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
+import { createPictureViewer } from "./picture-viewer.js";
 import { drawLive } from "./live-render.js";
 import { readerParts, shellParts } from "./reader.js";
 import { parseRoute, terminalHref } from "./routes.js";
@@ -78,7 +79,18 @@ const notifyPanel = createNotifyPanel({ page: app, root: find(document, "#notify
 
 const keyBar = createKeyBar({ storage: localStorage });
 
+/** @param {string} text */
+const writeClipboard = async (text) => navigator.clipboard.writeText(text);
+
 const attachment = createAttachment({ client });
+
+const pictures = createPictureViewer({
+  page: app,
+  root: find(document, "#picture-root"),
+  client,
+  browser: { history, events: window, keys: document },
+  copy: writeClipboard,
+});
 
 /** @param {Date} [date] */
 function clockTime(date = new Date()) {
@@ -315,7 +327,8 @@ function bindTerminalScreen() {
   output.addEventListener("scroll", () => {
     if (isAtBottom(output)) latest.hidden = true;
   });
-  bindCopy(output, { writeText: async (text) => navigator.clipboard.writeText(text), announce: notify });
+  bindCopy(output, { writeText: writeClipboard, announce: notify });
+  bindView(output, pictures.open);
   latest.addEventListener("click", () => {
     output.scrollTo({ top: output.scrollHeight, behavior: "smooth" });
     latest.hidden = true;
@@ -398,6 +411,7 @@ function onRouteChange() {
   clearTimeout(deferredRender);
   sheet.close({ restoreFocus: false });
   notifyPanel.close({ restoreFocus: false });
+  pictures.close({ restoreFocus: false, popHistory: false });
   earlier.leave();
   session.open(parseRoute(location.hash));
   const view = session.snapshot();

@@ -53,6 +53,7 @@
  * @property {(paneId: string, stream: string) => Promise<void>} watchOutput
  * @property {(paneId: string, stream: string) => Promise<void>} unwatchOutput
  * @property {(file: Blob, name: string, options?: { signal?: AbortSignal }) => Promise<Upload>} uploadImage
+ * @property {(path: string, options?: { signal?: AbortSignal }) => Promise<Blob>} readPicture
  */
 
 export {};

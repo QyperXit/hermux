@@ -1,4 +1,5 @@
 import { RECENT_IDLE_READS } from "./activity.js";
+import { pictureProblem } from "./api.js";
 
 /**
  * @typedef {import("./types.js").Agent} Agent
@@ -17,6 +18,26 @@ const RULE = "─".repeat(120);
 function footer(model, place) {
   return [RULE, "❯", RULE, `(anthropic) ${model} • ${place}`].join("\n");
 }
+
+const SKETCHES = "/home/you/projects/hermux/sketches";
+
+/**
+ * @param {string} label
+ * @param {string} body
+ */
+const sketch = (label, body) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="412" height="915" viewBox="0 0 412 915"><rect width="412" height="915" fill="#ebe8e2"/><rect x="24" y="32" width="240" height="28" rx="4" fill="#121211"/>${body}<rect x="24" y="851" width="160" height="40" rx="4" fill="#121211"/><text x="40" y="878" font-family="sans-serif" font-size="20" font-weight="600" fill="#f7f6f2">${label}</text></svg>`;
+const LINES = `<rect x="24" y="84" width="364" height="16" rx="4" fill="#cbc6bc"/><rect x="24" y="112" width="260" height="16" rx="4" fill="#cbc6bc"/>`;
+
+/** @type {Record<string, string>} */
+const PICTURES = {
+  [`${SKETCHES}/left.png`]: sketch("Sketch A", `${LINES}<circle cx="36" cy="164" r="12" fill="#e2560f"/><rect x="24" y="200" width="364" height="620" rx="4" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/>`),
+  [`${SKETCHES}/middle.png`]: sketch("Sketch B", `<rect x="24" y="84" width="364" height="600" rx="4" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/><rect x="24" y="708" width="172" height="56" rx="4" fill="#cbc6bc"/><rect x="216" y="708" width="172" height="56" rx="4" fill="#cbc6bc"/>`),
+  [`${SKETCHES}/right.png`]: sketch(
+    "Sketch C",
+    `${LINES}${[0, 1, 2, 3].map((i) => `<rect x="${24 + (i % 2) * 190}" y="${156 + Math.floor(i / 2) * 340}" width="174" height="320" rx="4" fill="#f7f6f2" stroke="#cbc6bc" stroke-width="2"/>`).join("")}`,
+  ),
+};
 
 /** @type {Record<string, string>} */
 const outputs = {
@@ -57,6 +78,12 @@ const outputs = {
     footer("claude-opus-5-5 high", "~/projects/usage-dashboard (fix/weekly-totals)"),
   ].join("\n"),
   "wF:p1": [
+    "I drew three sketches of the picture viewer, each labelled with its name:",
+    "",
+    ` 1. ${SKETCHES}/left.png`,
+    ` 2. ${SKETCHES}/middle.png`,
+    ` 3. ${SKETCHES}/right.png`,
+    "",
     "Writing web/app.css",
     "Writing web/app.js",
     "",
@@ -327,6 +354,13 @@ export function createSampleClient() {
     async uploadImage(file) {
       await pause(600);
       return { path: "/home/you/hermux/.uploads/20261105T091500Z-3f9c2a71b8d04e65.png", name: "20261105T091500Z-3f9c2a71b8d04e65.png", size: file.size };
+    },
+
+    async readPicture(path) {
+      await pause(150);
+      const picture = PICTURES[path];
+      if (!picture) throw new HerdrError("picture_not_found", pictureProblem(404));
+      return new Blob([picture], { type: "image/svg+xml" });
     },
 
     async sendKeys(paneId, keys) {

@@ -162,6 +162,7 @@ describe("cache rules", () => {
     ["api/push/key", {}],
     ["api/push/subscription", { method: "POST", body: "{}" }],
     ["api/push/test", { method: "POST", body: "{}" }],
+    ["api/pictures?path=%2Fhome%2Fyou%2Fsketch.webp", { headers: { accept: "image/*" } }],
     ["app.js", { method: "POST", body: "{}" }],
     ["app.js", { method: "HEAD" }],
     ["app.js?x=1", {}],
