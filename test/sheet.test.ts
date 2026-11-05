@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createSheet, nextRow, sheetFits } from "../web/sheet.js";
+import { SHEET_EXIT_MS, createSheet, nextRow, sheetFits } from "../web/sheet.js";
 
 const pane = (pane_id: string) => ({ pane_id, kind: "shell", status: null });
 
@@ -27,4 +27,12 @@ test("making the sheet touches no page until it is opened; without a pane to swi
   sheet.open(null, undefined);
   sheet.close();
   sheet.render(null, undefined);
+});
+
+test("the sheet is taken off the page only once its slide-out transition has finished", async () => {
+  const css = await Bun.file(new URL("../web/app.css", import.meta.url)).text();
+  const rule = css.match(/\n\.switcher \{[^}]*\}/)?.[0] ?? "";
+  const slideMs = Number(rule.match(/transition: transform (\d+)ms/)?.[1]);
+  expect(slideMs).toBeGreaterThan(0);
+  expect(SHEET_EXIT_MS).toBeGreaterThanOrEqual(slideMs);
 });

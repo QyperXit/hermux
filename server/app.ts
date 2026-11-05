@@ -123,11 +123,10 @@ function terminalKind(body: Record<string, unknown>): string {
 }
 
 function decodeTarget(encoded: string) {
-  // herdr.ts refuses anything that isn't a pane ID before running herdr.
   try {
     return decodeURIComponent(encoded);
   } catch {
-    return encoded;
+    throw new HerdrError("invalid_target", "The address names no pane: it isn't valid URL encoding.");
   }
 }
 

@@ -6,8 +6,7 @@ import { closesOnSwipe, hasSwitcher, sheetRowsHtml, sheetTitle, switcherRows } f
  * @typedef {import("./types.js").Workspace} Workspace
  */
 
-// The sheet slides out for this long before it is taken off the page.
-const SHEET_EXIT_MS = 200;
+export const SHEET_EXIT_MS = 240;
 
 /**
  * @param {Pick<Terminal, "pane_id">[]} terminals

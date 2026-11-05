@@ -72,6 +72,16 @@ describe.concurrent("targets", () => {
       expect(calls()).toEqual([]);
     });
   }
+
+  test("refuses a pane or workspace whose address is badly encoded with 400 before herdr runs", async () => {
+    const { request, calls } = setup();
+    for (const path of ["/api/terminals/%E0%A4%A/output", "/api/terminals/w1%ZZp1/history", "/api/workspaces/%E0%A4%A/terminals"]) {
+      const response = await request("GET", path, {});
+      expect([path, response.status]).toEqual([path, 400]);
+      expect((await response.json()).error.code).toBe("invalid_target");
+    }
+    expect(calls()).toEqual([]);
+  });
 });
 
 describe.concurrent("cross-site requests", () => {
