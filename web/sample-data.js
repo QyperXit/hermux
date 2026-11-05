@@ -323,6 +323,12 @@ export function createSampleClient() {
       }, 5000);
     },
 
+    // The demo never uploads: it answers with a made-up place on the laptop.
+    async uploadImage(file) {
+      await pause(600);
+      return { path: "/home/you/hermux/.uploads/20261105T091500Z-3f9c2a71b8d04e65.png", name: "20261105T091500Z-3f9c2a71b8d04e65.png", size: file.size };
+    },
+
     async sendKeys(paneId, keys) {
       await pause(150);
       if (findShell(paneId)) return;

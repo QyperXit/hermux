@@ -89,6 +89,7 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
     sendKeys: (paneId: string, keys: string[], kind: string) => answer(`keys ${paneId} ${kind} ${keys.join(" ")}`, () => undefined),
     watchOutput: (paneId: string, stream: string) => answer(`watch ${paneId} ${stream}`, () => undefined),
     unwatchOutput: (paneId: string, stream: string) => answer(`unwatch ${paneId} ${stream}`, () => undefined),
+    uploadImage: () => answer("upload", () => ({ path: "/uploads/image.png", name: "image.png", size: 1 })),
   };
   const sources: FakeSource[] = [];
   let now = 0;

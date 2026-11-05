@@ -1,6 +1,7 @@
 import { createHttpClient, createPushClient } from "./api.js";
 import { homeLists, memoryStorage, recordOpened } from "./home.js";
 import { find, fitField, need } from "./dom.js";
+import { createAttachment } from "./attach.js";
 import { composerHtml, drawComposer } from "./composer.js";
 import { createKeyBar } from "./key-bar.js";
 import { escapeHtml, icon } from "./html.js";
@@ -76,6 +77,8 @@ const notifications = createNotifications({
 const notifyPanel = createNotifyPanel({ page: app, root: find(document, "#notify-root"), keys: document, notifications });
 
 const keyBar = createKeyBar({ storage: localStorage });
+
+const attachment = createAttachment({ client });
 
 /** @param {Date} [date] */
 function clockTime(date = new Date()) {
@@ -324,6 +327,7 @@ function bindTerminalScreen() {
   });
 
   keyBar.attach(app, { sendKey, sendText: sendPrompt, announce: notify });
+  attachment.attach(app);
 
   const fit = () => fitField(textarea);
   textarea.addEventListener("input", fit);
@@ -331,7 +335,9 @@ function bindTerminalScreen() {
   textarea.addEventListener("blur", () => app.classList.remove("is-composing"));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (await sendPrompt(textarea.value)) {
+    const { sent, refused } = await attachment.send(textarea.value, sendPrompt);
+    if (refused) notify(refused, { error: true });
+    if (sent) {
       textarea.value = "";
       fit();
     }

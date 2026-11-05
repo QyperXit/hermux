@@ -5,8 +5,10 @@ import { parseHistoryQuery, type createHistory } from "./history";
 import { parseSubscription } from "./push-store";
 import type { Push } from "./push";
 import { createRoster } from "./roster";
+import type { Uploads } from "./uploads";
 import { stampedWorker } from "./app-shell";
 import type { Viewer, WatchEvent, Watcher } from "./watch";
+import { UPLOAD_HEADER } from "../web/upload-header.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -33,6 +35,7 @@ const STATUS: Record<string, number> = {
   agent_blocked: 409,
   terminal_changed: 409,
   not_an_agent: 409,
+  payload_too_large: 413,
   unsupported_media_type: 415,
   server_error: 500,
   herdr_unavailable: 503,
@@ -154,6 +157,7 @@ export function createApp({
   events,
   watcher,
   push,
+  uploads,
 }: {
   herdr: Herdr;
   webRoot: string;
@@ -167,6 +171,8 @@ export function createApp({
   watcher?: Watcher;
   // Push notifications; without it the push routes are unknown (404).
   push?: Push;
+  // Images attached to messages; without it the upload route is unknown (404).
+  uploads?: Uploads;
 }) {
   const root = resolve(webRoot);
   const roster = createRoster(herdr, now);
@@ -356,6 +362,12 @@ export function createApp({
       return eventStream(request, events, nameStream);
     }
     if (resource === "push" && action === undefined) return pushApi(request, target);
+    if (resource === "uploads" && target === undefined && uploads) {
+      if (request.method !== "POST") throw new HerdrError("method_not_allowed", "Use POST.");
+      // A form upload needs no CORS preflight, so another site's page could send one; it can't add a custom header without one.
+      if (request.headers.get(UPLOAD_HEADER) !== "1") throw new HerdrError("cross_site_request", "Uploads come only from this app's own page.");
+      return json(await uploads.accept(request));
+    }
     if (resource === "workspaces" && target !== undefined && action === "terminals") {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
       return json(await roster.workspace(decodeTarget(target)));

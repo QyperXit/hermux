@@ -1210,6 +1210,115 @@ button {
 
 .composer {
   position: relative;
+  gap: var(--unit);
+}
+
+/* The chip above the message box: the picked image's thumbnail, its name and
+   size, and the remove key, which covers the chip's full height over its border
+   like the box's own buttons. */
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: var(--unit);
+  justify-self: start;
+  max-width: 100%;
+  height: var(--key);
+  padding-left: 3px;
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--face);
+  font-size: var(--text-s);
+  line-height: 16px;
+}
+
+.attachment-thumb {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 0 0 -1px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--body);
+  color: var(--ink-soft);
+}
+
+.attachment-thumb > * {
+  grid-area: 1 / 1;
+}
+
+.attachment-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment[data-state="uploading"] .attachment-thumb img {
+  opacity: 0.4;
+}
+
+.attachment-busy {
+  position: relative;
+  color: var(--ink);
+  animation: send-spin 900ms linear infinite;
+}
+
+.attachment-text {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-size {
+  flex: none;
+  color: var(--ink-soft);
+}
+
+.attachment-size::before {
+  content: "· ";
+}
+
+.attachment-problem {
+  display: -webkit-box;
+  overflow: hidden;
+  font-weight: 600;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.attachment-remove {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--key);
+  height: var(--key);
+  margin: calc(-1 * var(--hairline)) calc(-1 * var(--hairline)) calc(-1 * var(--hairline)) 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: transparent;
+  color: var(--ink-soft);
+  touch-action: manipulation;
+}
+
+.attachment-remove .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.attachment-remove:active {
+  background: var(--body);
 }
 
 /* The text box and the two buttons cover the field's full height, over its
@@ -1266,6 +1375,7 @@ button {
   resize: none;
 }
 
+.attach,
 .slash,
 .send {
   position: relative;
@@ -1282,6 +1392,7 @@ button {
   touch-action: manipulation;
 }
 
+.attach::before,
 .slash::before,
 .send::before {
   content: "";
@@ -1291,12 +1402,21 @@ button {
   transition: transform 80ms ease-out;
 }
 
+.attach,
 .slash {
-  font-size: var(--text-l);
-  font-weight: 600;
   color: var(--ink-soft);
 }
 
+.slash {
+  font-size: var(--text-l);
+  font-weight: 600;
+}
+
+.attach .icon {
+  position: relative;
+}
+
+.attach:active::before,
 .slash:active::before {
   background: var(--body);
 }
@@ -1659,7 +1779,8 @@ button {
     transition: none;
   }
 
-  .send[aria-busy="true"] .send-busy {
+  .send[aria-busy="true"] .send-busy,
+  .attachment-busy {
     animation: none;
   }
 

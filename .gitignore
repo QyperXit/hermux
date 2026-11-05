@@ -21,3 +21,7 @@ docs/project/notes/*/
 .push/
 web/round5/
 web/learn/
+web/round6/
+
+# images attached from the phone: private, cleared after a week, never committed or published (D35)
+.uploads/

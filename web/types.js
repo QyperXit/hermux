@@ -37,6 +37,10 @@
  */
 
 /**
+ * @typedef {import("../server/uploads").Saved} Upload
+ */
+
+/**
  * @typedef {object} Client
  * @property {boolean} isSample
  * @property {(linePanes?: string[]) => Promise<Agent[]>} listAgents
@@ -48,6 +52,7 @@
  * @property {(paneId: string, keys: string[], kind: string) => Promise<void>} sendKeys
  * @property {(paneId: string, stream: string) => Promise<void>} watchOutput
  * @property {(paneId: string, stream: string) => Promise<void>} unwatchOutput
+ * @property {(file: Blob, name: string, options?: { signal?: AbortSignal }) => Promise<Upload>} uploadImage
  */
 
 export {};

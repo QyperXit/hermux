@@ -99,7 +99,17 @@ tailscale serve --https=443 off
 
 ## Demo mode
 
-`http://…/?demo` shows built-in sample data instead of real agents and sends nothing to herdr.
+`http://…/?demo` shows built-in sample data instead of real agents and sends nothing to herdr. A Terminal there shows the paperclip and a made-up image chip, and nothing is uploaded.
+
+## Sending images to a Terminal
+
+In a Terminal's message box the paperclip opens the phone's picker (photos, screenshots, the camera). The picked image shows as a chip above the box and is uploaded to the laptop; when you press send, the message is your text followed by the saved file's absolute path (or just the path when you typed nothing). Atomic agents read the image from that path. A plain shell just receives the path as text. Nothing is sent until you press send, and the chip stays if the send fails.
+
+- **Where uploads go.** In the `.uploads/` folder at the repo root (set `AGENTS_UPLOADS_DIR=/some/folder` to keep them somewhere else). The folder is readable by you only (the folder is mode 700 and each file 600), Git ignores it, and it is never part of the public copy. Files get names the server chooses (a timestamp and a random part, with the extension of the detected image type), never the name the phone gave. The server doesn't serve them back, and never logs what is in them.
+- **Retention.** Files older than 7 days are deleted when the server starts and then once a day. Only files the server named itself are ever deleted. To clear everything now, stop the server, delete the `.uploads/` folder and start it again.
+- **Limits.** One image per upload, at most 15 MB. The server checks the file's own first bytes, not what the phone says it is, and accepts PNG, JPEG, WebP, GIF and HEIC. Anything else is refused ("Not an image the laptop can take") and nothing is saved. HEIC is accepted when its file header says so, and goes up as it is: the phone's browser can't make a thumbnail of it, and the agent has to be able to read HEIC itself.
+- **Large images.** The page makes an image smaller before it goes up only when its longest side is over 2560 px or the file is over 5 MB: then it is redrawn as a JPEG (longest side at most 2560 px, quality 90), unless that isn't smaller, or it is a GIF, which stays as it is. Smaller screenshots go up untouched and stay crisp.
+- **Same guards as everything else.** `POST /api/uploads` needs the login (403 without it), refuses requests from other sites (403), and takes only a multipart form with an `image` file or the image's own type as the body (415 for anything else, 413 over the limit).
 
 ## Sending to Atomic agents (herdr 0.9.5)
 

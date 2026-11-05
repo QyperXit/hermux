@@ -1,12 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { makeFakeHerdr } from "./fake-herdr";
 import { makeFakeEvents, until } from "./support/fake-events";
 import { sorted } from "./support/http";
+import { image, type Bytes } from "./support/uploads";
 import { CWD, makeStore, type Entry } from "./support/session-store";
+import { UPLOAD_HEADER } from "../web/upload-header.js";
 
 const MAIN = resolve(import.meta.dir, "../server/main.ts");
 
@@ -19,12 +21,13 @@ afterAll(() => {
 
 const NO_STORE = join(scratch, "missing.sqlite");
 const PUSH_DIR = join(scratch, "push");
+const UPLOADS_DIR = join(scratch, "uploads");
 const NO_SOCKET = join(scratch, "missing.sock");
 const LOGIN = "you@example.com";
 
 function env(overrides: Record<string, string | undefined>) {
   const next: Record<string, string> = {};
-  for (const [name, value] of Object.entries({ ...process.env, ATOMIC_SESSION_STORE: NO_STORE, AGENTS_PUSH_DIR: PUSH_DIR, HERDR_SOCKET_PATH: NO_SOCKET, AGENTS_ALLOWED_LOGIN: LOGIN, ...overrides })) if (value !== undefined) next[name] = value;
+  for (const [name, value] of Object.entries({ ...process.env, ATOMIC_SESSION_STORE: NO_STORE, AGENTS_PUSH_DIR: PUSH_DIR, AGENTS_UPLOADS_DIR: UPLOADS_DIR, HERDR_SOCKET_PATH: NO_SOCKET, AGENTS_ALLOWED_LOGIN: LOGIN, ...overrides })) if (value !== undefined) next[name] = value;
   return next;
 }
 
@@ -243,4 +246,41 @@ test("makes its push keys on first start in AGENTS_PUSH_DIR, reuses them after a
   expect([statSync(pushDir).mode & 0o777, statSync(join(pushDir, "vapid.json")).mode & 0o777, statSync(join(pushDir, "subscriptions.json")).mode & 0o777]).toEqual([0o700, 0o600, 0o600]);
   expect((await keyOf()).key).toBe(first.key);
   expect(JSON.parse(readFileSync(join(pushDir, "subscriptions.json"), "utf8"))).toHaveLength(1);
+});
+
+// Attached images: the real entry point keeps them in the folder it is told,
+// clears the week-old ones on start, and caps the body the server will read.
+test("keeps uploads in AGENTS_UPLOADS_DIR (700, files 600), clears week-old ones on start, and refuses a body past its cap", async () => {
+  const fake = makeFakeHerdr();
+  fakes.push(fake);
+  const uploadsDir = join(scratch, "uploads-restart");
+  mkdirSync(uploadsDir, { recursive: true });
+  const stale = join(uploadsDir, "20260101T000000Z-0123456789abcdef.png");
+  const unrelated = join(uploadsDir, "notes.txt");
+  writeFileSync(stale, "old");
+  writeFileSync(unrelated, "mine");
+  const longAgo = Date.now() / 1000 - 8 * 24 * 60 * 60;
+  for (const path of [stale, unrelated]) utimesSync(path, longAgo, longAgo);
+  const { proc, base, banner } = await startMain({ HERDR_BIN: fake.bin, AGENTS_UPLOADS_DIR: uploadsDir });
+  try {
+    expect(banner).toContain(`uploads: ${uploadsDir}`);
+    expect([existsSync(stale), existsSync(unrelated)]).toEqual([false, true]);
+    const headers = { "Tailscale-User-Login": LOGIN, [UPLOAD_HEADER]: "1" };
+    const form = (bytes: Bytes) => {
+      const body = new FormData();
+      body.append("image", new File([bytes], "shot.png", { type: "image/png" }));
+      return body;
+    };
+    expect((await fetch(`${base}/api/uploads`, { method: "POST", body: form(image.png()) })).status).toBe(403);
+    const saved = await fetch(`${base}/api/uploads`, { method: "POST", headers, body: form(image.png(2048)) });
+    expect(saved.status).toBe(200);
+    const { path } = (await saved.json()) as { path: string };
+    expect([readdirSync(uploadsDir).sort(), path.startsWith(`${uploadsDir}/`), statSync(uploadsDir).mode & 0o777, statSync(path).mode & 0o777]).toEqual([[basename(path), "notes.txt"].sort(), true, 0o700, 0o600]);
+    const huge = await fetch(`${base}/api/uploads`, { method: "POST", headers: { ...headers, "content-type": "image/png" }, body: image.png(20 * 1024 * 1024) });
+    expect(huge.status).toBe(413);
+    expect(readdirSync(uploadsDir)).toHaveLength(2);
+  } finally {
+    proc.kill();
+    await proc.exited;
+  }
 });

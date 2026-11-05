@@ -1,3 +1,4 @@
+import { UPLOAD_HEADER } from "./upload-header.js";
 /**
  * @typedef {import("./types.js").Client} Client
  * @typedef {import("./types.js").Agent} Agent
@@ -18,6 +19,8 @@ const FRIENDLY = {
   herdr_unavailable: "The server couldn't run herdr on the laptop.",
   subscription_not_found: "The laptop doesn't have this phone's subscription. Turn notifications off and on again.",
   push_failed: "The push service didn't accept the test. Try again in a moment.",
+  payload_too_large: "Too big. The limit is 15 MB.",
+  unsupported_media_type: "Not an image the laptop can take. Use PNG, JPEG, WebP, GIF or HEIC.",
 };
 
 class ApiError extends Error {
@@ -172,6 +175,14 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
 
     async unwatchOutput(paneId, stream) {
       await request(terminalPath(paneId, "watch"), { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ stream }) });
+    },
+
+    // One image for the message being written. The server saves it and says
+    // where; the browser sets the multipart type itself.
+    async uploadImage(file, name, { signal } = {}) {
+      const form = new FormData();
+      form.append("image", file, name);
+      return request("api/uploads", { method: "POST", headers: { [UPLOAD_HEADER]: "1" }, body: form, signal });
     },
   };
 }

@@ -3,12 +3,15 @@ import { icon } from "./html.js";
 
 export const composerHtml = () => `
       <form class="composer" autocomplete="off">
+        <div class="attachment" role="group" aria-label="Attached image" aria-live="polite" hidden></div>
         <div class="composer-box">
           <label class="visually-hidden" for="message">Message</label>
           <textarea id="message" name="message" rows="1" placeholder="Message" enterkeyhint="enter" spellcheck="true" autocapitalize="sentences"></textarea>
+          <button class="attach" type="button" aria-label="Attach an image">${icon("i-clip")}</button>
           <button class="slash" type="button" aria-label="Saved commands" aria-haspopup="dialog" aria-controls="saved-commands" aria-expanded="false">/</button>
           <button class="send" type="submit" aria-label="Send">${icon("i-up", "send-arrow")}${icon("i-sending", "send-busy")}</button>
         </div>
+        <input class="attach-input" type="file" accept="image/*" tabindex="-1" hidden>
         <div class="saved" id="saved-commands" role="dialog" aria-label="Saved commands" hidden>
           <div class="saved-list"></div>
           <button class="saved-edit" type="button" aria-label="Edit saved commands" aria-controls="commands-editor">Edit</button>
