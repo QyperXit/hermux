@@ -11,7 +11,7 @@ It installs to your home screen as "Agents".
 | <img src="docs/screenshots/picture-paths.png" alt="An agent's screen in the Reader, with view and copy keys after picture paths" width="240"> | <img src="docs/screenshots/viewer.png" alt="A picture from the computer opened full screen, 1 of 3" width="240"> | <img src="docs/screenshots/switcher.png" alt="The switcher listing every terminal in the agent's workspace" width="240"> |
 | **Reader**: picture paths get a view key | **Open computer pictures** full screen | **Switcher**: every terminal in the workspace |
 
-The screenshots use the built-in sample data (`?demo`).
+The screenshots use the built-in sample data.
 
 ## Features
 
