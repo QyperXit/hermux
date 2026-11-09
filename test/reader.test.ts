@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readerHtml, shellHtml } from "../web/reader.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { readerHtml, readerParts, shellHtml } from "../web/reader.js";
+import { ACTIVE_RUN, BACKGROUND, FINISHED_RUN, HINT, PICKER_FOOTER, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
 
 const ESC = "\x1b";
 const sgr = (params: string) => `${ESC}[${params}m`;
@@ -167,7 +170,8 @@ const chromeCount = (html: string) => html.split("is-chrome").length - 1;
 
 // A box-drawn region keeps its terminal layout in one mono block.
 const unescape = (html: string) => html.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
-const blocks = (html: string) => [...html.matchAll(/<div class="block[^"]*">([\s\S]*?)<\/div>/g)].map(([, inner]) => unescape(inner.replace(/<[^>]+>/g, "")));
+const textOf = (html: string) => unescape(html.replace(/<[^>]+>/g, ""));
+const blocks = (html: string) => [...html.matchAll(/<div class="block[^"]*">([\s\S]*?)<\/div>/g)].map(([, inner]) => textOf(inner));
 const strip = (text: string) => text.replace(/\x1b\[[\d;:]*m/g, "");
 
 // The shape of a real Atomic pane showing its full-screen workflow graph.
@@ -466,6 +470,75 @@ describe("Atomic's /workflow connect picker", () => {
     expect(html).not.toContain("<i>");
     expect(html).toContain("&lt;b x=&quot;1&quot;&gt;&amp;");
     expect(html).toContain("&lt;i&gt;");
+  });
+});
+
+// The Reader's stylesheet, read because the fake DOM has no layout.
+const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const cssRules = [...css.matchAll(/(?:^|\n)([^{}\n@][^{}]*)\{([^}]*)\}/g)].map(([, selectors, body]) => ({
+  selectors: selectors.split(",").map((each) => each.trim()),
+  declarations: Object.fromEntries(body.split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2)),
+}));
+const declarations = (selector: string): Record<string, string> =>
+  Object.assign({}, ...cssRules.filter((rule) => rule.selectors.includes(selector)).map((rule) => rule.declarations));
+
+describe("Atomic's workflow picker in the prompt box's place", () => {
+  const parts = readerParts(WORKFLOW_PICKER_SCREEN);
+  const at = (text: string) => parts.findIndex((part) => textOf(part).includes(text));
+
+  test("its hint line is a line of its own, and the usage line, footer, BACKGROUND panel and scroll hint are dimmed chrome, never prose", () => {
+    expect(parts[at("Navigate")]).toBe(`<div class="line is-chrome" style="padding-left:2ch">${HINT.trim()}</div>`);
+    expect(parts[at("claude-opus")]).toBe(`<div class="line is-chrome">${PICKER_FOOTER}</div>`);
+    expect(parts[at("4.4%/1.0M")]).toBe(`<div class="line is-chrome" style="padding-left:12ch">${PICKER_USAGE}</div>`);
+    expect(parts[at("BACKGROUND")]).toBe(`<div class="block is-chrome">${BACKGROUND.join("\n")}</div>`);
+    expect(parts[at("Alt+k")]).toBe(`<div class="line is-chrome" style="padding-left:1ch">${SCROLL_HINT.trim()}</div>`);
+    expect(parts.slice(at("Navigate")).join("")).not.toContain("copy-key");
+  });
+
+  test("the picker itself is not dimmed: its run under the cursor is the Selection Bar and the other run a plain row", () => {
+    const html = parts.join("");
+    expect(optionRowsOf(html).map((row) => [row.cls, visibleText(row.inner).replace(/\s+/g, " ")])).toEqual([
+      ["opt is-selected", `● ${ACTIVE_RUN} lint-run 13s`],
+      ["opt", `✓ ${FINISHED_RUN} docs-site 1s`],
+    ]);
+    expect(html).toContain(`<span class="opt-mark"><span class="visually-hidden">selected</span></span>`);
+    const picker = parts.slice(at("Connect to workflow run"), at("Navigate")).join("");
+    expect(picker).not.toContain("is-chrome");
+    expect(picker).not.toContain("a-link");
+  });
+
+  test("the box's left edge runs unbroken from its title row to its bottom edge, past the Selection Bar and the plain run row", () => {
+    const box = parts.slice(at("Connect to workflow run"), at("Navigate"));
+    expect(box.map((part) => (part.startsWith(`<div class="block">`) ? "block" : part.match(/^<div class="(opt[^"]*)">/)?.[1]))).toEqual(["block", "opt is-selected", "block", "opt", "block"]);
+    for (const part of box) {
+      if (part.startsWith(`<div class="block">`)) for (const line of blocks(part)[0].split("\n")) expect(line).toMatch(/^[╭│╰]/);
+      else expect(part).toMatch(/^<div class="opt[^"]*"><span class="opt-edge"><\/span>/);
+    }
+    expect(blocks(box[0])[0]).toStartWith("╭── Connect to workflow run");
+    expect(blocks(box.at(-1) ?? "")[0].split("\n").at(-1)).toStartWith("╰");
+  });
+
+  test("a question dialog's options are not in a box and draw no edge", () => {
+    expect(readerHtml(SINGLE_DIALOG)).not.toContain("opt-edge");
+  });
+
+  test("the edge is drawn in the row's own ink at the block's first column, so it shows on the ink Selection Bar", () => {
+    expect(declarations(".opt-edge::before")["border-left"]).toBe("1px solid var(--opt-ink)");
+    const font = (selector: string) => [declarations(selector)["font-family"], declarations(selector)["font-size"]];
+    expect(font(".opt-edge")).toEqual(font(".block"));
+    expect(declarations(".opt.is-selected")["--opt-ink"]).toBe("var(--key-dark-ink)");
+  });
+});
+
+describe("sideways-scrolling rows", () => {
+  test("box-drawn blocks and every other row that scrolls sideways still scroll but draw no scrollbar, as the key row does", () => {
+    const sideways = cssRules.filter((rule) => ["auto", "scroll"].includes(rule.declarations["overflow-x"])).flatMap((rule) => rule.selectors);
+    expect(sideways).toContain(".block");
+    expect(sideways).toContain(".keys");
+    for (const selector of sideways) {
+      expect([selector, declarations(selector)["scrollbar-width"]]).toEqual([selector, "none"]);
+      expect([selector, declarations(`${selector}::-webkit-scrollbar`).display]).toEqual([selector, "none"]);
+    }
   });
 });
 

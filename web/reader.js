@@ -74,6 +74,7 @@ function optionHtml(row) {
   const classes = ["opt", row.selected && "is-selected", row.ticked === true && "is-ticked", row.ticked === false && "is-unticked"].filter(Boolean);
   return (
     `<div class="${classes.join(" ")}">` +
+    (row.inBox ? `<span class="opt-edge"></span>` : "") +
     `<span class="opt-mark">${row.selected ? hidden("selected") : ""}</span>` +
     (row.number === null ? "" : `<span class="opt-num">${row.number}.</span>`) +
     (row.ticked === null ? "" : `<span class="opt-box">${hidden(row.ticked ? "ticked" : "not ticked")}</span>`) +
@@ -103,13 +104,29 @@ export const readerHtml = (text) => readerParts(text).join("");
 export function readerParts(text) {
   const screen = readScreen(text);
   if (screen.graph) return [graphHtml(screen.rows)];
-  const { rows, chromeStart, options } = screen;
+  const { rows, options } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
   /** @type {string[]} */
   const html = [];
   let i = 0;
-  while (i < chromeStart) {
+  /** @param {number} at */
+  const isContentRow = (at) => at < rows.length && !rows[at].chrome;
+  while (i < rows.length) {
     const line = rows[i];
+    if (line.chrome) {
+      if (line.kind === "rule") {
+        html.push(`<hr class="output-rule is-chrome">`);
+        i++;
+      } else if (line.kind === "box") {
+        /** @type {Line[]} */
+        const box = [];
+        while (i < rows.length && rows[i].chrome && rows[i].kind === "box") box.push(withoutColours(rows[i++]));
+        html.push(blockHtml(box, " is-chrome", null));
+      } else {
+        html.push(monoLineHtml(withoutColours(rows[i++]), " is-chrome", null));
+      }
+      continue;
+    }
     const option = options.get(i);
     const paragraph = prose.get(i);
     if (line.kind === "gap") {
@@ -127,7 +144,7 @@ export function readerParts(text) {
     } else if (line.kind === "band") {
       /** @type {Row[]} */
       const band = [];
-      while (i < chromeStart && rows[i].kind === "band" && rows[i].band === line.band) band.push(rows[i++]);
+      while (isContentRow(i) && rows[i].kind === "band" && rows[i].band === line.band) band.push(rows[i++]);
       /** @param {Row} row */
       const rowHtml = (row) =>
         line.band === "tool"
@@ -137,7 +154,7 @@ export function readerParts(text) {
     } else if (line.kind === "box") {
       /** @type {Row[]} */
       const box = [];
-      while (i < chromeStart && rows[i].kind === "box") box.push(rows[i++]);
+      while (isContentRow(i) && rows[i].kind === "box") box.push(rows[i++]);
       html.push(blockHtml(box));
     } else if (paragraph) {
       const item = LIST_ITEM.test(line.text.trim()) ? " li" : "";
@@ -145,19 +162,6 @@ export function readerParts(text) {
       i = paragraph.end;
     } else {
       throw new Error(`Line ${i} continues a dialog option that has no first row.`);
-    }
-  }
-  while (i < rows.length) {
-    if (rows[i].kind === "rule") {
-      html.push(`<hr class="output-rule is-chrome">`);
-      i++;
-    } else if (rows[i].kind === "box") {
-      /** @type {Line[]} */
-      const box = [];
-      while (i < rows.length && rows[i].kind === "box") box.push(withoutColours(rows[i++]));
-      html.push(blockHtml(box, " is-chrome", null));
-    } else {
-      html.push(monoLineHtml(withoutColours(rows[i++]), " is-chrome", null));
     }
   }
   return html;

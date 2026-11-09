@@ -674,6 +674,17 @@ button {
   border-top: 1px solid var(--rule);
 }
 
+/* Android draws the page's thin scrollbar under each block. */
+.keys,
+.block {
+  scrollbar-width: none;
+}
+
+.keys::-webkit-scrollbar,
+.block::-webkit-scrollbar {
+  display: none;
+}
+
 .block {
   margin: 0 var(--bleed);
   padding: 0 var(--gutter);
@@ -731,6 +742,26 @@ button {
 
 .opt-mark {
   height: 22px;
+}
+
+/* The negative margin cancels .opt's vertical padding so the edge spans the full row. */
+.opt-edge {
+  position: relative;
+  flex: none;
+  align-self: stretch;
+  width: 1ch;
+  margin: calc(var(--unit) * -1) 0;
+  font-family: var(--mono);
+  font-size: var(--text-s);
+}
+
+.opt-edge::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(0.5ch - 0.5px);
+  border-left: 1px solid var(--opt-ink);
 }
 
 .is-selected .opt-mark::before {
@@ -912,11 +943,6 @@ button {
   margin: 0 var(--bleed) -4px;
   padding: 0 var(--unit) 4px var(--gutter);
   overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.keys::-webkit-scrollbar {
-  display: none;
 }
 
 .key {

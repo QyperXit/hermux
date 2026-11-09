@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isRule, plainText, proseEndingAt, readScreen, shellRows } from "../web/screen.js";
+import { BACKGROUND, HINT, PICKER_FOOTER, PICKER_ROWS, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
 
 type Row = ReturnType<typeof readScreen>["rows"][number];
 
@@ -83,6 +84,29 @@ describe("where Atomic's chrome starts", () => {
     expect(chrome([...own, " More.", RULE40, "❯", RULE40, FOOTER].join("\n"))).toEqual([RULE40, "❯", RULE40, FOOTER]);
     expect(chrome([" Done.", RULE40, "❯ unfinished prompt box"].join("\n"))).toEqual([]);
     expect(chrome([" Done.", USAGE, " not a rule under it"].join("\n"))).toEqual([]);
+  });
+
+  test("with Atomic's workflow picker in the prompt box's place, the usage line above it and everything under it are chrome, and the picker is not", () => {
+    const screen = readScreen(WORKFLOW_PICKER_SCREEN);
+    const chromeRows = screen.rows.filter((row) => row.chrome).map((row) => row.text.trim());
+    expect(chromeRows).toEqual([PICKER_USAGE, HINT.trim(), PICKER_FOOTER, "", ...BACKGROUND, SCROLL_HINT.trim()]);
+    expect(screen.rows[screen.chromeStart].text.trim()).toBe(PICKER_USAGE);
+    const top = screen.rows.findIndex((row) => row.text.startsWith("╭── Connect to workflow run"));
+    const picker = screen.rows.slice(top, top + PICKER_ROWS.length);
+    expect(picker.at(-1)?.text).toStartWith("╰");
+    expect(picker.some((row) => row.chrome)).toBe(false);
+    expect(screen.prose.map((paragraph) => paragraph.runs.map((run) => run.text).join("")).join("\n")).not.toMatch(/Navigate|claude-opus|scroll/);
+  });
+
+  test("a box under a usage line is the agent's own without Atomic's footer below it, and a usage line with neither a rule nor a box under it starts nothing", () => {
+    const rows = [" Done.", PICKER_USAGE, "╭── Notes ──╮", "│ one      │", "╰──────────╯", " More words."];
+    expect(readScreen(rows.join("\n")).rows.some((row) => row.chrome)).toBe(false);
+    expect(readScreen([" Done.", PICKER_USAGE, " More words.", ...BACKGROUND, PICKER_FOOTER].join("\n")).rows.some((row) => row.chrome)).toBe(false);
+  });
+
+  test("Atomic's footer is found with the two spaces Atomic now puts before the thinking level", () => {
+    const rows = [" The run is on track.", "", RULE40, "❯", RULE40, "anthropic/claude-opus-5-5  medium • /tmp/work"];
+    expect(chrome(rows.join("\n"))).toEqual(rows.slice(2));
   });
 
   test("a rule is at least 8 of ─━═-, as Atomic draws it; a run of 3 to 7 dashes and a labelled line elsewhere are text", () => {

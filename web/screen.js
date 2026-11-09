@@ -11,10 +11,10 @@ import { CONTROL } from "./wrap.js";
 
 /**
  * @typedef {"gap" | "option" | "rule" | "code" | "band" | "box" | "prose" | "chrome"} Kind
- * @typedef {Line & { kind: Kind }} Row
+ * @typedef {Line & { kind: Kind, chrome: boolean }} Row
  * @typedef {{ selected: boolean, number: string | null, ticked: boolean | null, start: number, end: number, numbered: boolean }} OptionRow
  */
-/** @typedef {OptionRow & { index: number, continuationRows: number, labelLines: Line[] }} DialogRow */
+/** @typedef {OptionRow & { index: number, continuationRows: number, labelLines: Line[], inBox: boolean }} DialogRow */
 /** @typedef {{ start: number, end: number, runs: Run[] }} Prose */
 /** @typedef {{ rows: Row[], chromeStart: number, graph: boolean, prose: Prose[], options: Map<number, DialogRow> }} Screen */
 
@@ -246,8 +246,9 @@ export const isRule = (text) => RULE.test(text);
 /** @param {string} text */
 export const isBoxTopRule = (text) => BOX_TOP_RULE.test(text);
 export const PROMPT = /^\s*❯/;
-// Atomic's footer under the prompt box: "(provider) model level • ~/folder (branch)".
-export const FOOTER = /^(?:\(\S+\) )?\S+(?: \S+)? • [~/]/;
+// Atomic's footer under the prompt box: "(provider) model level • ~/folder (branch)",
+// or "provider/model  level • ~/folder (branch)".
+export const FOOTER = /^(?:\(\S+\) )?\S+(?: +\S+)? • [~/]/;
 
 // The right-aligned usage line: "↑72M • ↓2.8M • R2408M • W7.8M • CH99.4% • $1027.186 (sub) • 36.3%/1.0M (auto)".
 // On a narrow pane Atomic cuts it short with "...".
@@ -265,17 +266,43 @@ export function isUsage(line) {
   return CONTEXT_PART.test(parts[parts.length - 1]) && parts.slice(0, -1).every((part) => USAGE_PART.test(part));
 }
 
+/**
+ * @param {string[]} texts
+ * @param {number} top
+ * @returns {number | null}
+ */
+function rowAfterBox(texts, top) {
+  if (!/^\s*╭/.test(texts[top])) return null;
+  const bottom = texts.findIndex((text, i) => i > top && /^\s*╰/.test(text));
+  return bottom < 0 ? null : bottom + 1;
+}
+
 // Atomic's own chrome starts at its usage line, drawn straight above the
 // prompt box, and runs to the end: usage line, prompt box, footer, 'esc to
-// interrupt', task line, background panel and hints. Without a usage line, it
-// starts at the last prompt box (a rule, a line starting with ❯, any further
-// lines of a draft, and a closing rule) that has Atomic's footer under it.
-// Anything of the agent's own above that, rules and ❯ included, is not chrome.
+// interrupt', task line, background panel and hints. A box Atomic draws in the
+// prompt box's place (the /workflow connect picker) sits straight under the
+// usage line instead, with Atomic's footer somewhere below it: that box is the
+// screen's content, not chrome.
+/**
+ * @param {string[]} texts
+ * @returns {{ start: number, inPromptPlace: { start: number, end: number } | null }}
+ */
+function chromeOf(texts) {
+  for (let i = texts.length - 2; i >= 0; i--) {
+    if (!isUsage(texts[i])) continue;
+    if (BOX_TOP_RULE.test(texts[i + 1])) return { start: i, inPromptPlace: null };
+    const end = rowAfterBox(texts, i + 1);
+    if (end !== null && texts.slice(end).some((text) => FOOTER.test(text))) return { start: i, inPromptPlace: { start: i + 1, end } };
+  }
+  return { start: chromeStartIndex(texts), inPromptPlace: null };
+}
+
+// Without a usage line, chrome starts at the last prompt box (a rule, a line
+// starting with ❯, any further lines of a draft, and a closing rule) that has
+// Atomic's footer under it. Anything of the agent's own above that, rules and ❯
+// included, is not chrome.
 /** @param {string[]} texts */
 function chromeStartIndex(texts) {
-  for (let i = texts.length - 2; i >= 0; i--) {
-    if (isUsage(texts[i]) && BOX_TOP_RULE.test(texts[i + 1])) return i;
-  }
   for (let i = texts.length - 1; i > 0; i--) {
     if (!PROMPT.test(texts[i]) || !BOX_TOP_RULE.test(texts[i - 1])) continue;
     let end = i + 1;
@@ -349,23 +376,29 @@ const insideBorders = (line) => {
 const allBold = (line) => line.runs.every((run) => !run.text.trim() || run.cls.split(" ").includes("a-b"));
 
 /**
+ * @param {boolean[]} chrome
+ * @param {number} i
+ */
+const isContentRow = (chrome, i) => i < chrome.length && !chrome[i];
+
+/**
  * @param {Line[]} lines
- * @param {number} limit
+ * @param {boolean[]} chrome
  * @param {Map<number, DialogRow>} options
  */
-function pickerOptions(lines, limit, options) {
-  for (let top = 0; top < limit; top++) {
-    if (!PICKER_TITLE.test(lines[top].text)) continue;
+function pickerOptions(lines, chrome, options) {
+  for (let top = 0; top < lines.length; top++) {
+    if (!isContentRow(chrome, top) || !PICKER_TITLE.test(lines[top].text)) continue;
     /** @type {DialogRow[]} */
     const runs = [];
     let i = top + 1;
-    for (; i < limit; i++) {
+    for (; isContentRow(chrome, i); i++) {
       const inner = insideBorders(lines[i]);
       if (!inner) break;
-      const next = i + 1 < limit ? insideBorders(lines[i + 1]) : null;
+      const next = isContentRow(chrome, i + 1) ? insideBorders(lines[i + 1]) : null;
       const last = runs.at(-1);
       if (PICKER_ID_ROW.test(inner.text)) {
-        runs.push({ index: i, selected: allBold(inner), number: null, ticked: null, start: 0, end: 0, numbered: false, continuationRows: 0, labelLines: [inner] });
+        runs.push({ index: i, selected: allBold(inner), number: null, ticked: null, start: 0, end: 0, numbered: false, continuationRows: 0, labelLines: [inner], inBox: true });
       } else if (last && last.index + last.continuationRows + 1 === i && /^ {3}\S/.test(inner.text) && !(PICKER_SECTION_ROW.test(inner.text) && next && PICKER_ID_ROW.test(next.text))) {
         last.continuationRows++;
         last.labelLines.push(inner);
@@ -381,16 +414,17 @@ function pickerOptions(lines, limit, options) {
 
 /**
  * @param {Line[]} lines
- * @param {number} limit
+ * @param {boolean[]} chrome
  */
-function dialogOptions(lines, limit) {
+function dialogOptions(lines, chrome) {
   /** @type {DialogRow[]} */
   const found = [];
   let inFence = false;
-  for (let i = 0; i < limit; i++) {
+  for (let i = 0; i < lines.length; i++) {
+    if (chrome[i]) continue;
     if (isFence(lines[i].text)) inFence = !inFence;
     const row = !inFence && optionRowOf(lines[i]);
-    if (row) found.push({ index: i, ...row, continuationRows: 0, labelLines: [] });
+    if (row) found.push({ index: i, ...row, continuationRows: 0, labelLines: [], inBox: false });
   }
   /** @type {Map<number, DialogRow>} */
   const options = new Map();
@@ -412,7 +446,7 @@ function dialogOptions(lines, limit) {
     if (!joined) flush();
     if (row.selected) {
       while (
-        row.index + 1 + row.continuationRows < limit &&
+        isContentRow(chrome, row.index + 1 + row.continuationRows) &&
         !isBlank(lines[row.index + 1 + row.continuationRows]) &&
         !optionRowOf(lines[row.index + 1 + row.continuationRows]) &&
         lines[row.index + 1 + row.continuationRows].runs.every((run) => !run.text.trim() || run.cls.split(" ").includes("a-b"))
@@ -423,21 +457,21 @@ function dialogOptions(lines, limit) {
     cluster.push(row);
   }
   flush();
-  pickerOptions(lines, limit, options);
+  pickerOptions(lines, chrome, options);
   return options;
 }
 
 /**
  * @param {Line[]} lines
- * @param {number} chromeStart
+ * @param {boolean[]} chrome
  * @param {Map<number, DialogRow>} options
  * @returns {Kind[]}
  */
-function kindsOf(lines, chromeStart, options) {
+function kindsOf(lines, chrome, options) {
   const optionLines = new Set([...options.values()].flatMap((row) => Array.from({ length: row.continuationRows + 1 }, (_, n) => row.index + n)));
   let inFence = false;
   return lines.map((line, index) => {
-    if (index >= chromeStart) return isRule(line.text) ? "rule" : isBoxLine(line.text) ? "box" : "chrome";
+    if (chrome[index]) return isRule(line.text) ? "rule" : isBoxLine(line.text) ? "box" : "chrome";
     if (optionLines.has(index)) return "option";
     if (isBlank(line)) return "gap";
     if (isRule(line.text)) return "rule";
@@ -516,10 +550,11 @@ export function proseEndingAt(rows, last, stops) {
 
 // The screen in `text` (herdr's ANSI or plain read). `rows` are styled, each
 // end trimmed, without the scrollbar and jump hint, with one blank row in a
-// row; on a workflow graph screen they are the rows as drawn. `chromeStart`
-// is the first row of Atomic's chrome (rows.length when there is none; 0 on a
-// graph screen, which is all Atomic's drawing). `prose` is every paragraph
-// above the chrome, and `options` the rows of a question dialog by index.
+// row; on a workflow graph screen they are the rows as drawn. A row is
+// `chrome` when it is Atomic's own; `chromeStart` is the first such row
+// (rows.length when there is none; 0 on a graph screen, which is all Atomic's
+// drawing). `prose` is every paragraph outside the chrome, and `options` the
+// rows of a question dialog or the workflow picker by index.
 /**
  * @param {string} text
  * @returns {Screen}
@@ -528,9 +563,10 @@ export function readScreen(text) {
   const parsed = parseAnsi(text);
   const graph = showsWorkflowGraph(parsed);
   const lines = graph ? parsed.map(trimEnd) : withoutBlankRuns(withoutScrollbar(parsed).map(withoutJumpHint).map(trimEnd));
-  const chromeStart = graph ? 0 : chromeStartIndex(lines.map((line) => line.text));
-  const options = dialogOptions(lines, chromeStart);
-  const kinds = kindsOf(lines, chromeStart, options);
-  const rows = lines.map((line, index) => ({ ...line, kind: kinds[index] }));
-  return { rows, chromeStart, graph, prose: proseOf(rows.slice(0, chromeStart)), options };
+  const { start: chromeStart, inPromptPlace } = graph ? { start: 0, inPromptPlace: null } : chromeOf(lines.map((line) => line.text));
+  const chrome = lines.map((_, index) => index >= chromeStart && !(inPromptPlace && index >= inPromptPlace.start && index < inPromptPlace.end));
+  const options = dialogOptions(lines, chrome);
+  const kinds = kindsOf(lines, chrome, options);
+  const rows = lines.map((line, index) => ({ ...line, kind: kinds[index], chrome: chrome[index] }));
+  return { rows, chromeStart, graph, prose: proseOf(rows), options };
 }
