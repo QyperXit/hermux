@@ -676,12 +676,14 @@ button {
 
 /* Android draws the page's thin scrollbar under each block. */
 .keys,
-.block {
+.block,
+.attachment-row {
   scrollbar-width: none;
 }
 
 .keys::-webkit-scrollbar,
-.block::-webkit-scrollbar {
+.block::-webkit-scrollbar,
+.attachment-row::-webkit-scrollbar {
   display: none;
 }
 
@@ -1270,14 +1272,38 @@ button {
   gap: var(--unit);
 }
 
-/* The chip above the message box: the picked image's thumbnail, its name and
-   size, and the remove key, which covers the chip's full height over its border
-   like the box's own buttons. */
+.attachments {
+  display: grid;
+  gap: 4px;
+}
+
+.attachment-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--unit);
+  margin: 0 var(--bleed);
+  padding: 0 var(--gutter);
+  overflow-x: auto;
+}
+
+.attachment-count {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: var(--text-s);
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A picked image's chip: its thumbnail, its name and size, and the remove key,
+   which covers the chip's full height over its border like the box's own
+   buttons. */
 .attachment {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--unit);
-  justify-self: start;
   max-width: 100%;
   height: var(--key);
   padding-left: 3px;

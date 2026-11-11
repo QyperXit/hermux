@@ -3,7 +3,10 @@ import { icon } from "./html.js";
 
 export const composerHtml = () => `
       <form class="composer" autocomplete="off">
-        <div class="attachment" role="group" aria-label="Attached image" aria-live="polite" hidden></div>
+        <div class="attachments" role="group" aria-label="Attached images" aria-live="polite" hidden>
+          <div class="attachment-row"></div>
+          <p class="attachment-count"></p>
+        </div>
         <div class="composer-box">
           <label class="visually-hidden" for="message">Message</label>
           <textarea id="message" name="message" rows="1" placeholder="Message" enterkeyhint="enter" spellcheck="true" autocapitalize="sentences"></textarea>
@@ -11,7 +14,7 @@ export const composerHtml = () => `
           <button class="slash" type="button" aria-label="Saved commands" aria-haspopup="dialog" aria-controls="saved-commands" aria-expanded="false">/</button>
           <button class="send" type="submit" aria-label="Send">${icon("i-up", "send-arrow")}${icon("i-sending", "send-busy")}</button>
         </div>
-        <input class="attach-input" type="file" accept="image/*" tabindex="-1" hidden>
+        <input class="attach-input" type="file" accept="image/*" multiple tabindex="-1" hidden>
         <input class="attach-camera" type="file" accept="image/*" capture="environment" tabindex="-1" hidden>
         <div class="clip-menu" id="clip-menu" role="dialog" aria-label="Attach an image" hidden>
           <button class="clip-item clip-camera" type="button">${icon("i-camera")}Take a photo</button>

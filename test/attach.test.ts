@@ -29,6 +29,12 @@ class Upload {
 const coded = (code: string, message: string) => Object.assign(new Error(message), { code });
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+const choose = (into: FakeElement, files: File[]) => {
+  Object.assign(into, { files });
+  into.value = `C:\\fakepath\\${files[0]?.name}`;
+  into.dispatch("change");
+};
+
 function composer({ sample = false, prepare }: { sample?: boolean; prepare?: (file: File) => Promise<{ blob: Blob; name: string }> } = {}) {
   const { doc, root } = fakePage(`<div class="controls">${composerHtml()}</div>`);
   const uploads: Upload[] = [];
@@ -55,9 +61,13 @@ function composer({ sample = false, prepare }: { sample?: boolean; prepare?: (fi
   });
   attachment.attach(asPageElement(root));
   const input = root.querySelector(".attach-input")!;
+  const camera = root.querySelector(".attach-camera")!;
   const pickerOpened = { times: 0 };
   Object.assign(input, { click: () => void pickerOpened.times++ });
-  const chip = () => root.querySelector(".attachment")!;
+  const chips = () => root.querySelectorAll(".attachment");
+  const chip = () => chips()[0];
+  const chipText = (element: FakeElement) => element.textContent.replace(/\s+/g, " ").trim();
+  const removeOf = (index: number) => chips()[index].querySelector(".attachment-remove")!;
   const sentMessages: string[] = [];
   const deliver = (outcome = true) => async (message: string) => {
     sentMessages.push(message);
@@ -73,14 +83,18 @@ function composer({ sample = false, prepare }: { sample?: boolean; prepare?: (fi
     sentMessages,
     deliver,
     pickerOpened,
-    pick(file: File) {
-      Object.assign(input, { files: [file] });
-      input.value = `C:\\fakepath\\${file.name}`;
-      input.dispatch("change");
+    chips,
+    pick: (...files: File[]) => choose(input, files),
+    takePhoto: (file: File) => choose(camera, [file]),
+    state: () => (chip()?.shown ? chip().getAttribute("data-state") : null),
+    text: () => chipText(chip()),
+    shown: () => chips().filter((each) => each.shown).map((each) => [chipText(each), each.getAttribute("data-state")]),
+    count: () => {
+      const line = root.querySelector(".attachment-count")!;
+      return line.shown ? line.textContent.trim() : null;
     },
-    state: () => (chip().shown ? chip().getAttribute("data-state") : null),
-    text: () => chip().textContent.replace(/\s+/g, " ").trim(),
-    remove: () => root.querySelector(".attachment-remove")!,
+    remove: () => removeOf(0),
+    removeOf,
     button: () => root.querySelector(".attach")!,
   };
 }
@@ -99,10 +113,10 @@ describe("the attach button", () => {
     expect(button().textContent.trim()).toBe("");
   });
 
-  test("its gallery input takes one image: images only, never several, and no camera", () => {
+  test("its gallery input takes several images at once: images only, and no camera", () => {
     const { root, button, pickerOpened } = composer();
     const input = root.querySelector(".attach-input")!;
-    expect([input.getAttribute("type"), input.getAttribute("accept"), input.hasAttribute("multiple"), input.hasAttribute("capture")]).toEqual(["file", "image/*", false, false]);
+    expect([input.getAttribute("type"), input.getAttribute("accept"), input.hasAttribute("multiple"), input.hasAttribute("capture")]).toEqual(["file", "image/*", true, false]);
     button().dispatch("click");
     expect(pickerOpened.times).toBe(0);
   });
@@ -122,8 +136,17 @@ describe("the chip", () => {
     expect(text()).toBe("screenshot.png Uploading…");
     expect(chip().querySelector("img")?.getAttribute("src")).toBe(previews.created[0]);
     expect(chip().querySelectorAll(".attachment-busy")).toHaveLength(1);
-    expect(remove().getAttribute("aria-label")).toBe("Remove image");
+    expect(remove().getAttribute("aria-label")).toBe("Remove screenshot.png");
     expect(uploads.map((upload) => [upload.name, upload.blob.type])).toEqual([["screenshot.png", "image/png"]]);
+  });
+
+  test("each remove key is named after its own picture, with a hostile name kept as text", async () => {
+    const { pick, root, previews } = composer();
+    pick(shot("a.png"), shot('b "><img src=x>.png'));
+    await flush();
+    const labels = [...root.querySelectorAll(".attachment-remove")].map((key) => key.getAttribute("aria-label"));
+    expect(labels).toEqual(["Remove a.png", 'Remove b "><img src=x>.png']);
+    expect(root.querySelectorAll(".attachment img")).toHaveLength(previews.created.length);
   });
 
   test("becomes attached with the name and the size the laptop saved, and the busy mark goes", async () => {
@@ -150,7 +173,7 @@ describe("the chip", () => {
       uploads[0].settle(error);
       await flush();
       expect([state(), text()]).toEqual(["error", shown]);
-      expect(remove().getAttribute("aria-label")).toBe("Remove image");
+      expect(remove().getAttribute("aria-label")).toBe("Remove screenshot.png");
     }
   });
 
@@ -193,23 +216,6 @@ describe("the chip", () => {
     uploads[0].settle(SAVED);
     await flush();
     expect(state()).toBeNull();
-  });
-
-  test("one image at a time: picking another replaces the first, and the first's late answer is ignored", async () => {
-    const { pick, state, text, uploads, previews, attachment, sentMessages, deliver } = composer();
-    pick(shot("first.png"));
-    await flush();
-    pick(shot("second.png"));
-    await flush();
-    expect(previews.revoked).toEqual([previews.created[0]]);
-    expect(uploads[0].signal?.aborted).toBe(true);
-    uploads[1].settle({ ...SAVED, path: "/second.png" });
-    await flush();
-    uploads[0].settle({ ...SAVED, path: "/first.png" });
-    await flush();
-    expect([state(), text()]).toEqual(["attached", "second.png 1.2 MB"]);
-    await attachment.send("", deliver());
-    expect(sentMessages).toEqual(["/second.png"]);
   });
 
   test("a thumbnail the browser can't draw (a HEIC photo) is dropped, leaving the paperclip in its place", async () => {
@@ -343,6 +349,268 @@ describe("sending with an image", () => {
     const { attachment, sentMessages, deliver } = composer();
     await attachment.send("  as typed  \n", deliver());
     expect(sentMessages).toEqual(["  as typed  \n"]);
+  });
+});
+
+describe("several pictures in one message", () => {
+  const savedAs = (path: string) => ({ ...SAVED, path, name: path.slice(1) });
+  const shots = (count: number, from = 1) => Array.from({ length: count }, (_, index) => shot(`shot-${from + index}.png`));
+  const SCROLLED_PX = 263;
+  const rowOf = (root: ReturnType<typeof composer>["root"]) => root.querySelector(".attachment-row")!;
+
+  async function threeAttached() {
+    const made = composer();
+    made.pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    made.uploads.forEach((upload, index) => upload.settle(savedAs(`/up/${"abc"[index]}.png`)));
+    await flush();
+    return made;
+  }
+
+  test("several picked at once become one chip each, in the order picked, each uploading on its own, with how many there are", async () => {
+    const { pick, shown, uploads, count, previews } = composer();
+    expect(count()).toBeNull();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    expect(shown()).toEqual([
+      ["a.png Uploading…", "uploading"],
+      ["b.png Uploading…", "uploading"],
+      ["c.png Uploading…", "uploading"],
+    ]);
+    expect(uploads.map((upload) => upload.name)).toEqual(["a.png", "b.png", "c.png"]);
+    expect(previews.created).toHaveLength(3);
+    expect(count()).toBe("3 of 10 pictures");
+    uploads[1].settle(savedAs("/up/b.png"));
+    uploads[2].settle(coded("unreachable", "The laptop didn't answer."));
+    await flush();
+    expect(shown()).toEqual([
+      ["a.png Uploading…", "uploading"],
+      ["b.png 1.2 MB", "attached"],
+      ["The laptop didn't answer.", "error"],
+    ]);
+  });
+
+  test("they all sit in one row inside one group", async () => {
+    const { pick, root } = composer();
+    pick(shot("a.png"), shot("b.png"));
+    await flush();
+    const group = root.querySelector(".attachments")!;
+    const row = group.querySelector(".attachment-row")!;
+    expect([group.getAttribute("role"), group.getAttribute("aria-label")]).toEqual(["group", "Attached images"]);
+    expect(row.children.map((each) => each.getAttribute("class"))).toEqual(["attachment", "attachment"]);
+  });
+
+  test("a photo from the camera is added after the pictures already there, and the gallery adds after it again", async () => {
+    const { pick, takePhoto, shown, uploads } = composer();
+    pick(shot("a.png"), shot("b.png"));
+    await flush();
+    takePhoto(shot("photo.jpg"));
+    await flush();
+    takePhoto(shot("photo-2.jpg"));
+    await flush();
+    pick(shot("c.png"));
+    await flush();
+    expect(shown().map(([text]) => text)).toEqual(["a.png Uploading…", "b.png Uploading…", "photo.jpg Uploading…", "photo-2.jpg Uploading…", "c.png Uploading…"]);
+    expect(uploads.filter((upload) => upload.signal?.aborted)).toEqual([]);
+  });
+
+  test("the first picture of each pick is brought into view in the row, without moving the page up or down", async () => {
+    const { pick, takePhoto, chips } = composer();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    takePhoto(shot("photo.jpg"));
+    await flush();
+    expect(chips().map((chip) => chip.scrolledIntoView)).toEqual([[{ block: "nearest", inline: "nearest" }], [], [], [{ block: "nearest", inline: "nearest" }]]);
+  });
+
+  test("once ✕ empties the row, it starts again from its start, so the next first picture isn't scrolled out of sight", async () => {
+    const { pick, root, removeOf } = composer();
+    pick(shot("a.png"), shot("b.png"));
+    await flush();
+    rowOf(root).scrollLeft = SCROLLED_PX;
+    removeOf(0).dispatch("click");
+    removeOf(0).dispatch("click");
+    expect(rowOf(root).scrollLeft).toBe(0);
+  });
+
+  test("once a send empties the row, it starts again from its start, so the next first picture isn't scrolled out of sight", async () => {
+    const { pick, root, uploads, attachment, deliver } = composer();
+    pick(shot("c.png"), shot("d.png"));
+    await flush();
+    uploads.forEach((upload) => upload.settle(SAVED));
+    await flush();
+    rowOf(root).scrollLeft = SCROLLED_PX;
+    await attachment.send("", deliver());
+    expect(rowOf(root).scrollLeft).toBe(0);
+  });
+
+  test("at most 10: picking past 10 attaches the first ones up to 10 and says plainly that the rest were left out", async () => {
+    const { pick, takePhoto, chips, uploads, previews, count, removeOf } = composer();
+    pick(...shots(3));
+    await flush();
+    pick(...shots(9, 4));
+    await flush();
+    expect(chips().map((each) => each.querySelector(".attachment-name")!.textContent)).toEqual(shots(10).map((file) => file.name));
+    expect([uploads.length, previews.created.length]).toEqual([10, 10]);
+    expect(count()).toBe("10 of 10 pictures · 2 left out (10 at most)");
+    takePhoto(shot("photo.jpg"));
+    await flush();
+    expect([chips().length, uploads.length, count()]).toEqual([10, 10, "10 of 10 pictures · 1 left out (10 at most)"]);
+    removeOf(0).dispatch("click");
+    expect([chips().length, count()]).toEqual([9, "9 of 10 pictures"]);
+    pick(shot("last.png"));
+    await flush();
+    expect([chips().length, count()]).toEqual([10, "10 of 10 pictures"]);
+  });
+
+  test("✕ removes only its own picture: only its upload stops and only its thumbnail goes", async () => {
+    const { pick, shown, uploads, previews, removeOf } = composer();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    removeOf(1).dispatch("click");
+    expect(shown().map(([text]) => text)).toEqual(["a.png Uploading…", "c.png Uploading…"]);
+    expect(uploads.map((upload) => upload.signal?.aborted)).toEqual([false, true, false]);
+    expect(previews.revoked).toEqual([previews.created[1]]);
+  });
+
+  test("after ✕ the focus goes to the next chip's ✕, to the one before when it was the last, and to the paperclip when none is left", async () => {
+    const { pick, removeOf, chips, doc, button } = composer();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"), shot("d.png"));
+    await flush();
+    const [a, b, c, d] = chips().map((each) => each.querySelector(".attachment-remove")!);
+    removeOf(1).dispatch("click");
+    expect(doc.activeElement).toBe(c);
+    removeOf(2).dispatch("click");
+    expect(doc.activeElement).toBe(c);
+    removeOf(0).dispatch("click");
+    expect(doc.activeElement).toBe(c);
+    removeOf(0).dispatch("click");
+    expect([chips().length, doc.activeElement, [a, b, d].every((key) => !key.isConnected)]).toEqual([0, button(), true]);
+  });
+
+  test("pictures are made smaller one at a time, and one removed while it waits is never redrawn", async () => {
+    const waiting: { name: string; done: () => void }[] = [];
+    const prepare = (file: File) => new Promise<{ blob: Blob; name: string }>((resolve) => waiting.push({ name: file.name, done: () => resolve({ blob: file, name: file.name }) }));
+    const { pick, uploads, removeOf } = composer({ prepare });
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    expect(waiting.map(({ name }) => name)).toEqual(["a.png"]);
+    removeOf(1).dispatch("click");
+    waiting[0].done();
+    await flush();
+    expect(waiting.map(({ name }) => name)).toEqual(["a.png", "c.png"]);
+    waiting[1].done();
+    await flush();
+    expect(uploads.map((upload) => upload.name)).toEqual(["a.png", "c.png"]);
+  });
+
+  test("a late answer for a removed picture is ignored, and the others still take theirs", async () => {
+    const { pick, shown, uploads, removeOf, attachment, sentMessages, deliver } = composer();
+    pick(shot("a.png"), shot("b.png"));
+    await flush();
+    removeOf(0).dispatch("click");
+    uploads[0].settle(savedAs("/up/a.png"));
+    uploads[1].settle(savedAs("/up/b.png"));
+    await flush();
+    expect(shown()).toEqual([["b.png 1.2 MB", "attached"]]);
+    await attachment.send("", deliver());
+    expect(sentMessages).toEqual(["/up/b.png"]);
+  });
+
+  test("the message is the typed text, one space, then every path in chip order, space-separated, once", async () => {
+    const { attachment, sentMessages, deliver, shown, count } = await threeAttached();
+    expect(await attachment.send("Compare these  \n", deliver())).toEqual({ sent: true });
+    expect(sentMessages).toEqual(["Compare these /up/a.png /up/b.png /up/c.png"]);
+    expect([shown(), count()]).toEqual([[], null]);
+  });
+
+  test("with nothing typed the message is the paths alone", async () => {
+    const { attachment, sentMessages, deliver } = await threeAttached();
+    await attachment.send(" \n", deliver());
+    expect(sentMessages).toEqual(["/up/a.png /up/b.png /up/c.png"]);
+  });
+
+  test("the send waits until every picture is attached, and then sends them all", async () => {
+    const { attachment, pick, uploads, sentMessages, deliver } = composer();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    uploads[0].settle(savedAs("/up/a.png"));
+    uploads[2].settle(savedAs("/up/c.png"));
+    await flush();
+    expect(await attachment.send("look", deliver())).toEqual({ sent: false, refused: "The image is still uploading. Wait for it, or remove it." });
+    uploads[1].settle(savedAs("/up/b.png"));
+    await flush();
+    await attachment.send("look", deliver());
+    expect(sentMessages).toEqual(["look /up/a.png /up/b.png /up/c.png"]);
+  });
+
+  test("while several upload, or after any failed, nothing is sent and the reason counts them", async () => {
+    const { attachment, pick, uploads, sentMessages, deliver, removeOf, shown } = composer();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    expect((await attachment.send("look", deliver())).refused).toBe("3 images are still uploading. Wait for them, or remove them.");
+    uploads[0].settle(coded("unreachable", "The laptop didn't answer."));
+    uploads[1].settle(coded("payload_too_large", "Too big. The limit is 15 MB."));
+    await flush();
+    expect((await attachment.send("look", deliver())).refused).toBe("2 images didn't upload. Remove them to send without them.");
+    removeOf(0).dispatch("click");
+    uploads[2].settle(savedAs("/up/c.png"));
+    await flush();
+    expect((await attachment.send("look", deliver())).refused).toBe("The image didn't upload. Remove it to send without it.");
+    removeOf(0).dispatch("click");
+    await attachment.send("look", deliver());
+    expect([sentMessages, shown()]).toEqual([["look /up/c.png"], []]);
+  });
+
+  test("a failed send keeps every chip, and sending again sends the same paths, still once", async () => {
+    const { attachment, sentMessages, deliver, shown, count } = await threeAttached();
+    expect(await attachment.send("look", deliver(false))).toEqual({ sent: false });
+    expect([shown().length, count()]).toEqual([3, "3 of 10 pictures"]);
+    await attachment.send("look", deliver(true));
+    expect(sentMessages).toEqual(["look /up/a.png /up/b.png /up/c.png", "look /up/a.png /up/b.png /up/c.png"]);
+  });
+
+  test("a picture added while the message is going stays after it went; the ones sent clear", async () => {
+    const { attachment, pick, uploads, shown } = await threeAttached();
+    let finish: (sent: boolean) => void = () => {};
+    const sending = attachment.send("look", () => new Promise<boolean>((resolve) => (finish = resolve)));
+    pick(shot("later.png"));
+    await flush();
+    uploads[3].settle(savedAs("/up/later.png"));
+    await flush();
+    finish(true);
+    await sending;
+    expect(shown()).toEqual([["later.png 1.2 MB", "attached"]]);
+  });
+
+  test("a newly drawn screen drops them all: every upload stops and every thumbnail goes", async () => {
+    const made = composer();
+    made.pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    made.uploads[0].settle(savedAs("/up/a.png"));
+    await flush();
+    made.root.innerHTML = `<div class="controls">${composerHtml()}</div>`;
+    made.attachment.attach(asPageElement(made.root));
+    expect([made.chips().length, made.count(), made.uploads.slice(1).map((upload) => upload.signal?.aborted), made.previews.revoked]).toEqual([0, null, [true, true], made.previews.created]);
+    made.uploads[1].settle(savedAs("/up/b.png"));
+    await flush();
+    expect(made.chips()).toEqual([]);
+  });
+
+  test("a blocked Agent hides every chip and the count with the message box, and they are back as they were", async () => {
+    const made = await threeAttached();
+    const draw = (blocked: boolean) => drawComposer(asPageElement(made.root), { target: "weather-app", sending: false, blocked });
+    draw(true);
+    expect([made.shown(), made.count()]).toEqual([[], null]);
+    draw(false);
+    expect([made.shown(), made.count()]).toEqual([
+      [
+        ["a.png 1.2 MB", "attached"],
+        ["b.png 1.2 MB", "attached"],
+        ["c.png 1.2 MB", "attached"],
+      ],
+      "3 of 10 pictures",
+    ]);
   });
 });
 
@@ -518,6 +786,18 @@ describe("the clip menu", () => {
     expect(screen.focused()).toBe(screen.button("Take a photo"));
   });
 
+  test("a saved command from / goes exactly as written, with no picture, and the pictures stay for the next message", async () => {
+    const screen = clipScreen();
+    choose(screen.root.querySelector(".attach-input")!, [shot("a.png"), shot("b.png")]);
+    await flush();
+    screen.uploads.forEach((upload) => upload.settle(SAVED));
+    await flush();
+    screen.click(screen.button("Saved commands"));
+    screen.click(screen.button("continue"));
+    expect(screen.sentTexts).toEqual(["continue"]);
+    expect(screen.root.querySelectorAll(".attachment").map((chip) => chip.getAttribute("data-state"))).toEqual(["attached", "attached"]);
+  });
+
   test("a blocked Agent closes it with the message box, and it stays closed when the Agent isn't blocked", () => {
     const screen = clipScreen();
     const draw = (blocked: boolean) => {
@@ -562,15 +842,22 @@ describe("the clip menu", () => {
 });
 
 describe("?demo", () => {
-  test("shows the button and a made-up attached chip, and uploads nothing", async () => {
-    const { state, text, uploads, button, thumbHasImage } = Object.assign(composer({ sample: true }), { thumbHasImage: () => false });
-    expect([state(), text(), uploads.length, button().shown, thumbHasImage()]).toEqual(["attached", "screenshot.png 1.2 MB", 0, true, false]);
+  test("shows the button and three made-up attached chips with no thumbnails, and uploads nothing", async () => {
+    const { shown, count, uploads, button, chips } = composer({ sample: true });
+    expect(shown()).toEqual([
+      ["screenshot.png 1.2 MB", "attached"],
+      ["error-dialog.png 864 KB", "attached"],
+      ["whiteboard.jpg 2.1 MB", "attached"],
+    ]);
+    expect([count(), uploads.length, button().shown, chips().flatMap((each) => each.querySelectorAll("img")).length]).toEqual(["3 of 10 pictures", 0, true, 0]);
   });
 
-  test("sending it puts the made-up path in the message, and the chip clears", async () => {
+  test("sending them puts the made-up paths in the message, and the chips clear", async () => {
     const { attachment, sentMessages, deliver, state } = composer({ sample: true });
     await attachment.send("what is this?", deliver());
-    expect(sentMessages).toEqual(["what is this? /home/you/hermux/.uploads/20261105T091500Z-3f9c2a71b8d04e65.png"]);
+    expect(sentMessages).toEqual([
+      "what is this? /home/you/hermux/.uploads/20261105T091500Z-3f9c2a71b8d04e65.png /home/you/hermux/.uploads/20261105T091512Z-8a1d4e07c2b95f36.png /home/you/hermux/.uploads/20261105T091530Z-c70e2b9f41d6a853.jpg",
+    ]);
     expect(state()).toBeNull();
   });
 });
@@ -583,16 +870,38 @@ describe("sizes", () => {
 
 describe("the stylesheet's targets for the chip and the button, read because the fake DOM has no layout", () => {
   const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rulesFor = (selector: string) =>
+    [...css.matchAll(/(?:^|\n)([^{}\n][^{}]*)\{([^}]*)\}/g)]
+      .map(([, selectors, body]) => ({
+        selectors: selectors.split(",").map((each) => each.trim()),
+        body: Object.fromEntries(body.split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2)),
+      }))
+      .filter((rule) => rule.selectors.includes(selector));
   const declarations = (selector: string) => {
-    const found = [...css.matchAll(/(?:^|\n)([^{}\n][^{}]*)\{([^}]*)\}/g)].find(([, selectors]) => selectors.split(",").map((each) => each.trim()).includes(selector));
-    if (!found) throw new Error(`No rule for ${selector}`);
-    return Object.fromEntries(found[2].split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2));
+    const [first] = rulesFor(selector);
+    if (!first) throw new Error(`No rule for ${selector}`);
+    return first.body;
   };
 
   test("the attach button and the ✕ are 48px targets, and the chip is one 48px row", () => {
     expect([declarations(".attach").width, declarations(".attach").height]).toEqual(["var(--key)", "var(--key)"]);
     expect([declarations(".attachment-remove").width, declarations(".attachment-remove").height]).toEqual(["var(--key)", "var(--key)"]);
     expect(declarations(".attachment").height).toBe("var(--key)");
+  });
+
+  test("the chips' row never wraps, swipes sideways edge to edge like the key row and hides its scrollbar as the key row does", () => {
+    const ownRule = rulesFor(".attachment-row").find((rule) => rule.selectors.length === 1)?.body;
+    expect([ownRule?.display, ownRule?.["flex-wrap"], ownRule?.["overflow-x"], ownRule?.margin, ownRule?.padding]).toEqual(["flex", "nowrap", "auto", "0 var(--bleed)", "0 var(--gutter)"]);
+    const scrollbarRule = (selector: string) => rulesFor(selector).find((rule) => rule.body["scrollbar-width"] !== undefined);
+    expect(scrollbarRule(".attachment-row")?.body["scrollbar-width"]).toBe("none");
+    expect(scrollbarRule(".attachment-row")).toEqual(scrollbarRule(".keys"));
+    expect(declarations(".attachment-row::-webkit-scrollbar").display).toBe("none");
+    expect(declarations(".attachment").flex).toBe("none");
+  });
+
+  test("the count line is small Legend Grey text on one line", () => {
+    const line = declarations(".attachment-count");
+    expect([line["font-size"], line.color, line["white-space"]]).toEqual(["var(--text-s)", "var(--ink-soft)", "nowrap"]);
   });
 
   test("the clip menu's rows are at least 56px tall, and the menu is raised like the / popover, above the box", () => {

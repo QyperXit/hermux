@@ -65,6 +65,7 @@ export class FakeElement {
   scrollLeft = 0;
   scrollTop = 0;
   pointerCaptures: number[] = [];
+  scrolledIntoView: ScrollIntoViewOptions[] = [];
   private listeners = new Map<string, Listener[]>();
   private ownValue: string | undefined;
   private ownChecked: boolean | undefined;
@@ -250,6 +251,11 @@ export class FakeElement {
 
   setPointerCapture(pointerId: number) {
     this.pointerCaptures.push(pointerId);
+  }
+
+  // A browser can't scroll to an element that isn't shown.
+  scrollIntoView(options: ScrollIntoViewOptions) {
+    if (this.shown) this.scrolledIntoView.push(options);
   }
 
   addEventListener(type: string, listener: Listener) {
