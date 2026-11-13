@@ -1,6 +1,7 @@
 import { leading, readScreen, shellRows, trimStart } from "./screen.js";
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml } from "./links.js";
+import { boxTableHtml } from "./table.js";
 
 /**
  * @typedef {import("./screen.js").Run} Run
@@ -155,7 +156,7 @@ export function readerParts(text) {
       /** @type {Row[]} */
       const box = [];
       while (isContentRow(i) && rows[i].kind === "box") box.push(rows[i++]);
-      html.push(blockHtml(box));
+      html.push(boxTableHtml(box) ?? blockHtml(box));
     } else if (paragraph) {
       const item = LIST_ITEM.test(line.text.trim()) ? " li" : "";
       html.push(`<p class="p${item}"${indentStyle(leading(line) - 1, "margin-left")}>${runsHtml(paragraph.runs)}</p>`);

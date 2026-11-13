@@ -613,7 +613,8 @@ button {
 
 .history-note,
 .history-gap,
-.history-join {
+.history-join,
+.stacked-note {
   font-size: var(--text-s);
   line-height: var(--leading-output);
   color: var(--ink-soft);
@@ -660,6 +661,61 @@ button {
 
 .output .gap {
   height: var(--unit);
+}
+
+.stacked {
+  margin: var(--unit) var(--bleed);
+}
+
+.stacked-note {
+  margin: 0;
+  padding: 0 var(--gutter) 4px;
+}
+
+.stacked-row {
+  padding: 10px var(--gutter);
+  border-top: 1px solid var(--rule);
+}
+
+.stacked-row:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+
+.stacked-title {
+  display: block;
+  margin: 0 0 4px;
+  font-size: var(--text-m);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.stacked-title:last-child {
+  margin: 0;
+}
+
+.stacked-fields {
+  display: grid;
+  grid-template-columns: fit-content(40%) minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 0;
+}
+
+.stacked-fields dt {
+  font-size: var(--text-s);
+  font-weight: 600;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.stacked-fields dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.stacked-line {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .line {
@@ -843,7 +899,8 @@ button {
   color: var(--face);
 }
 
-.output .p .a-code {
+.output .p .a-code,
+.output .stacked-row .a-code {
   padding: 1px 4px;
   border-radius: 4px;
   background: var(--body);

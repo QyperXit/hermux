@@ -236,7 +236,7 @@ describe("panels and tables", () => {
     expect(html).toContain(`│ ♥ Workflow &quot;plan-sleep-charts&quot; is still running${" ".repeat(47)}│`);
   });
 
-  test("a ┌┐└┘ panel and a ├┼┤ table are each one block; padding after the right edge is dropped", () => {
+  test("a ┌┐└┘ panel is one block and a ├┼┤ table is stacked rows; padding after the right edge is dropped", () => {
     const panel = [" ┌ NOTE ──────────┐", " │ <b>raw</b> & x │", " └────────────────┘"];
     const table = [
       " ┌───────────────────────────┬───────────────┐",
@@ -246,7 +246,10 @@ describe("panels and tables", () => {
       " └───────────────────────────┴───────────────┘",
     ];
     const html = readerHtml([" Benchmark results:", "", ...panel.map((row) => `${row}      `), "", ...table.map((row) => `${row}${" ".repeat(20)}`), " ¹ How often the code is merged."].join("\n"));
-    expect(blocks(html)).toEqual([panel.join("\n"), table.join("\n")]);
+    expect(blocks(html)).toEqual([panel.join("\n")]);
+    expect(html).toContain(
+      `<div class="stacked"><section class="stacked-row"><strong class="stacked-title">Claude Opus 5.5 (medium)</strong><dl class="stacked-fields"><dt>FrontierCode¹</dt><dd>54.6</dd></dl></section></div>`,
+    );
     expect(html).toContain("&lt;b&gt;raw&lt;/b&gt; &amp; x");
     expect(html).not.toContain("<b>");
     expect(html).toStartWith(`<p class="p">Benchmark results:</p>`);
@@ -564,5 +567,21 @@ describe("plain shells", () => {
     expect(html).not.toContain("style=\"color");
     expect(html).toContain("&lt;b&gt;&amp;&lt;/b&gt;");
     expect(html).not.toContain("<b>");
+  });
+});
+
+describe("what is not a table stays as drawn", () => {
+  const TABLE_WORDS = /stacked|Table continues above/;
+
+  test("the workflow graph, the workflow picker, the heartbeat and BACKGROUND panels and Atomic's chrome draw no stacked rows", () => {
+    expect(readerHtml(GRAPH.join("\n"))).not.toMatch(TABLE_WORDS);
+    expect(readerHtml(WORKFLOW_PICKER_SCREEN)).not.toMatch(TABLE_WORDS);
+    expect(readerHtml([...prose, "", ...HEARTBEAT].join("\n"))).not.toMatch(TABLE_WORDS);
+    expect(readerHtml([...prose, "", USAGE, RULE40, "❯", RULE40, FOOTER, "", ...PANEL].join("\n"))).not.toMatch(TABLE_WORDS);
+  });
+
+  test("a panel whose rows have several │ columns but no junction rule is one block", () => {
+    const columns = [" ╭ STAGES ─────────────╮", " │ one   │ ● running   │", " │ two   │ ✓ done      │", " ╰─────────────────────╯"];
+    expect(blocks(readerHtml(columns.join("\n")))).toEqual([columns.join("\n")]);
   });
 });

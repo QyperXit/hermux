@@ -1,5 +1,6 @@
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml, linkedTextHtml } from "./links.js";
+import { stackedHtml } from "./table.js";
 
 /**
  * @typedef {import("../server/history").Message} Message
@@ -32,6 +33,66 @@ function inlineHtml(text) {
   return html + linkedTextHtml(text.slice(last));
 }
 
+// The cells of a table row: split at every pipe that isn't escaped (\|) or inside a code span.
+/** @param {string} row */
+function cellsOf(row) {
+  const inner = row.trim().slice(1);
+  /** @type {string[]} */
+  const cells = [];
+  let cell = "";
+  let closed = false;
+  for (let i = 0; i < inner.length; i++) {
+    const char = inner[i];
+    closed = false;
+    if (char === "\\" && inner[i + 1] === "|") {
+      cell += "|";
+      i++;
+    } else if (char === "`") {
+      const ticks = /^`+/.exec(inner.slice(i))?.[0] ?? "`";
+      const end = new RegExp("(?<!`)" + ticks + "(?!`)").exec(inner.slice(i + ticks.length));
+      const span = end ? inner.slice(i, i + ticks.length + end.index + ticks.length) : ticks;
+      cell += span.replaceAll("\\|", "|");
+      i += span.length - 1;
+    } else if (char === "|") {
+      cells.push(cell);
+      cell = "";
+      closed = true;
+    } else {
+      cell += char;
+    }
+  }
+  if (!closed) cells.push(cell);
+  return cells.map((each) => each.trim());
+}
+
+const SEPARATOR_CELL = /^:?-+:?$/;
+const WHOLLY_BOLD = /^(?:\*\*([^*]+)\*\*|__([^_]+)__)$/;
+/** @param {string} cell */
+const unbold = (cell) => {
+  const bold = WHOLLY_BOLD.exec(cell);
+  return bold ? (bold[1] ?? bold[2]) : cell;
+};
+
+/** @param {string} cell */
+const plainOf = (cell) =>
+  unbold(cell)
+    .replace(/`([^`]*)`/g, "$1")
+    .replace(/(^|[^\w*])\*([^*]+)\*(?![\w*])/g, "$1$2")
+    .replace(/(^|[^\w_])_([^_]+)_(?![\w_])/g, "$1$2");
+
+/** @param {string[]} rows */
+function tableHtml(rows) {
+  if (rows.length < 3) return null;
+  const [header, separator, ...data] = rows.map(cellsOf);
+  if (separator.length !== header.length || !separator.every((cell) => SEPARATOR_CELL.test(cell)) || data.some((cells) => cells.length > header.length)) return null;
+  return stackedHtml(
+    data.map(([title = "", ...rest]) => ({
+      title: inlineHtml(unbold(title)),
+      fields: header.slice(1).map((label, index) => ({ label: plainOf(label), html: inlineHtml(rest[index] ?? "") })),
+    })),
+  );
+}
+
 /** @param {number} ch */
 const indentStyle = (ch) => (ch > 0 ? ` style="margin-left:${Math.min(ch, MAX_INDENT_CH)}ch"` : "");
 /** @param {string[]} rows */
@@ -56,7 +117,7 @@ export function markdownHtml(text) {
     } else if (TABLE_ROW.test(line)) {
       const rows = [];
       while (i < lines.length && TABLE_ROW.test(lines[i])) rows.push(lines[i++].trim());
-      html.push(monoBlock(rows));
+      html.push(tableHtml(rows) ?? monoBlock(rows));
     } else if (!line.trim()) {
       if (html.length && html.at(-1) !== `<div class="gap"></div>`) html.push(`<div class="gap"></div>`);
       i++;

@@ -1,4 +1,4 @@
-// A box-drawn block (a workflow graph, panel or table) whose HTML changed keeps
+// A box-drawn block (a workflow graph or panel) whose HTML changed keeps
 // its element and gets only new contents, because moving or replacing a node
 // loses its sideways scroll position, and a scroll in progress. Matches keep
 // their order, so no kept element is ever moved.

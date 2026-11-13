@@ -170,7 +170,7 @@ export const plainText = (text) =>
  * @param {number} [end]
  * @returns {Line}
  */
-function sliceLine(line, start, end = line.text.length) {
+export function sliceLine(line, start, end = line.text.length) {
   /** @type {Run[]} */
   const runs = [];
   let offset = 0;
@@ -184,7 +184,7 @@ function sliceLine(line, start, end = line.text.length) {
 }
 
 /** @param {Line} line */
-const trimEnd = (line) => sliceLine(line, 0, line.text.trimEnd().length);
+export const trimEnd = (line) => sliceLine(line, 0, line.text.trimEnd().length);
 /** @param {Line} line */
 export const leading = (line) => line.text.length - line.text.trimStart().length;
 /** @param {Line} line */

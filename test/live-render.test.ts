@@ -115,3 +115,30 @@ describe("drawing the Live screen in place", () => {
     expect(live.children.map((child) => child.textContent)).toEqual(["$ ls", "a.txt", "b.txt", "$ pwd"]);
   });
 });
+
+describe("a table in the Live screen", () => {
+  const table = (note: string) => [" ┌──────┬──────┐", " │ Name │ Note │", " ├──────┼──────┤", ` │ one  │ ${note.padEnd(4)} │`, " └──────┴──────┘"];
+  const withTable = (n: number, note: string) => [screen(n), "", ...table(note)].join("\n");
+  const tableOf = (live: FakeElement) => live.querySelectorAll(".stacked");
+
+  test("a refresh that changes the table redraws only the table: the panel block keeps its element and scroll position", () => {
+    const { live, draw } = livePage();
+    draw(readerParts(withTable(0, "a")));
+    const [block] = blocksOf(live);
+    block.scrollLeft = 140;
+    draw(readerParts(withTable(1, "b")));
+    expect(blocksOf(live)).toEqual([block]);
+    expect(block.scrollLeft).toBe(140);
+    expect(tableOf(live)).toHaveLength(1);
+    expect(tableOf(live)[0].textContent).toContain("b");
+    expect(live.childNodes.length).toBe(readerParts(withTable(1, "b")).length);
+  });
+
+  test("a table that is unchanged keeps its element", () => {
+    const { live, draw } = livePage();
+    draw(readerParts(withTable(0, "a")));
+    const [stacked] = tableOf(live);
+    draw(readerParts(withTable(0, "a")));
+    expect(tableOf(live)).toEqual([stacked]);
+  });
+});
