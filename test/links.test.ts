@@ -61,7 +61,7 @@ describe("links in the Reader", () => {
   test("an address in a code chip stays text, never a link; Atomic's orange link text is linked inside its own span", () => {
     expect(readerHtml(` Run ${CYAN}curl https://example.com/x${RESET} now`)).toBe(`<p class="p">Run <span class="a-code">curl https://example.com/x</span> now</p>`);
     expect(readerHtml(` Open ${ORANGE}https://example.com/pr/37${RESET}.`)).toBe(
-      `<p class="p">Open <span class="a-link">${link("https://example.com/pr/37")}</span>.</p>`,
+      `<p class="p">Open <span class="a-accent">${link("https://example.com/pr/37")}</span>.</p>`,
     );
   });
 
@@ -117,7 +117,7 @@ describe("Earlier messages", () => {
     const html = agent("See https://example.com/a. Also [the docs](https://example.com/docs) and [bad](javascript:alert(1)) and **https://example.com/b**");
     expect(html).toContain(`See ${link("https://example.com/a")}.`);
     expect(html).toContain(link("https://example.com/docs", "the docs"));
-    expect(html).toContain(`<span class="a-link">bad</span>`);
+    expect(html).toContain(`<span class="a-accent">bad</span>`);
     expect(html).not.toContain("javascript:");
     expect(html).toContain(`<span class="a-b">${link("https://example.com/b")}</span>`);
   });

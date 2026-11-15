@@ -13,9 +13,9 @@ const YOU = sgr("48;2;30;46;30");
 const TOOL = sgr("48;2;45;45;48");
 
 describe("colours, styles and escaping", () => {
-  test("Atomic's palette maps to roles: cyan is code, orange is link, greys 240-245 are soft", () => {
+  test("Atomic's palette maps to roles: cyan is code, orange is an accent (not a link), greys 240-245 are soft", () => {
     expect(readerHtml(`See ${CYAN}app.js${RESET} and ${ORANGE}PR #37${RESET}.`)).toBe(
-      `<p class="p">See <span class="a-code">app.js</span> and <span class="a-link">PR #37</span>.</p>`,
+      `<p class="p">See <span class="a-code">app.js</span> and <span class="a-accent">PR #37</span>.</p>`,
     );
     for (const grey of [240, 242, 245]) {
       expect(readerHtml(`${sgr(`38;5;${grey}`)}Thinking level: medium${RESET}`)).toBe(`<p class="p"><span class="a-soft">Thinking level: medium</span></p>`);
@@ -41,7 +41,7 @@ describe("colours, styles and escaping", () => {
   test("rows shaded 30,46,30 are a message band and 45,45,48 a mono tool band; a shade mid-row is not a band", () => {
     const text = [`${YOU} ${ORANGE}${YOU}npm test${RESET}${YOU}    ${RESET}`, `${TOOL} so ?   ${RESET}`, ` text ${TOOL} ↓ Jump ${RESET}`].join("\n");
     expect(readerHtml(text)).toBe(
-      `<div class="band band-you"><p class="p"><span class="a-link">npm test</span></p></div>` +
+      `<div class="band band-you"><p class="p"><span class="a-accent">npm test</span></p></div>` +
         `<div class="band band-tool"><div class="line" style="padding-left:1ch">so ?</div></div>` +
         `<p class="p">text  ↓ Jump</p>`,
     );
@@ -320,8 +320,8 @@ describe("question dialogs", () => {
     expect(rows.map((row) => row.cls)).toEqual(["opt is-selected", "opt", "opt", "opt"]);
     expect(visibleText(rows[0].inner)).toBe("1.Internal testing (Recommended)");
     expect(visibleText(rows[1].inner)).toBe("2.Closed testing");
-    expect(rows[0].inner).not.toContain("a-link");
-    expect(html).not.toContain("a-link");
+    expect(rows[0].inner).not.toMatch(/a-(link|accent)/);
+    expect(html).not.toMatch(/a-(link|accent)/);
     expect(html).not.toContain("❯");
     expect(html).toContain(`<p class="p">Where should I upload the bundle?</p>`);
     expect(html).toContain("Only your test group gets it.");
@@ -336,7 +336,7 @@ describe("question dialogs", () => {
     expect(rows[2].inner).toContain(`<span class="opt-box"><span class="visually-hidden">not ticked</span></span>`);
     expect(html).not.toContain("[✔]");
     expect(html).not.toContain("[ ]");
-    expect(html).not.toContain("a-link");
+    expect(html).not.toMatch(/a-(link|accent)/);
     expect(html).toContain("Needs a Mac runner.");
   });
 
@@ -360,7 +360,7 @@ describe("question dialogs", () => {
     expect(html).not.toContain("<i>");
     expect(html).toContain("Use &lt;b onclick=&quot;x()&quot;&gt;&amp;&lt;/b&gt; and a label that goes on to a second line");
     expect(optionRowsOf(html).map((row) => row.cls)).toEqual(["opt is-selected", "opt"]);
-    expect(html).not.toContain("a-link");
+    expect(html).not.toMatch(/a-(link|accent)/);
   });
 
   test("an answered option that Atomic marks with ✔ reads as a ticked row without the bar", () => {
@@ -378,7 +378,7 @@ describe("question dialogs", () => {
     const rows = optionRowsOf(html);
     expect(rows.map((row) => row.cls)).toEqual(["opt is-ticked", "opt is-unticked", "opt is-selected"]);
     expect(visibleText(rows[2].inner)).toBe("Next");
-    expect(html).not.toContain("a-link");
+    expect(html).not.toMatch(/a-(link|accent)/);
   });
 });
 
@@ -443,7 +443,7 @@ describe("Atomic's /workflow connect picker", () => {
       expect(blocks(html).join("\n")).not.toContain(RUN_A);
       expect(blocks(html).join("\n")).not.toContain(RUN_B);
       expect(rows[selected].inner).not.toContain("a-b");
-      expect(html).not.toContain("a-link");
+      expect(html).not.toMatch(/a-(link|accent)/);
       expect(blocks(html)[0]).toContain("Connect to workflow run");
       expect(blocks(html)[0]).toContain("ACTIVE");
       expect(blocks(html).at(-1)).toContain("╰");
@@ -507,7 +507,7 @@ describe("Atomic's workflow picker in the prompt box's place", () => {
     expect(html).toContain(`<span class="opt-mark"><span class="visually-hidden">selected</span></span>`);
     const picker = parts.slice(at("Connect to workflow run"), at("Navigate")).join("");
     expect(picker).not.toContain("is-chrome");
-    expect(picker).not.toContain("a-link");
+    expect(picker).not.toMatch(/a-(link|accent)/);
   });
 
   test("the box's left edge runs unbroken from its title row to its bottom edge, past the Selection Bar and the plain run row", () => {
@@ -583,5 +583,13 @@ describe("what is not a table stays as drawn", () => {
   test("a panel whose rows have several │ columns but no junction rule is one block", () => {
     const columns = [" ╭ STAGES ─────────────╮", " │ one   │ ● running   │", " │ two   │ ✓ done      │", " ╰─────────────────────╯"];
     expect(blocks(readerHtml(columns.join("\n")))).toEqual([columns.join("\n")]);
+  });
+});
+
+describe("Atomic's orange text", () => {
+  test("is Link Blue without an underline, so only a real link looks tappable", () => {
+    expect(declarations(".a-accent")).toMatchObject({ color: "var(--link)" });
+    expect(declarations(".a-accent")["text-decoration"]).toBeUndefined();
+    expect(declarations(".a-link")).toMatchObject({ color: "var(--link)", "text-decoration": "underline" });
   });
 });

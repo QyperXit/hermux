@@ -2,7 +2,7 @@ import { CONTROL } from "./wrap.js";
 
 /**
  * @typedef {{ index?: number, rgb?: number[] }} Colour
- * @typedef {"code" | "link" | "soft"} Foreground
+ * @typedef {"code" | "accent" | "soft"} Foreground
  * @typedef {"you" | "tool"} Band
  * @typedef {{ bold: boolean, italic: boolean, underline: boolean, inverse: boolean, fg: Foreground | null, bg: Band | null }} Style
  * @typedef {{ text: string, cls: string }} Run
@@ -32,7 +32,7 @@ const ESCAPE = /\x1b\[([0-?]*)[ -/]*([@-~])?|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\?)?
 const same = (rgb, r, g, b) => rgb && rgb[0] === r && rgb[1] === g && rgb[2] === b;
 
 // Atomic's palette, checked on real panes: cyan for code and file names, orange
-// for links and commands, 256-colour greys 240-245 for thinking and secondary
+// for its accent (commands, names, links), 256-colour greys 240-245 for thinking and secondary
 // text. Any other colour is ink.
 /**
  * @param {Colour} colour
@@ -40,7 +40,7 @@ const same = (rgb, r, g, b) => rgb && rgb[0] === r && rgb[1] === g && rgb[2] ===
  */
 function foregroundRole({ rgb, index }) {
   if (same(rgb, 0, 255, 255)) return "code";
-  if (same(rgb, 255, 102, 0)) return "link";
+  if (same(rgb, 255, 102, 0)) return "accent";
   if (index !== undefined && index >= 240 && index <= 245) return "soft";
   return null;
 }

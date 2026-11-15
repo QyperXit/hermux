@@ -147,7 +147,7 @@ A restrained hardware palette: warm neutrals and black legends, plus a single or
 ### Output content (D12)
 These appear only inside the agent's output, recoloured from Atomic's terminal palette so they read on both themes. Any colour Atomic uses that isn't listed falls back to Legend Black (Night Legend), so Atomic's orange never reaches the page.
 - **Code Teal** (`#00646b`, dark **Night Code Teal** `#6fd3d6`): Atomic's cyan (0,255,255): code, file names, commands and list markers.
-- **Link Blue** (`#2357a6`, dark **Night Link Blue** `#8ab4f8`), always underlined: Atomic's orange (255,102,0).
+- **Link Blue** (`#2357a6`, dark **Night Link Blue** `#8ab4f8`): Atomic's orange (255,102,0), its accent for commands and names, with no underline (D41); a real link is Link Blue and underlined, so only a link looks tappable.
 - **Legend Grey** for Atomic's soft greys (256-colour 240–245): thinking text and asides.
 - **Message Band** (`#e2e6dc`, dark `#1f2a1f`): rows on Atomic's 30,46,30 background, the user's own messages.
 - **Tool Band** (`#e6e3dd`, dark `#26262a`): rows on Atomic's 45,45,48 background, the tool band.

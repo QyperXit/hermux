@@ -886,7 +886,8 @@ button {
   color: var(--code);
 }
 
-.a-link {
+.a-link,
+.a-accent {
   color: var(--link);
 }
 

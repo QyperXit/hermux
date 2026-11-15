@@ -27,7 +27,7 @@ function inlineHtml(text) {
     else if (bold !== undefined || bold2 !== undefined) html += `<span class="a-b">${linkedTextHtml(bold ?? bold2)}</span>`;
     else if (italic !== undefined || italic2 !== undefined) html += `<span class="a-i">${linkedTextHtml(italic ?? italic2)}</span>`;
     else if (/^https?:\/\/[^/]/.test(url)) html += `<a class="a-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(linkText)}</a>`;
-    else html += `<span class="a-link">${escapeHtml(linkText)}</span>`;
+    else html += `<span class="a-accent">${escapeHtml(linkText)}</span>`;
     last = match.index + match[0].length;
   }
   return html + linkedTextHtml(text.slice(last));
