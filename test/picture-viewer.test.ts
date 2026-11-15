@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { bindCopy, bindView, picturePaths } from "../web/links.js";
 import { MAX_ZOOM, clampView, createPictureViewer, swipeStep, zoomAt } from "../web/picture-viewer.js";
 import { readerHtml } from "../web/reader.js";
+import { cssRules, declarations } from "./support/css";
 import { FakeDocument, FakeEvent, asPageElement, type FakeElement } from "./support/fake-dom";
 
 const A = "/home/you/sketches/left.png";
@@ -430,6 +429,47 @@ describe("closing", () => {
     press("Tab", true);
     expect(doc.activeElement).toBe(order[3]);
   });
+
+  test("Tab is kept from the browser and skips a key that is off or hidden; from nowhere Tab starts at the first key and Shift+Tab at the last", () => {
+    const first = screen();
+    first.key(A).dispatch("click");
+    const [close, copy, next] = [".picture-close", ".picture-copy", ".picture-next"].map(first.find);
+    expect(first.find(".picture-prev").disabled).toBe(true);
+    expect(first.press("Tab").defaultPrevented).toBe(true);
+    expect(first.doc.activeElement).toBe(copy);
+    first.press("Tab");
+    expect(first.doc.activeElement).toBe(next);
+    first.press("Tab");
+    expect(first.doc.activeElement).toBe(close);
+    expect(first.press("Tab", true).defaultPrevented).toBe(true);
+    expect(first.doc.activeElement).toBe(next);
+    const focused = () => first.doc.activeElement;
+    const fromNowhere = (shiftKey: boolean) => {
+      first.doc.activeElement = null;
+      first.press("Tab", shiftKey);
+      return focused();
+    };
+    expect([fromNowhere(false), fromNowhere(true)]).toEqual([close, next]);
+
+    const only = screen(` Only ${A} here`);
+    only.key(A).dispatch("click");
+    only.press("Tab");
+    expect(only.doc.activeElement).toBe(only.find(".picture-copy"));
+    only.press("Tab");
+    expect(only.doc.activeElement).toBe(only.find(".picture-close"));
+  });
+
+  test("making the viewer touches no page until it opens; opening without its layer or its page says which is missing", () => {
+    const { key, find } = screen();
+    const quiet = { addEventListener() {}, removeEventListener() {} };
+    const make = (page: HTMLElement | null, root: HTMLElement | null) =>
+      createPictureViewer({ page, root, client: { readPicture: () => new Promise<Blob>(() => {}) }, browser: { history: { state: null, pushState() {}, back() {} }, events: quiet, keys: quiet }, copy: async () => {} });
+    const unopened = make(null, null);
+    expect(Object.keys(unopened).sort()).toEqual(["close", "open"]);
+    unopened.close();
+    expect(() => unopened.open(asPageElement(key(A)), [A])).toThrow("The picture viewer has no picture root.");
+    expect(() => make(null, asPageElement(find("#picture-root"))).open(asPageElement(key(A)), [A])).toThrow("The picture viewer has no page.");
+  });
 });
 
 describe("Copy path", () => {
@@ -453,14 +493,6 @@ describe("Copy path", () => {
     expect(find(".picture-said").textContent).toBe(`Couldn't copy ${A}.`);
   });
 });
-
-const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-const rules = [...css.matchAll(/(?:^|\n)([^{}\n][^{}]*)\{([^}]*)\}/g)];
-const declarations = (selector: string) => {
-  const found = rules.find(([, selectors]) => selectors.split(",").map((each) => each.trim()).includes(selector));
-  if (!found) throw new Error(`No rule for ${selector}`);
-  return Object.fromEntries(found[2].split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2));
-};
 
 describe("a picture that can't be shown", () => {
   test("shows the plain reason in the picture's place, and close and Copy path still work", async () => {
@@ -489,9 +521,9 @@ describe("a picture that can't be shown", () => {
   });
 
   test("its message is in ink, never the orange signal", () => {
-    const pictureRules = rules.filter(([, selectors]) => selectors.includes(".picture"));
+    const pictureRules = cssRules.filter((rule) => rule.selectors.some((selector) => selector.includes(".picture")));
     expect(pictureRules.length).toBeGreaterThan(0);
-    expect(pictureRules.filter(([, , body]) => body.includes("--signal")).map(([, selectors]) => selectors.trim())).toEqual([]);
+    expect(pictureRules.filter((rule) => Object.entries(rule.declarations).flat().some((part) => part.includes("--signal"))).map((rule) => rule.selectors)).toEqual([]);
   });
 });
 
@@ -511,7 +543,8 @@ describe("the stylesheet's targets, read because the fake DOM has no layout", ()
 
   test("the viewer covers the whole screen on its own dark surface, and the stage takes the fingers", () => {
     expect([declarations(".picture-layer").position, declarations(".picture-layer").inset]).toEqual(["fixed", "0"]);
-    expect(declarations(".picture-viewer").background).toBe("var(--viewer)");
+    const surface = declarations(".picture-viewer");
+    expect([surface.background, surface["color-scheme"]]).toEqual(["var(--face)", "dark"]);
     expect(declarations(".picture-stage")["touch-action"]).toBe("none");
     expect(declarations(".picture-img")["object-fit"]).toBe("contain");
   });

@@ -342,6 +342,11 @@ export function createSampleClient() {
       return { history: null, reason: "unavailable" };
     },
 
+    async readSavedTables() {
+      await pause(80);
+      return { tables: [] };
+    },
+
     async sendPrompt(paneId, text) {
       await pause(250);
       const shell = findShell(paneId);

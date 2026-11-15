@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { readerHtml, readerParts, shellHtml } from "../web/reader.js";
+import { cssRules, declarations } from "./support/css";
 import { ACTIVE_RUN, BACKGROUND, FINISHED_RUN, HINT, PICKER_FOOTER, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
 
 const ESC = "\x1b";
@@ -475,15 +474,6 @@ describe("Atomic's /workflow connect picker", () => {
     expect(html).toContain("&lt;i&gt;");
   });
 });
-
-// The Reader's stylesheet, read because the fake DOM has no layout.
-const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-const cssRules = [...css.matchAll(/(?:^|\n)([^{}\n@][^{}]*)\{([^}]*)\}/g)].map(([, selectors, body]) => ({
-  selectors: selectors.split(",").map((each) => each.trim()),
-  declarations: Object.fromEntries(body.split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2)),
-}));
-const declarations = (selector: string): Record<string, string> =>
-  Object.assign({}, ...cssRules.filter((rule) => rule.selectors.includes(selector)).map((rule) => rule.declarations));
 
 describe("Atomic's workflow picker in the prompt box's place", () => {
   const parts = readerParts(WORKFLOW_PICKER_SCREEN);

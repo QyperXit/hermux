@@ -1,7 +1,8 @@
 import { leading, readScreen, shellRows, trimStart } from "./screen.js";
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml } from "./links.js";
-import { boxTableHtml } from "./table.js";
+import { savedTableHtml } from "./history.js";
+import { anchorOf, boxTable, boxTableHtml, savedRowsOf } from "./table.js";
 
 /**
  * @typedef {import("./screen.js").Run} Run
@@ -9,6 +10,7 @@ import { boxTableHtml } from "./table.js";
  * @typedef {import("./screen.js").Row} Row
  * @typedef {import("./screen.js").DialogRow} DialogRow
  * @typedef {import("./links.js").CopyMode} CopyMode
+ * @typedef {import("./pipe-table.js").PipeTable} PipeTable
  */
 
 /**
@@ -95,16 +97,51 @@ export const shellHtml = (text) => shellParts(text).join("");
 
 const LIST_ITEM = /^(?:[-•*]|\d+[.)])\s/;
 
-/** @param {string} text */
-export const readerHtml = (text) => readerParts(text).join("");
+/**
+ * @param {string} text
+ * @param {PipeTable[]} [savedTables]
+ */
+export const readerHtml = (text, savedTables) => readerParts(text, savedTables).join("");
 
 /**
  * @param {string} text
- * @returns {string[]}
+ * @param {PipeTable[]} [savedTables]
  */
-export function readerParts(text) {
+export const readerParts = (text, savedTables) => readLive(text, savedTables).parts;
+
+/**
+ * @param {Line[]} box
+ * @param {PipeTable[]} savedTables
+ * @param {string[]} anchors
+ * @param {PipeTable[]} read
+ */
+function boxHtml(box, savedTables, anchors, read) {
+  const table = boxTable(box);
+  if (!table) return blockHtml(box);
+  const saved = savedRowsOf(table, savedTables);
+  if (saved) {
+    read.push(saved.source);
+    return savedTableHtml(saved.table, { continuesAbove: saved.continuesAbove });
+  }
+  const anchor = anchorOf(table);
+  if (anchor !== null) anchors.push(anchor);
+  return boxTableHtml(table);
+}
+
+/**
+ * The Live screen's parts, the anchor of each box table in it that no saved
+ * table reads, and the saved tables its box tables are read from.
+ * @param {string} text
+ * @param {PipeTable[]} [savedTables] tables from the Agent's saved messages
+ * @returns {{ parts: string[], anchors: string[], read: PipeTable[] }}
+ */
+export function readLive(text, savedTables = []) {
+  /** @type {string[]} */
+  const anchors = [];
+  /** @type {PipeTable[]} */
+  const read = [];
   const screen = readScreen(text);
-  if (screen.graph) return [graphHtml(screen.rows)];
+  if (screen.graph) return { parts: [graphHtml(screen.rows)], anchors, read };
   const { rows, options } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
   /** @type {string[]} */
@@ -156,7 +193,7 @@ export function readerParts(text) {
       /** @type {Row[]} */
       const box = [];
       while (isContentRow(i) && rows[i].kind === "box") box.push(rows[i++]);
-      html.push(boxTableHtml(box) ?? blockHtml(box));
+      html.push(boxHtml(box, savedTables, anchors, read));
     } else if (paragraph) {
       const item = LIST_ITEM.test(line.text.trim()) ? " li" : "";
       html.push(`<p class="p${item}"${indentStyle(leading(line) - 1, "margin-left")}>${runsHtml(paragraph.runs)}</p>`);
@@ -165,5 +202,5 @@ export function readerParts(text) {
       throw new Error(`Line ${i} continues a dialog option that has no first row.`);
     }
   }
-  return html;
+  return { parts: html, anchors, read };
 }

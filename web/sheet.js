@@ -1,3 +1,4 @@
+import { dialogLayer } from "./dialog.js";
 import { find, findAll, need } from "./dom.js";
 import { closesOnSwipe, hasSwitcher, sheetRowsHtml, sheetTitle, switcherRows } from "./terminals.js";
 
@@ -17,15 +18,6 @@ export function sheetFits(terminals, paneId) {
 }
 
 /**
- * @param {number} at
- * @param {number} count
- * @param {boolean} backwards
- */
-export function nextRow(at, count, backwards) {
-  return backwards ? (at <= 0 ? count - 1 : at - 1) : at === count - 1 ? 0 : at + 1;
-}
-
-/**
  * @param {{
  *   app: HTMLElement | null,
  *   root: HTMLElement | null,
@@ -34,14 +26,7 @@ export function nextRow(at, count, backwards) {
  * }} options
  */
 export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
-  /** @returns {HTMLElement} */
-  const page = () => app ?? missing("page");
-  /** @returns {HTMLElement} */
-  const root = () => rootElement ?? missing("switcher root");
-  /** @param {string} what @returns {never} */
-  const missing = (what) => {
-    throw new Error(`The switcher has no ${what}.`);
-  };
+  const { page, root, trapTab } = dialogLayer({ name: "switcher", page: app, root: rootElement, rootName: "switcher root" });
 
   /** @type {{ trigger: HTMLElement, html: string } | null} */
   let sheet = null;
@@ -174,10 +159,7 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     }
     if (event.key !== "Tab") return;
     const rows = findAll(root(), ".pane-row");
-    if (!rows.length) return;
-    const next = nextRow(rows.findIndex((row) => row === document.activeElement), rows.length, event.shiftKey);
-    event.preventDefault();
-    rows[next].focus();
+    if (rows.length) trapTab(event, rows);
   }
 
   /**

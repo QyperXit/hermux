@@ -14,6 +14,7 @@ import {
   saveBar,
   saveCommands,
 } from "./keys.js";
+import { createPopover } from "./popover.js";
 
 /**
  * @typedef {import("./keys.js").BarEntry} BarEntry
@@ -177,9 +178,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
   /** @type {KeyBarIntents} */
   let intents = { sendKey: () => {}, sendText: () => {}, announce: () => {} };
 
-  /** @type {HTMLElement | null} */
-  let outsideTapTarget = null;
-
   /** @returns {HTMLElement} */
   const page = () => {
     if (!screen) throw new Error("The key bar isn't attached to a screen.");
@@ -193,8 +191,19 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     /** @type {KeyEdit} */
     keyEdit: { picker: false, menu: null },
     editingCommands: false,
-    savedOpen: false,
   };
+
+  const saved = createPopover({
+    page,
+    buttonSelector: ".slash",
+    popoverSelector: ".saved",
+    first: (popover) => find(popover, ".saved-item") ?? need(popover, ".saved-edit"),
+    opening() {
+      if (state.keyEdit.picker || state.editingCommands) return false;
+      renderSaved();
+      return true;
+    },
+  });
 
   /** @returns {PickerFields} */
   function pickerFields() {
@@ -236,47 +245,6 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     need(group, ".key-add").addEventListener("click", () => setPicker(!state.keyEdit.picker));
   }
 
-  function savedParts() {
-    return { slash: need(page(), ".slash"), popover: need(page(), ".saved") };
-  }
-
-  function openSaved() {
-    if (state.savedOpen || state.keyEdit.picker || state.editingCommands) return;
-    renderSaved();
-    const { slash, popover } = savedParts();
-    state.savedOpen = true;
-    popover.hidden = false;
-    slash.setAttribute("aria-expanded", "true");
-    (find(popover, ".saved-item") ?? need(popover, ".saved-edit")).focus();
-  }
-
-  /** @param {{ focus?: boolean }} [options] */
-  function closeSaved({ focus = true } = {}) {
-    if (!state.savedOpen) return;
-    const { slash, popover } = savedParts();
-    state.savedOpen = false;
-    popover.hidden = true;
-    slash.setAttribute("aria-expanded", "false");
-    if (focus) slash.focus();
-  }
-
-  /** @param {Event} event */
-  function closeOnOutsideTap(event) {
-    if (!state.savedOpen) return;
-    const slash = /** @type {HTMLElement | null} */ (page().querySelector(".slash"));
-    const popover = /** @type {HTMLElement | null} */ (page().querySelector(".saved"));
-    if (!slash || !popover) {
-      state.savedOpen = false;
-      return;
-    }
-    const target = /** @type {Element | null} */ (event.target);
-    if (popover.contains(target) || slash.contains(target)) return;
-    closeSaved({ focus: false });
-    const doc = page().ownerDocument;
-    const active = doc.activeElement;
-    if (!active || active === doc.body || popover.contains(active)) slash.focus();
-  }
-
   function setEditingClasses() {
     page().classList.toggle("is-editing-keys", state.keyEdit.picker);
     page().classList.toggle("is-editing-commands", state.editingCommands);
@@ -286,7 +254,7 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
   function setPicker(open) {
     state.keyEdit = { picker: open, menu: null };
     if (open) {
-      closeSaved({ focus: false });
+      saved.close({ focus: false });
       setCommandsEditor(false, { focus: false });
     }
     need(page(), ".picker").hidden = !open;
@@ -398,7 +366,7 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     for (const button of findAll(list, ".saved-item")) {
       button.addEventListener("click", () => {
         intents.sendText(state.commands[Number(button.dataset.index)]);
-        closeSaved();
+        saved.close();
       });
     }
   }
@@ -457,7 +425,7 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
       saveCommands(storage, state.commands);
     }
     state.editingCommands = open;
-    if (open) closeSaved({ focus: false });
+    if (open) saved.close({ focus: false });
     if (open && state.keyEdit.picker) {
       state.keyEdit = { picker: false, menu: null };
       need(page(), ".picker").hidden = true;
@@ -572,21 +540,11 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
       intents = to;
       state.keyEdit = { picker: false, menu: null };
       state.editingCommands = false;
-      state.savedOpen = false;
       need(drawn, ".controls").insertAdjacentHTML("afterbegin", controlsHtml());
       renderKeys();
 
-      if (outsideTapTarget !== drawn) {
-        drawn.addEventListener("click", closeOnOutsideTap);
-        outsideTapTarget = drawn;
-      }
-      need(drawn, ".slash").addEventListener("click", () => (state.savedOpen ? closeSaved() : openSaved()));
+      saved.attach();
       need(drawn, ".saved-edit").addEventListener("click", () => setCommandsEditor(true));
-      need(drawn, ".composer").addEventListener("keydown", (event) => {
-        if (event.key !== "Escape" || !state.savedOpen) return;
-        event.preventDefault();
-        closeSaved();
-      });
 
       const picker = need(drawn, ".picker");
       picker.addEventListener("input", updatePicker);
@@ -614,7 +572,7 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
     /** @param {boolean} blocked */
     setBlocked(blocked) {
       assertAttached();
-      if (blocked) closeSaved({ focus: false });
+      if (blocked) saved.close({ focus: false });
     },
   };
 }

@@ -6,11 +6,13 @@
 //
 // Every entry read is an indexed lookup by session_id and seq with a LIMIT
 // (the table's primary key). The candidate lookup by folder reads only
-// session_sessions, never entry_json, and runs only when a pane is (re)matched;
-// a pane with no match is not looked up again until its screen changes.
+// session_sessions, never entry_json, and runs only when a pane is (re)matched
+// or the page asks for a live table's saved copy; a pane with no match is not
+// looked up again until its screen changes.
 import { Database } from "bun:sqlite";
+import { MAX_ANCHOR_CHARS, MAX_ANCHORS, holdsAnchor, pipeTables, withoutLinkTargets, type PipeTable } from "../web/pipe-table.js";
 import { CONTROL, matchKey } from "../web/wrap.js";
-import { HerdrError, isRecord, type Herdr } from "./herdr";
+import { HerdrError, isRecord, type Agent, type Herdr } from "./herdr";
 
 export const STORE_RETRY_MS = 30_000;
 const DEFAULT_PAGE = 30;
@@ -22,6 +24,8 @@ const MATCH_MIN_KEY_CHARS = 24;
 const JOIN_MIN_KEY_CHARS = 12;
 const JOIN_MISSES = 3;
 const SUMMARY_MAX = 80;
+const TABLE_SESSIONS = 10;
+const TABLE_ENTRIES = 60;
 
 export type Block = { kind: "text"; text: string } | { kind: "tool"; name: string; summary: string };
 export type Message = { seq: number; role: "user" | "assistant"; blocks: Block[]; partial?: true };
@@ -33,6 +37,10 @@ export type HistoryPage =
   | { history: null; reason: "no_match" | "ambiguous" | "unavailable" };
 
 export type HistoryQuery = { before?: number; limit?: number; from?: number };
+
+// The tables in the latest saved messages of the folder's latest sessions that
+// have a row with one of the asked anchors (see `anchorOf` in web/table.js).
+export type SavedTables = { tables: PipeTable[] };
 
 const CANDIDATES_SQL =
   "SELECT id FROM session_sessions WHERE cwd = ?1 ORDER BY internal, modified_at DESC LIMIT ?2";
@@ -62,8 +70,7 @@ export function openSessionStore(path: string) {
   };
 }
 
-// A markdown link shows its text on screen.
-const withoutLinkTargets = (text: string) => text.replace(/\[([^\]]*)\]\([^)\s]*\)/g, "$1");
+const folderOf = (agent: Agent) => (typeof agent.cwd === "string" ? agent.cwd : "");
 const clean = (text: string) => text.replace(CONTROL, "");
 
 const SUMMARY_KEYS = ["command", "cmd", "path", "file_path", "filePath", "pattern", "query", "url", "urls", "prompt", "description", "task", "message", "action", "name"];
@@ -255,13 +262,36 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
     return found[0];
   }
 
+  function tablesIn(s: SessionStore, session: string, anchors: Set<string>): PipeTable[] {
+    return s.entriesBefore(session, Number.MAX_SAFE_INTEGER, TABLE_ENTRIES).flatMap((row) => {
+      const message = row.json === null ? null : toMessage(row.seq, row.json);
+      if (message?.role !== "assistant") return [];
+      return message.blocks
+        .flatMap((block) => (block.kind === "text" ? pipeTables(block.text) : []))
+        .filter((table) => holdsAnchor(table, anchors));
+    });
+  }
+
   return {
+    async savedTables(paneId: string, anchors: string[]): Promise<SavedTables> {
+      const agent = await herdr.get(paneId);
+      const s = getStore();
+      const cwd = folderOf(agent);
+      if (!s || !cwd) return { tables: [] };
+      const wanted = new Set(anchors);
+      const found = new Map<string, PipeTable>();
+      for (const session of s.candidates(cwd).slice(0, TABLE_SESSIONS)) {
+        for (const table of tablesIn(s, session, wanted)) found.set(JSON.stringify(table), table);
+      }
+      return { tables: [...found.values()] };
+    },
+
     // `from`: only messages with this seq or a later one (see `join`).
     async page(paneId: string, { before, limit = DEFAULT_PAGE, from = 0 }: HistoryQuery = {}): Promise<HistoryPage> {
       const [agent, text] = await Promise.all([herdr.get(paneId), herdr.read(paneId)]);
       const s = getStore();
       if (!s) return { history: null, reason: "unavailable" };
-      const cwd = typeof agent.cwd === "string" ? agent.cwd : "";
+      const cwd = folderOf(agent);
       const screen = matchKey(text);
       const session = cwd ? match(s, paneId, cwd, screen) : "no_match";
       if (session === "no_match" || session === "ambiguous") return { history: null, reason: session };
@@ -308,4 +338,12 @@ export function parseHistoryQuery(params: URLSearchParams): HistoryQuery {
     return Number(value);
   };
   return { before: number("before", Number.MAX_SAFE_INTEGER), limit: number("limit", MAX_PAGE), from: number("from", Number.MAX_SAFE_INTEGER) };
+}
+
+export function parseTableAnchors(params: URLSearchParams): string[] {
+  const anchors = params.getAll("row");
+  if (anchors.length > MAX_ANCHORS || anchors.some((anchor) => !anchor || anchor.length > MAX_ANCHOR_CHARS)) {
+    throw new HerdrError("bad_request", `Ask for 1 to ${MAX_ANCHORS} \`row\`s of 1 to ${MAX_ANCHOR_CHARS} characters.`);
+  }
+  return anchors;
 }

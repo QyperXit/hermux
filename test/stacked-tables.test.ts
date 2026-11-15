@@ -1,36 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { markdownHtml } from "../web/history.js";
 import { readerHtml, readerParts } from "../web/reader.js";
-import { CUT_TOP_TABLE_SCREEN, TWO_TABLES_SCREEN } from "./support/atomic-tables";
-
-const ESC = "\x1b";
-const BOLD = `${ESC}[0m${ESC}[1m`;
-const CYAN = `${ESC}[0m${ESC}[38;2;0;255;255m`;
-const RESET = `${ESC}[0m`;
-
-const text = (html: string) =>
-  html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
-
-type Row = { title: string | null; fields: [string | null, string][] };
-
-// What a reader of the page sees: each row's title and its lines, as plain text.
-function rowsOf(html: string): Row[] {
-  return [...html.matchAll(/<section class="stacked-row">(.*?)<\/section>/g)].map(([, inner]) => {
-    const title = inner.match(/<strong class="stacked-title">(.*?)<\/strong>/)?.[1];
-    const fields = [...inner.matchAll(/<dt>(.*?)<\/dt><dd>(.*?)<\/dd>|<p class="stacked-line">(.*?)<\/p>/g)].map(
-      (field): [string | null, string] => [field[1] === undefined ? null : text(field[1]), text(field[2] ?? field[3])],
-    );
-    return { title: title === undefined ? null : text(title), fields };
-  });
-}
+import { CUT_TOP_TABLE_SCREEN, NARROW_TABLE_SCREEN, TWO_TABLES_SCREEN } from "./support/atomic-tables";
+import { declarations } from "./support/css";
+import { BOLD, CYAN, ESC, RESET, rowsOf } from "./support/stacked";
 
 const blocksOf = (html: string) => [...html.matchAll(/<div class="block">(.*?)<\/div>/gs)].map((match) => match[1]);
 
@@ -167,7 +140,26 @@ describe("Atomic's box-drawn tables on the Live screen", () => {
     expect(beta.fields[2][1]).toContain("the \"optional\" framing can lead to inconsistent, hit-or-miss adoption");
     expect(gamma.fields[2][1]).toContain('and calling it "future-proof" can hide over-engineering, which turns a simple task');
     expect(gamma.fields[1][1]).toContain("make long-term reasoning easier. A schema.ts file");
-    expect(gamma.fields[1][1]).toContain("well-documented foundation for future multi-layer features");
+  });
+
+  test("a word exactly as wide as its cell is taken for a cut word and glued to the next one", () => {
+    const [, , gamma] = rowsOf(readerHtml(CUT_TOP_TABLE_SCREEN));
+    expect(gamma.fields[1][1]).toContain("gives a structured, well-documentedfoundation for future multi-layer features");
+    const [, quince] = rowsOf(readerHtml(NARROW_TABLE_SCREEN));
+    expect(quince.fields.at(-1)?.[1]).toEndWith("according to local orchardkeepers.");
+  });
+
+  test("words cut in a narrow table are whole again, however much of the word is on the next line", () => {
+    const html = readerHtml(NARROW_TABLE_SCREEN);
+    expect(html).toContain(`<div class="stacked"><p class="stacked-note">Table continues above</p><section class="stacked-row">`);
+    const [, quince, bell] = rowsOf(html);
+    expect(quince.title).toBe("Ripplequince");
+    expect(quince.fields.at(-1)?.[1]).toStartWith("Ripplequinces have swirling patterns on their skin, and no two fruits ever look");
+    expect(quince.fields.at(-1)?.[1]).toContain("alike, according to local");
+    expect(bell.title).toBe("Bramblebell");
+    expect(bell.fields.at(-1)?.[1]).toStartWith("Bramblebells hang like tiny lanterns from thorny hedges, and birds");
+    expect(bell.fields.at(-1)?.[1]).toEndWith("with villagers to gather them each spring.");
+    expect(bell.fields.map(([, line]) => line).slice(0, 2)).toEqual(["Crimson", "Juicy and bright"]);
   });
 
   test("a path split by the wrap is one path again, with its copy key and picture view key", () => {
@@ -225,16 +217,38 @@ describe("Atomic's box-drawn tables on the Live screen", () => {
     expect(readerHtml(grid.join("\n"))).toContain(`href="https://example.com/aaaa/b"`);
   });
 
+  test("a laptop path cut after a slash, a dash or an underscore is one path again, over any number of lines; one that fills its cell up to a closing mark is whole", () => {
+    const long = readerHtml(drawn([6, 12], ["N", "Path"], [["a"], ["/tmp/aaaa/", "bbbbbbbbb-", "ccccccccc_", "d.txt ok"]]).join("\n"));
+    expect(long).toContain(`data-copy="/tmp/aaaa/bbbbbbbbb-ccccccccc_d.txt"`);
+    expect(rowsOf(long)[0].fields[0][1]).toEndWith(" ok");
+    expect(readerHtml(drawn([6, 12], ["N", "Path"], [["a"], ["~/notes-a/", "bb.txt"]]).join("\n"))).toContain(`data-copy="~/notes-a/bb.txt"`);
+    const closed = readerHtml(drawn([6, 12], ["N", "Path"], [["a"], ["/tmp/a.md,", "then"]]).join("\n"));
+    expect(closed).toContain(`data-copy="/tmp/a.md"`);
+    expect(rowsOf(closed)[0].fields[0][1]).toEndWith(", then");
+  });
+
   test("a short line, or a line of several words, is never a cut word, however short the next line", () => {
     const grid = drawn([6, 9], ["N", "Note"], [["a"], ["go", "to", "fits it", "a"]]);
     expect(rowsOf(readerHtml(grid.join("\n")))).toEqual([{ title: "a", fields: [["Note", "go to fits it a"]] }]);
   });
 
-  test("a cut line whose tail is a short word plus punctuation (abc.),) is glued; a plain four-character tail is not", () => {
-    const glued = drawn([12, 12], ["N", "Note"], [["a"], ["supercalif", "abc.), ef"]]);
-    expect(rowsOf(readerHtml(glued.join("\n")))).toEqual([{ title: "a", fields: [["Note", "supercalifabc.), ef"]] }]);
-    const spaced = drawn([12, 12], ["N", "Note"], [["a"], ["supercalif", "abcd ef"]]);
-    expect(rowsOf(readerHtml(spaced.join("\n")))).toEqual([{ title: "a", fields: [["Note", "supercalif abcd ef"]] }]);
+  test("a line that fills its cell and ends in a letter or digit goes on in the next line with no space, however long the rest", () => {
+    const letter = drawn([12, 12], ["N", "Note"], [["a"], ["supercalif", "ragilistic", "expi, ef"]]);
+    expect(rowsOf(readerHtml(letter.join("\n")))).toEqual([{ title: "a", fields: [["Note", "supercalifragilisticexpi, ef"]] }]);
+    const digit = drawn([12, 12], ["N", "Note"], [["a"], ["1234567890", "12345 ef"]]);
+    expect(rowsOf(readerHtml(digit.join("\n")))).toEqual([{ title: "a", fields: [["Note", "123456789012345 ef"]] }]);
+  });
+
+  test("a line that fills its cell and ends in punctuation is followed by a space, however short the next line", () => {
+    for (const end of ["-", ",", ".", ")", "/", "_"]) {
+      const grid = drawn([12, 12], ["N", "Note"], [["a"], [`supercali${end}`, "ab"]]);
+      expect(rowsOf(readerHtml(grid.join("\n")))).toEqual([{ title: "a", fields: [["Note", `supercali${end} ab`]] }]);
+    }
+  });
+
+  test("a word one character short of its cell's width is followed by a space", () => {
+    const grid = drawn([12, 12], ["N", "Note"], [["a"], ["supercali", "fragilis"]]);
+    expect(rowsOf(readerHtml(grid.join("\n")))).toEqual([{ title: "a", fields: [["Note", "supercali fragilis"]] }]);
   });
 
   test("a row with text left of its first border is not a table", () => {
@@ -324,13 +338,6 @@ describe("Atomic's box-drawn tables on the Live screen", () => {
 });
 
 describe("the stylesheet for stacked rows", () => {
-  const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rules = [...css.matchAll(/(?:^|\n)([^{}\n@][^{}]*)\{([^}]*)\}/g)].map(([, selectors, body]) => ({
-    selectors: selectors.split(",").map((each) => each.trim()),
-    declarations: Object.fromEntries(body.split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2)),
-  }));
-  const declarations = (selector: string): Record<string, string> => Object.assign({}, ...rules.filter((rule) => rule.selectors.includes(selector)).map((rule) => rule.declarations));
-
   test("the title is 15px 650 ink, the label 13px 600 Legend Grey, and rows are divided by 1px Rule Grey rules", () => {
     expect(declarations(".stacked-title")["font-size"]).toBe("var(--text-m)");
     expect(declarations(".stacked-title")["font-weight"]).toBe("650");
@@ -345,7 +352,8 @@ describe("the stylesheet for stacked rows", () => {
 
   test("a stacked table never scrolls sideways and its text wraps inside the screen", () => {
     for (const selector of [".stacked", ".stacked-row", ".stacked-fields", ".stacked-fields dd"]) expect(["auto", "scroll"]).not.toContain(declarations(selector)["overflow-x"]);
-    expect(declarations(".stacked-fields dd")["overflow-wrap"]).toBe("anywhere");
+    expect(declarations(".stacked")["overflow-wrap"]).toBe("anywhere");
+    for (const s of [".stacked-row", ".stacked-title", ".stacked-fields", ".stacked-fields dt", ".stacked-fields dd", ".stacked-line"]) expect([undefined, "anywhere"]).toContain(declarations(s)["overflow-wrap"]);
     expect(declarations(".stacked-fields dd")["min-width"]).toBe("0");
   });
 });

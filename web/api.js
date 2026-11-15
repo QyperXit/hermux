@@ -173,6 +173,13 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       return read(`${terminalPath(paneId, "history")}${search ? `?${search}` : ""}`);
     },
 
+    // The tables in the Agent's latest saved messages with a row matching one
+    // of `anchors` (see `anchorOf` in table.js).
+    async readSavedTables(paneId, anchors) {
+      const query = new URLSearchParams(anchors.map((anchor) => ["row", anchor]));
+      return read(`${terminalPath(paneId, "history")}?${query}`);
+    },
+
     // `kind` is what the screen showed: "shell" or the agent kind. The server
     // checks the pane is still that just before sending.
     async sendPrompt(paneId, text, kind) {

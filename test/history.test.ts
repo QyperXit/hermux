@@ -481,6 +481,67 @@ describe.concurrent("the history route", () => {
   });
 });
 
+describe.concurrent("saved tables for a live table", () => {
+  const TABLE = "| Fruit | Notes |\n|---|---|\n| Plumcot | Sweet and **very** tart |\n| Figlet | Soft |";
+  const OTHER = "| Fruit | Notes |\n|---|---|\n| Plumcot | Sweet and **very** tart |\n| Quincelet | Firm |";
+  const PLUMCOT = "Plumcot Sweetandverytart";
+  const tablesPath = (pane: string, ...rows: string[]) => historyPath(pane, `?${new URLSearchParams(rows.map((row) => ["row", row]))}`);
+  const tableSession = (id: string, table: string, modified = "2026-10-29T10:00:00Z") => ({ id, modified, entries: [user("a table please"), assistant(text(`Here it is.\n\n${table}\n\nDone.`))] });
+  const screens = { [PANE]: screenOf("a box table nothing else matches") };
+
+  test("a table-only reply is found by its row, from the latest messages of the folder's sessions, though no history session matches", async () => {
+    const { get } = setup({ store: makeStore([tableSession("s1", TABLE)]), screens });
+    expect((await get(historyPath(PANE))).body).toEqual({ history: null, reason: "no_match" });
+    expect((await get(tablesPath(PANE, PLUMCOT))).body).toEqual({ tables: [{ header: ["Fruit", "Notes"], rows: [["Plumcot", "Sweet and **very** tart"], ["Figlet", "Soft"]] }] });
+    expect((await get(tablesPath(PANE, "Fruit Notes"))).body.tables).toHaveLength(1);
+  });
+
+  test("a row in no saved table, a table in another folder, or one older than the latest messages finds nothing", async () => {
+    const old = { id: "s1", entries: [user("a table please"), assistant(text(TABLE)), ...numberedSession("x", 20).entries] };
+    const { get } = setup({ store: makeStore([old, { ...tableSession("s2", TABLE), cwd: "/home/you/elsewhere" }]), screens });
+    expect((await get(tablesPath(PANE, PLUMCOT))).body).toEqual({ tables: [] });
+    expect((await get(tablesPath(PANE, "Plumcot Sweet"))).body).toEqual({ tables: [] });
+  });
+
+  test("each table holding a row comes once, from every session in the folder; the page decides between them", async () => {
+    const { get } = setup({ store: makeStore([tableSession("s1", TABLE), tableSession("fork", TABLE, "2026-10-29T11:00:00Z"), tableSession("s3", OTHER)]), screens });
+    const { tables } = (await get(tablesPath(PANE, PLUMCOT, "unknown"))).body;
+    expect(tables.map((table: { rows: string[][] }) => table.rows[1][0]).sort()).toEqual(["Figlet", "Quincelet"]);
+  });
+
+  test("the tables come newest first: the latest session first, and in it the latest message first", async () => {
+    const newer = { id: "s2", modified: "2026-10-29T12:00:00Z", entries: [assistant(text(OTHER)), user("again"), assistant(text(TABLE))] };
+    const { get } = setup({ store: makeStore([tableSession("s1", OTHER.replace("Quincelet", "Medlar")), newer]), screens });
+    const { tables } = (await get(tablesPath(PANE, PLUMCOT))).body;
+    expect(tables.map((table: { rows: string[][] }) => table.rows[1][0])).toEqual(["Figlet", "Quincelet", "Medlar"]);
+  });
+
+  test("the user's own messages are not searched", async () => {
+    const { get } = setup({ store: makeStore([{ id: "s1", entries: [user(TABLE), assistant(text("ok, noted"))] }]), screens });
+    expect((await get(tablesPath(PANE, PLUMCOT))).body).toEqual({ tables: [] });
+  });
+
+  test("without a readable session store there are none", async () => {
+    const { get } = setup({ store: null, screens });
+    expect((await get(tablesPath(PANE, PLUMCOT))).body).toEqual({ tables: [] });
+  });
+
+  for (const rows of [[""], ["a", "b", "c", "d", "e"], ["x".repeat(4001)]]) {
+    test(`a bad ask (${rows.length} rows, longest ${Math.max(...rows.map((row) => row.length))}) is refused with 400 before herdr runs`, async () => {
+      const { get, fake } = setup({ store: makeStore([tableSession("s1", TABLE)]), screens });
+      const { status, body } = await get(tablesPath(PANE, ...rows));
+      expect([status, body.error.code]).toEqual([400, "bad_request"]);
+      expect(fake.calls()).toEqual([]);
+    });
+  }
+
+  test("herdr is only asked for the agent (agent get), never its screen", async () => {
+    const { get, fake } = setup({ store: makeStore([tableSession("s1", TABLE)]), screens });
+    await get(tablesPath(PANE, PLUMCOT));
+    expect(fake.calls().map((argv) => argv.slice(0, 2).join(" "))).toEqual(["agent get"]);
+  });
+});
+
 describe.concurrent("the session store is read-only", () => {
   test("the store is opened read-only: a write through its handle fails, and the file never changes", async () => {
     const store = makeStore([numberedSession("s1", 30)]);

@@ -65,7 +65,7 @@ beforeEach(() => {
   fake = makeFakeHerdr(CONFIG);
   fakes.push(fake);
   const herdr = createHerdr(fake.bin, { submitDelayMs: 0 });
-  const store = makeStore([{ id: "s1", entries }]);
+  const store = makeStore([{ id: "s1", entries }, { id: "s2", modified: "2026-10-28T10:00:00Z", entries: [user("a table please"), assistant("| A | B |\n|---|---|\n| one | two words |")] }]);
   serve(createApp({ herdr, allowedLogin: ALLOWED_LOGIN, webRoot: "/nonexistent", history: createHistory({ herdr, openStore: () => openSessionStore(store) }) }));
 });
 
@@ -121,6 +121,12 @@ describe("reads", () => {
     expect(since.messages.map((message) => message.seq)).toEqual([9, 10]);
     const path = `api/terminals/${encodeURIComponent(ATOMIC)}/history`;
     expect(sent.map((request) => request.path)).toEqual([`${path}?limit=4`, `${path}?before=7&limit=4`, `${path}?from=9&limit=4`]);
+  });
+
+  test("readSavedTables asks with each anchor as a row and gets the saved tables that hold one", async () => {
+    const answer = await createHttpClient().readSavedTables(ATOMIC, ["one twowords", "none"]);
+    expect(answer).toEqual({ tables: [{ header: ["A", "B"], rows: [["one", "two words"]] }] });
+    expect(sent.map((request) => request.path)).toEqual([`api/terminals/${encodeURIComponent(ATOMIC)}/history?row=one+twowords&row=none`]);
   });
 
   test("a read that doesn't answer in time is the laptop not answering", async () => {

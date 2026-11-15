@@ -44,11 +44,6 @@
   --link: light-dark(#2357a6, #8ab4f8);
   --band-you: light-dark(#e2e6dc, #1f2a1f);
   --band-tool: light-dark(#e6e3dd, #26262a);
-  --viewer: #151514;
-  --viewer-ink: #dcd8cf;
-  --viewer-soft: #9c978d;
-  --viewer-rule: #34332f;
-  --viewer-press: #282725;
 
   --sans: "Hanken Grotesk", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
@@ -665,6 +660,7 @@ button {
 
 .stacked {
   margin: var(--unit) var(--bleed);
+  overflow-wrap: anywhere;
 }
 
 .stacked-note {
@@ -686,7 +682,6 @@ button {
   margin: 0 0 4px;
   font-size: var(--text-m);
   font-weight: 650;
-  overflow-wrap: anywhere;
 }
 
 .stacked-title:last-child {
@@ -704,18 +699,15 @@ button {
   font-size: var(--text-s);
   font-weight: 600;
   color: var(--ink-soft);
-  overflow-wrap: anywhere;
 }
 
 .stacked-fields dd {
   min-width: 0;
   margin: 0;
-  overflow-wrap: anywhere;
 }
 
 .stacked-line {
   margin: 0;
-  overflow-wrap: anywhere;
 }
 
 .line {
@@ -1783,9 +1775,13 @@ button {
   display: block;
 }
 
-.switcher-layer {
+.switcher-layer,
+.picture-layer {
   position: fixed;
   inset: 0;
+}
+
+.switcher-layer {
   z-index: 10;
 }
 
@@ -1929,8 +1925,6 @@ button {
 }
 
 .picture-layer {
-  position: fixed;
-  inset: 0;
   z-index: 20;
 }
 
@@ -1939,38 +1933,48 @@ button {
   flex-direction: column;
   height: 100%;
   padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
-  background: var(--viewer);
-  color: var(--viewer-ink);
+  background: var(--face);
+  color: var(--ink);
+  color-scheme: dark;
 }
 
-.picture-viewer :focus-visible {
-  outline-color: var(--viewer-ink);
-}
-
-.picture-bar {
+.picture-bar,
+.picture-nav {
   display: flex;
   flex: none;
   align-items: center;
   gap: var(--unit);
   min-height: 64px;
   padding: 0 var(--unit);
-  border-bottom: 1px solid var(--viewer-rule);
+}
+
+.picture-bar {
+  border-bottom: 1px solid var(--rule);
+}
+
+.picture-nav {
+  justify-content: space-between;
+}
+
+.picture-close,
+.picture-prev,
+.picture-next,
+.picture-copy {
+  flex: none;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  touch-action: manipulation;
 }
 
 .picture-close,
 .picture-prev,
 .picture-next {
   display: grid;
-  flex: none;
   place-items: center;
   width: var(--key);
   height: var(--key);
   padding: 0;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--viewer-ink);
-  touch-action: manipulation;
 }
 
 .picture-close .icon {
@@ -1980,7 +1984,7 @@ button {
 
 .picture-prev:disabled,
 .picture-next:disabled {
-  color: var(--viewer-rule);
+  color: var(--rule);
   cursor: default;
 }
 
@@ -2001,34 +2005,28 @@ button {
 .picture-count {
   font-size: var(--text-s);
   line-height: 18px;
-  color: var(--viewer-soft);
+  color: var(--ink-soft);
 }
 
 .picture-copy {
-  flex: none;
   min-width: var(--key);
   height: var(--key);
   padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--viewer-soft);
+  color: var(--ink-soft);
   font-family: var(--sans);
   font-size: var(--text-s);
   font-weight: 600;
   white-space: nowrap;
-  touch-action: manipulation;
 }
 
 .picture-close:active,
 .picture-prev:active:not(:disabled),
 .picture-next:active:not(:disabled),
 .picture-copy:active {
-  background: var(--viewer-press);
+  background: var(--key-face);
 }
 
 .picture-stage {
-  position: relative;
   display: grid;
   flex: 1;
   place-items: center;
@@ -2056,24 +2054,13 @@ button {
   font-size: var(--text-m);
   line-height: 22px;
   text-align: center;
-  color: var(--viewer-ink);
-}
-
-.picture-nav {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--unit);
-  min-height: 64px;
-  padding: 0 var(--unit);
 }
 
 .picture-hint {
   flex: 1;
   font-size: var(--text-s);
   text-align: center;
-  color: var(--viewer-soft);
+  color: var(--ink-soft);
 }
 
 @keyframes scrim-in {

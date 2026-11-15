@@ -85,6 +85,7 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
     listWorkspaceTerminals: (id: string) => answer(`workspace ${id}`, () => ({ workspace: dashboard, terminals: herdr.terminals() })),
     readOutput: (paneId: string) => answer(`output ${paneId}`, () => `screen of ${paneId}`),
     readHistory: () => answer("history", () => ({ history: null, reason: "unavailable" as const })),
+    readSavedTables: () => answer("saved tables", () => ({ tables: [] })),
     sendPrompt: (paneId: string, text: string, kind: string) => answer(`prompt ${paneId} ${kind} ${text}`, () => undefined),
     sendKeys: (paneId: string, keys: string[], kind: string) => answer(`keys ${paneId} ${kind} ${keys.join(" ")}`, () => undefined),
     watchOutput: (paneId: string, stream: string) => answer(`watch ${paneId} ${stream}`, () => undefined),

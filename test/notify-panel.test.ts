@@ -87,6 +87,13 @@ describe("opening", () => {
     panel.close();
     expect(panel.isOpen()).toBe(false);
   });
+
+  test("opening without its layer or its page says which is missing", async () => {
+    const { notifications, bell, find } = await screen();
+    const keys = { addEventListener() {}, removeEventListener() {} };
+    expect(() => createNotifyPanel({ page: null, root: null, keys, notifications }).open(asPageElement(bell()))).toThrow("The notifications panel has no notifications root.");
+    expect(() => createNotifyPanel({ page: null, root: asPageElement(find("#notify-root")), keys, notifications }).open(asPageElement(bell()))).toThrow("The notifications panel has no page.");
+  });
 });
 
 describe("closing", () => {
@@ -172,6 +179,17 @@ describe("Tab", () => {
     expect(focused()).toBe(test);
     press("Tab", true);
     expect(focused()).toBe(toggle);
+  });
+
+  test("from nowhere Tab starts at the first key that works and Shift+Tab at the last", async () => {
+    const { open, press, focused, find, doc } = await screen({ permission: "granted", subscribed: true });
+    open();
+    doc.activeElement = null;
+    expect(press("Tab").defaultPrevented).toBe(true);
+    expect(focused()).toBe(find(".notify-toggle"));
+    doc.activeElement = null;
+    expect(press("Tab", true).defaultPrevented).toBe(true);
+    expect(focused()).toBe(find(".notify-test"));
   });
 
   test("with no key that works it stays on the dialog, and brings focus back to it from nowhere", async () => {

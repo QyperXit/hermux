@@ -12,7 +12,7 @@ import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
 import { createPictureViewer } from "./picture-viewer.js";
 import { drawLive } from "./live-render.js";
-import { readerParts, shellParts } from "./reader.js";
+import { readLive, shellParts } from "./reader.js";
 import { parseRoute, terminalHref } from "./routes.js";
 import { duration } from "./rows.js";
 import { FRESHNESS_SLOT, allScreenHtml, homeScreenHtml } from "./screens.js";
@@ -27,6 +27,7 @@ import {
   terminalsLabel,
 } from "./terminals.js";
 import { createEarlier } from "./earlier.js";
+import { createSavedTables } from "./saved-tables.js";
 import { isAtBottom } from "./scroll.js";
 import { createSession } from "./session.js";
 import { createSheet } from "./sheet.js";
@@ -37,6 +38,7 @@ import { THEME_KEY, applyTheme, nextTheme, storedTheme, themeLabel } from "./the
  * @typedef {import("./session.js").Route} Route
  * @typedef {import("./session.js").Snapshot} Snapshot
  * @typedef {ReturnType<typeof setTimeout> | 0} TimerId
+ * @typedef {import("./pipe-table.js").PipeTable} PipeTable
  */
 
 const demo = new URLSearchParams(location.search).has("demo");
@@ -68,6 +70,12 @@ const sheet = createSheet({
 });
 
 const earlier = createEarlier({ client });
+
+const savedTables = createSavedTables({
+  client,
+  timers: { setTimeout: (run, ms) => window.setTimeout(run, ms), clearTimeout: (id) => window.clearTimeout(id) },
+  onFound: () => renderOutput(session.snapshot()),
+});
 
 const notifications = createNotifications({
   browser: { serviceWorker: navigator.serviceWorker, notification: globalThis.Notification, pushManager: "PushManager" in globalThis, isBrave: () => looksLikeBrave(navigator) },
@@ -167,8 +175,8 @@ function renderList() {
   if (selector) find(app, selector)?.focus({ preventScroll: true });
 }
 
-/** @type {WeakMap<HTMLElement, { text: string, shell: boolean }>} */
-const renderedText = new WeakMap();
+/** @type {WeakMap<HTMLElement, { text: string, shell: boolean, saved: PipeTable[] }>} */
+const drawnLive = new WeakMap();
 
 function renderTerminalScreen() {
   app.dataset.screen = "agent";
@@ -216,6 +224,7 @@ function updateTerminalScreen(view) {
     }
     sheet.close({ restoreFocus: false });
     earlier.leave();
+    savedTables.leave();
     need(app, ".identity-folder").textContent = "Terminal gone";
     need(app, ".identity-name").textContent = `Pane ${view.route.paneId} is no longer there.`;
     need(app, ".terminals-key").hidden = true;
@@ -229,6 +238,7 @@ function updateTerminalScreen(view) {
   if (!shell) recordOpened(openedStore, terminal);
   const [output, region, note, items, gap, join] = [".output", ".history", ".history-note", ".history-items", ".history-gap", ".history-join"].map((selector) => need(app, selector));
   earlier.open(terminal.pane_id, shell ? "shell" : "agent", { output, region, note, items, gap, join });
+  savedTables.open(terminal.pane_id, shell ? "shell" : "agent");
   const { folder } = describeTerminal(terminal);
   const status = terminal.status;
   const blocked = status === "blocked";
@@ -268,17 +278,25 @@ function renderOutput({ output: { text, error }, terminal }) {
     return;
   }
   const shell = isShell(terminal ?? { kind: "" });
-  const before = renderedText.get(live);
-  if (before && before.text === text && before.shell === shell) return;
-  renderedText.set(live, { text, shell });
-  drawLive(live, shell ? shellParts(text) : readerParts(text));
+  const saved = savedTables.tables();
+  const before = drawnLive.get(live);
+  const textChanged = !before || before.text !== text || before.shell !== shell;
+  if (!textChanged && before.saved === saved) return;
+  drawnLive.set(live, { text, shell, saved });
+  if (shell) {
+    drawLive(live, shellParts(text));
+  } else {
+    const { parts, anchors, read } = readLive(text, saved);
+    drawLive(live, parts);
+    savedTables.live(text, anchors, read);
+  }
   if (atBottom || !output.dataset.seen) {
     output.scrollTop = output.scrollHeight;
     output.dataset.seen = "1";
-  } else {
+  } else if (textChanged) {
     need(app, ".latest").hidden = false;
   }
-  earlier.live(text);
+  if (textChanged) earlier.live(text);
 }
 
 /**
@@ -414,6 +432,7 @@ function onRouteChange() {
   notifyPanel.close({ restoreFocus: false });
   pictures.close({ restoreFocus: false, popHistory: false });
   earlier.leave();
+  savedTables.leave();
   session.open(parseRoute(location.hash));
   const view = session.snapshot();
   delete app.dataset.agentStatus;

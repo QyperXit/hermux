@@ -193,6 +193,13 @@ describe.concurrent("terminal output", () => {
     expect((await request("GET", `${path(SHELL_PANE, "history")}?before=0`)).status).toBe(400);
     expect((await request("POST", path(SHELL_PANE, "history"), { body: {} })).status).toBe(405);
   });
+
+  test("saved tables are agent-only too: a shell is refused with not_an_agent, and with no session store an agent has none", async () => {
+    const { request } = setup();
+    const shell = await request("GET", `${path(SHELL_PANE, "history")}?row=a`);
+    expect([shell.status, (await shell.json()).error.code]).toEqual([409, "not_an_agent"]);
+    expect(await (await request("GET", `${path(ATOMIC, "history")}?row=a`)).json()).toEqual({ tables: [] });
+  });
 });
 
 describe.concurrent("guards on the terminal routes", () => {

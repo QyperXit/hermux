@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { composerHtml } from "../web/composer.js";
 import { memoryStorage } from "../web/home.js";
 import { createKeyBar } from "../web/key-bar.js";
+import { declarations } from "./support/css";
+import { asPageElement } from "./support/fake-dom";
 import { keyBarScreen } from "./support/key-bar";
 
 const BAR = "Terminal keys";
@@ -241,25 +242,18 @@ describe("editing the bar", () => {
 });
 
 describe("the key row's one-line rules, read from the stylesheet because the fake DOM has no layout", () => {
-  const rule = (selector: string) => {
-    const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8");
-    const found = css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, "\\$&")} \\{([^}]*)\\}`));
-    if (!found) throw new Error(`No rule for ${selector}`);
-    return Object.fromEntries(found[1].split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2));
-  };
-
   test("every key, the answer keys, the bar and + included, is in one row that swipes sideways instead of wrapping", () => {
     const screen = keyBarScreen();
     const rows = screen.root.querySelectorAll(".keys");
     expect(rows).toHaveLength(1);
     expect(rows[0].querySelectorAll("button")).toHaveLength(ANSWER_NAMES.length + DEFAULT_BAR_NAMES.length + 1);
     expect(screen.root.querySelectorAll(".key-add").map((key) => key.parent)).toEqual([rows[0]]);
-    const row = rule(".keys");
+    const row = declarations(".keys");
     expect([row.display, row["flex-wrap"], row["overflow-x"]]).toEqual(["flex", "nowrap", "auto"]);
   });
 
   test("a key keeps its 48px height and never shrinks, so a long bar scrolls instead of squeezing", () => {
-    const key = rule(".key");
+    const key = declarations(".key");
     expect([key.flex, key.height, key["min-width"]]).toEqual(["none", "var(--key)", "var(--key)"]);
   });
 });
@@ -304,6 +298,70 @@ describe("saved commands", () => {
     expect(popover(screen).shown).toBe(false);
     expect(screen.focused()).toBe(slash(screen));
     expect(screen.sentTexts).toEqual([]);
+  });
+
+  test("Esc says it handled the key while the popover is open, and is left alone while it is closed", () => {
+    const screen = keyBarScreen();
+    expect(screen.root.querySelector("#message")!.dispatch("keydown", { key: "Escape" }).defaultPrevented).toBe(false);
+    open(screen);
+    expect(screen.focused()!.dispatch("keydown", { key: "Enter" }).defaultPrevented).toBe(false);
+    expect(popover(screen).shown).toBe(true);
+    expect(screen.focused()!.dispatch("keydown", { key: "Escape" }).defaultPrevented).toBe(true);
+  });
+
+  test("a tap outside that took the focus elsewhere leaves it there; with the focus nowhere or on the page's body it goes to /", () => {
+    const screen = keyBarScreen();
+    const output = screen.root.querySelector(".output")!;
+    open(screen);
+    output.focus();
+    screen.click(output);
+    expect([popover(screen).shown, slash(screen).getAttribute("aria-expanded"), screen.focused()]).toEqual([false, "false", output]);
+    open(screen);
+    screen.doc.activeElement = null;
+    screen.click(output);
+    expect([popover(screen).shown, screen.focused()]).toEqual([false, slash(screen)]);
+    // A browser leaves the focus on the page's body after a tap on something that can't take it.
+    open(screen);
+    Object.assign(screen.doc, { body: screen.root });
+    screen.doc.activeElement = screen.root;
+    screen.click(output);
+    expect([popover(screen).shown, screen.focused()]).toEqual([false, slash(screen)]);
+  });
+
+  test("while the key picker or the commands editor is open, a tap on / opens nothing", () => {
+    const screen = keyBarScreen();
+    const closed = () => [popover(screen).shown, slash(screen).getAttribute("aria-expanded")];
+    screen.click(screen.button("Add a key"));
+    open(screen);
+    expect(closed()).toEqual([false, "false"]);
+    screen.click(screen.root.querySelector("[data-picker-done]")!);
+    open(screen);
+    screen.click(screen.button("Edit saved commands"));
+    open(screen);
+    expect(closed()).toEqual([false, "false"]);
+    screen.click(screen.root.querySelector("[data-commands-done]")!);
+    open(screen);
+    expect(closed()).toEqual([true, "true"]);
+  });
+
+  test("a newly drawn screen starts with the popover closed, and the first tap on its / opens it", () => {
+    const screen = keyBarScreen();
+    open(screen);
+    screen.root.innerHTML = `<div class="output" tabindex="0"></div><div class="controls">${composerHtml()}<p class="notice"></p></div>`;
+    screen.keyBar.attach(asPageElement(screen.root), { sendKey: () => {}, sendText: () => {}, announce: () => {} });
+    expect([popover(screen).shown, slash(screen).getAttribute("aria-expanded")]).toEqual([false, "false"]);
+    open(screen);
+    expect([popover(screen).shown, slash(screen).getAttribute("aria-expanded"), screen.focused()]).toEqual([true, "true", screen.button("continue")]);
+  });
+
+  test("leaving the screen with it open: a later tap on whatever the page shows next is ignored, and so is a block after it", () => {
+    const screen = keyBarScreen();
+    open(screen);
+    screen.root.innerHTML = '<button type="button">A home row</button>';
+    const homeRow = screen.root.querySelectorAll("button")[0];
+    expect(() => screen.click(homeRow)).not.toThrow();
+    expect(() => screen.click(homeRow)).not.toThrow();
+    expect(() => screen.keyBar.setBlocked(true)).not.toThrow();
   });
 
   test("an empty command has no button, and the others keep sending their own text", () => {
@@ -400,6 +458,16 @@ describe("saved commands", () => {
     screen.keyBar.setBlocked(true);
     expect(popover(screen).shown).toBe(false);
     expect(slash(screen).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the block's close leaves the focus where it was, and a block lifted leaves an open popover open", () => {
+    const screen = keyBarScreen();
+    open(screen);
+    screen.keyBar.setBlocked(false);
+    expect(popover(screen).shown).toBe(true);
+    const held = screen.focused();
+    screen.keyBar.setBlocked(true);
+    expect([popover(screen).shown, screen.focused()]).toEqual([false, held]);
   });
 });
 

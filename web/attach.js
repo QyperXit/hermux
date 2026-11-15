@@ -2,6 +2,7 @@ import { describeError, errorMessage } from "./api.js";
 import { find, need } from "./dom.js";
 import { prepareImage } from "./downscale.js";
 import { escapeHtml, icon } from "./html.js";
+import { createPopover } from "./popover.js";
 
 /**
  * @typedef {import("./types.js").Client} Client
@@ -14,16 +15,20 @@ import { escapeHtml, icon } from "./html.js";
  */
 
 /**
+ * How far a picture has got: `path` is where the laptop saved it, `problem` why it didn't upload.
+ * @typedef {{ state: "uploading" } | { state: "attached", path: string, size: number } | { state: "error", problem: string }} UploadState
+ */
+
+/**
  * @typedef {object} Picture one image attached to the message being written
  * @property {string} name
- * @property {number} size
  * @property {string | null} preview
- * @property {"uploading" | "attached" | "error"} state
- * @property {string} [path] where the laptop saved it, once attached
- * @property {string} [problem] why it didn't upload, once it failed
+ * @property {UploadState} upload
  * @property {AbortController} [uploadAbort]
- * @property {HTMLElement} [chip]
+ * @property {HTMLElement} chip
  */
+
+/** @typedef {Omit<Picture, "chip">} Unplaced a picture that has no chip in the row yet */
 
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 const MAX_PICTURES = 10;
@@ -41,25 +46,26 @@ export function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** @param {Picture} picture */
-function chipTextHtml({ name, size, state, problem }) {
-  return state === "error"
-    ? `<span class="attachment-problem">${escapeHtml(problem)}</span>`
-    : `<span class="attachment-name">${escapeHtml(name)}</span> <span class="attachment-size">${state === "uploading" ? "Uploading…" : escapeHtml(formatSize(size))}</span>`;
+/** @param {Unplaced} picture */
+function chipTextHtml({ name, upload }) {
+  return upload.state === "error"
+    ? `<span class="attachment-problem">${escapeHtml(upload.problem)}</span>`
+    : `<span class="attachment-name">${escapeHtml(name)}</span> <span class="attachment-size">${upload.state === "uploading" ? "Uploading…" : escapeHtml(formatSize(upload.size))}</span>`;
 }
 
-/** @param {Picture} picture */
+/** @param {Unplaced} picture */
 function chipHtml(picture) {
-  const { preview, state, name } = picture;
+  const { preview, name } = picture;
+  const { state } = picture.upload;
   const thumb = `${icon("i-clip")}${preview ? `<img src="${escapeHtml(preview)}" alt="">` : ""}${state === "uploading" ? icon("i-sending", "attachment-busy") : ""}`;
   return `<div class="attachment" data-state="${state}"><span class="attachment-thumb">${thumb}</span><span class="attachment-text">${chipTextHtml(picture)}</span><button class="attachment-remove" type="button" aria-label="Remove ${escapeHtml(name)}">${icon("i-close")}</button></div>`;
 }
 
-/** @type {Picture[]} */
+/** @type {Unplaced[]} */
 const SAMPLE_PICTURES = [
-  { name: "screenshot.png", size: 1_258_291, preview: null, state: "attached", path: "/home/you/hermux/.uploads/20261105T091500Z-3f9c2a71b8d04e65.png" },
-  { name: "error-dialog.png", size: 884_736, preview: null, state: "attached", path: "/home/you/hermux/.uploads/20261105T091512Z-8a1d4e07c2b95f36.png" },
-  { name: "whiteboard.jpg", size: 2_202_009, preview: null, state: "attached", path: "/home/you/hermux/.uploads/20261105T091530Z-c70e2b9f41d6a853.jpg" },
+  { name: "screenshot.png", preview: null, upload: { state: "attached", size: 1_258_291, path: "/home/you/hermux/.uploads/20261105T091500Z-3f9c2a71b8d04e65.png" } },
+  { name: "error-dialog.png", preview: null, upload: { state: "attached", size: 884_736, path: "/home/you/hermux/.uploads/20261105T091512Z-8a1d4e07c2b95f36.png" } },
+  { name: "whiteboard.jpg", preview: null, upload: { state: "attached", size: 2_202_009, path: "/home/you/hermux/.uploads/20261105T091530Z-c70e2b9f41d6a853.jpg" } },
 ];
 
 /**
@@ -71,12 +77,9 @@ const SAMPLE_PICTURES = [
 export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare = prepareImage }) {
   /** @type {HTMLElement | null} */
   let screen = null;
-  /** @type {HTMLElement | null} */
-  let outsideTapTarget = null;
   /** @type {Picture[]} */
   let pictures = [];
   let leftOut = 0;
-  let menuOpen = false;
   /** @type {Promise<unknown>} */
   let redrawQueue = Promise.resolve();
 
@@ -93,25 +96,29 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
     need(page(), ".attachment-count").textContent = `${pictures.length} of ${MAX_PICTURES} pictures${leftOut ? ` · ${leftOut} left out (${MAX_PICTURES} at most)` : ""}`;
   }
 
-  /** @param {Picture} picture */
-  function drawChip(picture) {
+  /**
+   * @param {Unplaced} unplaced
+   * @returns {Picture}
+   */
+  function placeChip(unplaced) {
     const row = need(page(), ".attachment-row");
-    row.insertAdjacentHTML("beforeend", chipHtml(picture));
+    row.insertAdjacentHTML("beforeend", chipHtml(unplaced));
     const chip = /** @type {HTMLElement} */ (row.children[row.children.length - 1]);
-    picture.chip = chip;
+    const picture = { ...unplaced, chip };
     need(chip, ".attachment-remove").addEventListener("click", () => remove(picture));
     const thumbnail = find(chip, "img");
     thumbnail?.addEventListener("error", () => thumbnail.remove());
+    return picture;
   }
 
   /**
    * @param {Picture} picture
-   * @param {Partial<Picture>} change
+   * @param {UploadState} upload
    */
-  function update(picture, change) {
-    Object.assign(picture, change);
-    if (!picture.chip) return;
-    picture.chip.dataset.state = picture.state;
+  function update(picture, upload) {
+    if (!pictures.includes(picture)) return;
+    picture.upload = upload;
+    picture.chip.dataset.state = upload.state;
     find(picture.chip, ".attachment-busy")?.remove();
     need(picture.chip, ".attachment-text").innerHTML = chipTextHtml(picture);
   }
@@ -120,7 +127,7 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
   function drop(picture) {
     picture.uploadAbort?.abort();
     if (picture.preview) previews.revoke(picture.preview);
-    picture.chip?.remove();
+    picture.chip.remove();
     pictures = pictures.filter((other) => other !== picture);
   }
 
@@ -131,16 +138,14 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
     leftOut = 0;
     drawGroup();
     const next = pictures[at] ?? pictures[at - 1];
-    (next?.chip ? need(next.chip, ".attachment-remove") : need(page(), ".attach")).focus();
+    (next ? need(next.chip, ".attachment-remove") : need(page(), ".attach")).focus();
   }
 
   /** @param {File} file */
   async function addPicture(file) {
     const controller = new AbortController();
-    /** @type {Picture} */
-    const picture = { name: file.name || "image", size: file.size, preview: previews.create(file), state: "uploading", uploadAbort: controller };
+    const picture = placeChip({ name: file.name || "image", preview: previews.create(file), upload: { state: "uploading" }, uploadAbort: controller });
     pictures.push(picture);
-    drawChip(picture);
     const current = () => pictures.includes(picture);
     try {
       const prepared = redrawQueue.then(() => (current() ? prepare(file) : null));
@@ -166,41 +171,10 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
     const first = pictures.length;
     for (const file of files.slice(0, room)) addPicture(file);
     drawGroup();
-    pictures[first]?.chip?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    pictures[first]?.chip.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
-  function openMenu() {
-    const menu = need(page(), ".clip-menu");
-    menuOpen = true;
-    menu.hidden = false;
-    need(page(), ".attach").setAttribute("aria-expanded", "true");
-    need(menu, ".clip-item").focus();
-  }
-
-  /** @param {{ focus?: boolean }} [options] */
-  function closeMenu({ focus = true } = {}) {
-    if (!menuOpen) return;
-    const clip = need(page(), ".attach");
-    menuOpen = false;
-    need(page(), ".clip-menu").hidden = true;
-    clip.setAttribute("aria-expanded", "false");
-    if (focus) clip.focus();
-  }
-
-  /** @param {Event} event */
-  function closeOnOutsideTap(event) {
-    if (!menuOpen) return;
-    const clip = find(page(), ".attach");
-    const menu = find(page(), ".clip-menu");
-    // The page has moved on from this screen; the next one starts closed.
-    if (!clip || !menu) return;
-    const target = /** @type {Element | null} */ (event.target);
-    if (menu.contains(target) || clip.contains(target)) return;
-    closeMenu({ focus: false });
-    const doc = page().ownerDocument;
-    const active = doc.activeElement;
-    if (!active || active === doc.body || menu.contains(active)) clip.focus();
-  }
+  const menu = createPopover({ page, buttonSelector: ".attach", popoverSelector: ".clip-menu", first: (popover) => need(popover, ".clip-item") });
 
   return {
     // A newly drawn Terminal screen (`drawn` holds its composer): the
@@ -212,17 +186,7 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
       for (const picture of [...pictures]) drop(picture);
       leftOut = 0;
       screen = drawn;
-      menuOpen = false;
-      if (outsideTapTarget !== drawn) {
-        drawn.addEventListener("click", closeOnOutsideTap);
-        outsideTapTarget = drawn;
-      }
-      need(drawn, ".attach").addEventListener("click", () => (menuOpen ? closeMenu() : openMenu()));
-      need(drawn, ".composer").addEventListener("keydown", (event) => {
-        if (event.key !== "Escape" || !menuOpen) return;
-        event.preventDefault();
-        closeMenu();
-      });
+      menu.attach();
       for (const [rowSelector, inputSelector] of [
         [".clip-camera", ".attach-camera"],
         [".clip-gallery", ".attach-input"],
@@ -230,7 +194,7 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
         /** @type {HTMLInputElement} */
         const input = need(drawn, inputSelector);
         need(drawn, rowSelector).addEventListener("click", () => {
-          closeMenu();
+          menu.close();
           input.click();
         });
         input.addEventListener("change", () => {
@@ -240,15 +204,14 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
         });
       }
       if (client.isSample) {
-        pictures = SAMPLE_PICTURES.map((sample) => ({ ...sample }));
-        pictures.forEach(drawChip);
+        pictures = SAMPLE_PICTURES.map(placeChip);
       }
       drawGroup();
     },
 
     /** @param {boolean} blocked */
     setBlocked(blocked) {
-      if (blocked) closeMenu({ focus: false });
+      if (blocked) menu.close({ focus: false });
     },
 
     /**
@@ -263,12 +226,12 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
      */
     async send(typed, deliver) {
       if (!pictures.length) return { sent: await deliver(typed) };
-      const failed = pictures.filter((picture) => picture.state === "error").length;
+      const failed = pictures.filter((picture) => picture.upload.state === "error").length;
       if (failed) return { sent: false, refused: failed === 1 ? "The image didn't upload. Remove it to send without it." : `${failed} images didn't upload. Remove them to send without them.` };
-      const uploading = pictures.filter((picture) => picture.state === "uploading").length;
+      const uploading = pictures.filter((picture) => picture.upload.state === "uploading").length;
       if (uploading) return { sent: false, refused: uploading === 1 ? "The image is still uploading. Wait for it, or remove it." : `${uploading} images are still uploading. Wait for them, or remove them.` };
       const going = [...pictures];
-      const paths = going.map((picture) => picture.path).join(" ");
+      const paths = going.flatMap(({ upload }) => (upload.state === "attached" ? [upload.path] : [])).join(" ");
       const sent = await deliver(typed.trim() ? `${typed.trimEnd()} ${paths}` : paths);
       const stillHere = going.filter((picture) => pictures.includes(picture));
       if (sent && stillHere.length) {

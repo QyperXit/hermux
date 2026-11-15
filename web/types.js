@@ -34,6 +34,7 @@
 
 /**
  * @typedef {import("../server/history").HistoryPage} HistoryPage
+ * @typedef {import("../server/history").SavedTables} SavedTables
  */
 
 /**
@@ -48,6 +49,7 @@
  * @property {(workspaceId: string) => Promise<{ workspace: { id: string, label: string | null }, terminals: Terminal[] }>} listWorkspaceTerminals
  * @property {(paneId: string) => Promise<string>} readOutput
  * @property {(paneId: string, query?: { before?: number | null, from?: number, limit?: number }) => Promise<HistoryPage>} readHistory
+ * @property {(paneId: string, anchors: string[]) => Promise<SavedTables>} readSavedTables
  * @property {(paneId: string, text: string, kind: string) => Promise<void>} sendPrompt
  * @property {(paneId: string, keys: string[], kind: string) => Promise<void>} sendKeys
  * @property {(paneId: string, stream: string) => Promise<void>} watchOutput

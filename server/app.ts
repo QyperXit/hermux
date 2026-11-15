@@ -1,7 +1,7 @@
 import { extname, resolve, sep } from "node:path";
 import { HerdrError, checkTarget, type Herdr } from "./herdr";
 import type { LiveEvent, LiveEvents } from "./events";
-import { parseHistoryQuery, type createHistory } from "./history";
+import { parseHistoryQuery, parseTableAnchors, type createHistory } from "./history";
 import { parseSubscription } from "./push-store";
 import type { Pictures } from "./pictures";
 import type { Push } from "./push";
@@ -255,6 +255,13 @@ export function createApp({
     return collectionApi(request, url, undefined, undefined, async (shownIdlePanes) => json({ agents: await roster.agents(shownIdlePanes) }), {});
   }
 
+  async function savedTables(paneId: string, url: URL) {
+    const anchors = parseTableAnchors(url.searchParams);
+    if (history) return history.savedTables(paneId, anchors);
+    await herdr.get(paneId);
+    return { tables: [] };
+  }
+
   async function historyPage(paneId: string, url: URL) {
     const query = parseHistoryQuery(url.searchParams);
     if (!history) {
@@ -277,7 +284,7 @@ export function createApp({
         history: {
           GET: async (paneId) => {
             try {
-              return json(await historyPage(paneId, url));
+              return json(await (url.searchParams.has("row") ? savedTables(paneId, url) : historyPage(paneId, url)));
             } catch (error) {
               if (!(error instanceof HerdrError && error.code === "agent_not_found")) throw error;
               await herdr.pane(paneId);

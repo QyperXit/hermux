@@ -1,8 +1,8 @@
 import { NOT_A_PICTURE, PICTURE_UNREACHABLE, describeError } from "./api.js";
 import { formatSize } from "./attach.js";
+import { dialogLayer } from "./dialog.js";
 import { find, findAll, need } from "./dom.js";
 import { icon } from "./html.js";
-import { nextRow } from "./sheet.js";
 
 /**
  * @typedef {{ scale: number, x: number, y: number }} View the picture's zoom, and its offset from the stage's centre in px
@@ -111,14 +111,7 @@ const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
  * }} options
  */
 export function createPictureViewer({ page: pageElement, root: rootElement, client, previews = BROWSER_PREVIEWS, browser, copy }) {
-  /** @returns {HTMLElement} */
-  const page = () => pageElement ?? missing("page");
-  /** @returns {HTMLElement} */
-  const root = () => rootElement ?? missing("picture root");
-  /** @param {string} what @returns {never} */
-  const missing = (what) => {
-    throw new Error(`The picture viewer has no ${what}.`);
-  };
+  const { page, root, trapTab } = dialogLayer({ name: "picture viewer", page: pageElement, root: rootElement, rootName: "picture root" });
 
   /**
    * @typedef {object} Shown
@@ -339,9 +332,7 @@ export function createPictureViewer({ page: pageElement, root: rootElement, clie
       event.preventDefault();
       go(event.key === "ArrowRight" ? 1 : -1);
     } else if (event.key === "Tab") {
-      event.preventDefault();
-      const keys = findAll(root(), "button:not([hidden]):not(:disabled)");
-      keys[nextRow(keys.findIndex((key) => key === root().ownerDocument.activeElement), keys.length, event.shiftKey)]?.focus();
+      trapTab(event, findAll(root(), "button:not([hidden]):not(:disabled)"));
     }
   }
 

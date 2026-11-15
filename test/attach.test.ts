@@ -7,6 +7,7 @@ import { createHttpClient } from "../web/api.js";
 import { createAttachment, formatSize } from "../web/attach.js";
 import { composerHtml, drawComposer } from "../web/composer.js";
 import { WEB } from "./support/agents";
+import { cssRules, declarations } from "./support/css";
 import { asPageElement, fakePage, type FakeElement } from "./support/fake-dom";
 import { ALLOWED_LOGIN } from "./support/http";
 import { keyBarScreen } from "./support/key-bar";
@@ -216,6 +217,38 @@ describe("the chip", () => {
     uploads[0].settle(SAVED);
     await flush();
     expect(state()).toBeNull();
+  });
+
+  test("removing it while it uploads leaves no failed picture behind when the stopped upload ends in an error: the next send goes and the next pick starts clean", async () => {
+    const { pick, uploads, remove, root, count, shown, attachment, sentMessages, deliver } = composer();
+    pick(shot("first.png"));
+    await flush();
+    remove().dispatch("click");
+    uploads[0].settle(new DOMException("The operation was aborted.", "AbortError"));
+    await flush();
+    expect([root.querySelectorAll(".attachment").length, root.querySelectorAll(".attachment-problem").length, root.querySelector(".attachments")!.hidden, count()]).toEqual([0, 0, true, null]);
+    expect(await attachment.send("no picture", deliver())).toEqual({ sent: true });
+    pick(shot("second.png"));
+    await flush();
+    expect([shown(), count()]).toEqual([[["second.png Uploading…", "uploading"]], "1 of 10 pictures"]);
+    uploads[1].settle(SAVED);
+    await flush();
+    expect(shown()).toEqual([["second.png 1.2 MB", "attached"]]);
+    await attachment.send("look", deliver());
+    expect(sentMessages).toEqual(["no picture", `look ${SAVED.path}`]);
+  });
+
+  test("a removed picture's chip is left as it was: its stopped upload or its late answer writes nothing onto it", async () => {
+    for (const answer of [new DOMException("The operation was aborted.", "AbortError"), SAVED]) {
+      const { pick, uploads, chip, remove } = composer();
+      pick(shot());
+      await flush();
+      const removed = chip();
+      remove().dispatch("click");
+      uploads[0].settle(answer);
+      await flush();
+      expect([removed.isConnected, removed.getAttribute("data-state"), removed.querySelectorAll(".attachment-problem").length, removed.querySelectorAll(".attachment-busy").length]).toEqual([false, "uploading", 0, 1]);
+    }
   });
 
   test("a thumbnail the browser can't draw (a HEIC photo) is dropped, leaving the paperclip in its place", async () => {
@@ -517,6 +550,28 @@ describe("several pictures in one message", () => {
     expect(sentMessages).toEqual(["/up/b.png"]);
   });
 
+  test("a removed picture's stopped upload is not counted as failed among the others", async () => {
+    const { pick, shown, count, uploads, removeOf, attachment, deliver, sentMessages } = composer();
+    pick(shot("a.png"), shot("b.png"), shot("c.png"));
+    await flush();
+    removeOf(1).dispatch("click");
+    uploads[1].settle(new DOMException("The operation was aborted.", "AbortError"));
+    await flush();
+    expect([shown(), count()]).toEqual([
+      [
+        ["a.png Uploading…", "uploading"],
+        ["c.png Uploading…", "uploading"],
+      ],
+      "2 of 10 pictures",
+    ]);
+    expect(await attachment.send("", deliver())).toEqual({ sent: false, refused: "2 images are still uploading. Wait for them, or remove them." });
+    uploads[0].settle(savedAs("/up/a.png"));
+    uploads[2].settle(savedAs("/up/c.png"));
+    await flush();
+    await attachment.send("", deliver());
+    expect(sentMessages).toEqual(["/up/a.png /up/c.png"]);
+  });
+
   test("the message is the typed text, one space, then every path in chip order, space-separated, once", async () => {
     const { attachment, sentMessages, deliver, shown, count } = await threeAttached();
     expect(await attachment.send("Compare these  \n", deliver())).toEqual({ sent: true });
@@ -728,6 +783,35 @@ describe("the clip menu", () => {
     expect(screen.menu().shown).toBe(true);
   });
 
+  test("a tap outside that took the focus elsewhere leaves it there; with the focus nowhere or on the page's body it goes to the paperclip", () => {
+    const screen = clipScreen();
+    const output = screen.root.querySelector(".output")!;
+    screen.open();
+    output.focus();
+    screen.click(output);
+    expect([screen.menuState(), screen.focused()]).toEqual([[false, "false"], output]);
+    screen.open();
+    screen.doc.activeElement = null;
+    screen.click(output);
+    expect([screen.menuState(), screen.focused()]).toEqual([[false, "false"], screen.clip()]);
+    // A browser leaves the focus on the page's body after a tap on something that can't take it.
+    screen.open();
+    Object.assign(screen.doc, { body: screen.root });
+    screen.doc.activeElement = screen.root;
+    screen.click(output);
+    expect([screen.menuState(), screen.focused()]).toEqual([[false, "false"], screen.clip()]);
+  });
+
+  test("a block closes it without taking the focus, and a block lifted leaves an open menu open", () => {
+    const screen = clipScreen();
+    screen.open();
+    screen.attachment.setBlocked(false);
+    expect(screen.menuState()).toEqual([true, "true"]);
+    const held = screen.focused();
+    screen.attachment.setBlocked(true);
+    expect([screen.menuState(), screen.focused()]).toEqual([[false, "false"], held]);
+  });
+
   test("a tap inside the menu that isn't on a row leaves it open", () => {
     const screen = clipScreen();
     screen.open();
@@ -826,13 +910,14 @@ describe("the clip menu", () => {
     expect([screen.menu().shown, screen.focused()]).toEqual([true, screen.button("Take a photo")]);
   });
 
-  test("leaving the screen with it open: a later tap on whatever the page shows next is ignored, not an error", () => {
+  test("leaving the screen with it open: a later tap on whatever the page shows next is ignored, and so is a block after it", () => {
     const screen = clipScreen();
     screen.open();
     screen.root.innerHTML = '<button type="button">A home row</button>';
     const homeRow = screen.root.querySelectorAll("button")[0];
     expect(() => screen.click(homeRow)).not.toThrow();
     expect(() => screen.click(homeRow)).not.toThrow();
+    expect(() => screen.attachment.setBlocked(true)).not.toThrow();
   });
 
   test("its two icons are drawn in the page's sprite", () => {
@@ -869,20 +954,6 @@ describe("sizes", () => {
 });
 
 describe("the stylesheet's targets for the chip and the button, read because the fake DOM has no layout", () => {
-  const css = readFileSync(join(import.meta.dir, "../web/app.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rulesFor = (selector: string) =>
-    [...css.matchAll(/(?:^|\n)([^{}\n][^{}]*)\{([^}]*)\}/g)]
-      .map(([, selectors, body]) => ({
-        selectors: selectors.split(",").map((each) => each.trim()),
-        body: Object.fromEntries(body.split(";").map((line) => line.split(":").map((part) => part.trim())).filter((pair) => pair.length === 2)),
-      }))
-      .filter((rule) => rule.selectors.includes(selector));
-  const declarations = (selector: string) => {
-    const [first] = rulesFor(selector);
-    if (!first) throw new Error(`No rule for ${selector}`);
-    return first.body;
-  };
-
   test("the attach button and the ✕ are 48px targets, and the chip is one 48px row", () => {
     expect([declarations(".attach").width, declarations(".attach").height]).toEqual(["var(--key)", "var(--key)"]);
     expect([declarations(".attachment-remove").width, declarations(".attachment-remove").height]).toEqual(["var(--key)", "var(--key)"]);
@@ -890,10 +961,10 @@ describe("the stylesheet's targets for the chip and the button, read because the
   });
 
   test("the chips' row never wraps, swipes sideways edge to edge like the key row and hides its scrollbar as the key row does", () => {
-    const ownRule = rulesFor(".attachment-row").find((rule) => rule.selectors.length === 1)?.body;
-    expect([ownRule?.display, ownRule?.["flex-wrap"], ownRule?.["overflow-x"], ownRule?.margin, ownRule?.padding]).toEqual(["flex", "nowrap", "auto", "0 var(--bleed)", "0 var(--gutter)"]);
-    const scrollbarRule = (selector: string) => rulesFor(selector).find((rule) => rule.body["scrollbar-width"] !== undefined);
-    expect(scrollbarRule(".attachment-row")?.body["scrollbar-width"]).toBe("none");
+    const row = declarations(".attachment-row");
+    expect([row.display, row["flex-wrap"], row["overflow-x"], row.margin, row.padding]).toEqual(["flex", "nowrap", "auto", "0 var(--bleed)", "0 var(--gutter)"]);
+    const scrollbarRule = (selector: string) => cssRules.find((rule) => rule.selectors.includes(selector) && rule.declarations["scrollbar-width"] !== undefined);
+    expect(row["scrollbar-width"]).toBe("none");
     expect(scrollbarRule(".attachment-row")).toEqual(scrollbarRule(".keys"));
     expect(declarations(".attachment-row::-webkit-scrollbar").display).toBe("none");
     expect(declarations(".attachment").flex).toBe("none");

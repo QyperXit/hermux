@@ -1,14 +1,14 @@
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml, linkedTextHtml } from "./links.js";
-import { stackedHtml } from "./table.js";
+import { FENCE, TABLE_ROW, pipeTable } from "./pipe-table.js";
+import { fieldOf, stackedHtml } from "./table.js";
 
 /**
  * @typedef {import("../server/history").Message} Message
  * @typedef {import("../server/history").Block} Block
+ * @typedef {import("./pipe-table.js").PipeTable} PipeTable
  */
 
-const FENCE = /^\s*(```|~~~)/;
-const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const RULE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
 const HEADING = /^\s*#{1,6}\s+(.*)$/;
 const LIST_ITEM = /^(\s*)(?:[-*+]|(\d+[.)]))\s+(.*)$/;
@@ -33,39 +33,6 @@ function inlineHtml(text) {
   return html + linkedTextHtml(text.slice(last));
 }
 
-// The cells of a table row: split at every pipe that isn't escaped (\|) or inside a code span.
-/** @param {string} row */
-function cellsOf(row) {
-  const inner = row.trim().slice(1);
-  /** @type {string[]} */
-  const cells = [];
-  let cell = "";
-  let closed = false;
-  for (let i = 0; i < inner.length; i++) {
-    const char = inner[i];
-    closed = false;
-    if (char === "\\" && inner[i + 1] === "|") {
-      cell += "|";
-      i++;
-    } else if (char === "`") {
-      const ticks = /^`+/.exec(inner.slice(i))?.[0] ?? "`";
-      const end = new RegExp("(?<!`)" + ticks + "(?!`)").exec(inner.slice(i + ticks.length));
-      const span = end ? inner.slice(i, i + ticks.length + end.index + ticks.length) : ticks;
-      cell += span.replaceAll("\\|", "|");
-      i += span.length - 1;
-    } else if (char === "|") {
-      cells.push(cell);
-      cell = "";
-      closed = true;
-    } else {
-      cell += char;
-    }
-  }
-  if (!closed) cells.push(cell);
-  return cells.map((each) => each.trim());
-}
-
-const SEPARATOR_CELL = /^:?-+:?$/;
 const WHOLLY_BOLD = /^(?:\*\*([^*]+)\*\*|__([^_]+)__)$/;
 /** @param {string} cell */
 const unbold = (cell) => {
@@ -80,17 +47,23 @@ const plainOf = (cell) =>
     .replace(/(^|[^\w*])\*([^*]+)\*(?![\w*])/g, "$1$2")
     .replace(/(^|[^\w_])_([^_]+)_(?![\w_])/g, "$1$2");
 
+/**
+ * @param {PipeTable} table
+ * @param {{ continuesAbove?: boolean }} [options]
+ */
+export const savedTableHtml = ({ header, rows }, options) =>
+  stackedHtml(
+    rows.map(([title = "", ...rest]) => ({
+      title: inlineHtml(unbold(title)),
+      fields: header.slice(1).map((headerCell, index) => fieldOf(plainOf(headerCell), inlineHtml(rest[index] ?? ""))),
+    })),
+    options,
+  );
+
 /** @param {string[]} rows */
 function tableHtml(rows) {
-  if (rows.length < 3) return null;
-  const [header, separator, ...data] = rows.map(cellsOf);
-  if (separator.length !== header.length || !separator.every((cell) => SEPARATOR_CELL.test(cell)) || data.some((cells) => cells.length > header.length)) return null;
-  return stackedHtml(
-    data.map(([title = "", ...rest]) => ({
-      title: inlineHtml(unbold(title)),
-      fields: header.slice(1).map((label, index) => ({ label: plainOf(label), html: inlineHtml(rest[index] ?? "") })),
-    })),
-  );
+  const table = pipeTable(rows);
+  return table && savedTableHtml(table);
 }
 
 /** @param {number} ch */

@@ -1,6 +1,6 @@
+import { dialogLayer } from "./dialog.js";
 import { find, findAll, need } from "./dom.js";
 import { keysHtml, statusLine } from "./notifications.js";
-import { nextRow } from "./sheet.js";
 
 /**
  * @typedef {ReturnType<typeof import("./notifications.js").createNotifications>} Notifications
@@ -24,14 +24,7 @@ const PANEL = `
  * @param {{ page: HTMLElement | null, root: HTMLElement | null, keys: KeyEvents, notifications: Notifications }} options
  */
 export function createNotifyPanel({ page: pageElement, root: rootElement, keys, notifications }) {
-  /** @returns {HTMLElement} */
-  const page = () => pageElement ?? missing("page");
-  /** @returns {HTMLElement} */
-  const root = () => rootElement ?? missing("notifications root");
-  /** @param {string} what @returns {never} */
-  const missing = (what) => {
-    throw new Error(`The notifications panel has no ${what}.`);
-  };
+  const { page, root, trapTab } = dialogLayer({ name: "notifications panel", page: pageElement, root: rootElement, rootName: "notifications root" });
 
   /** @type {{ trigger: HTMLElement, keys: string, refocus: boolean } | null} */
   let panel = null;
@@ -108,13 +101,7 @@ export function createNotifyPanel({ page: pageElement, root: rootElement, keys, 
       return;
     }
     if (event.key !== "Tab") return;
-    event.preventDefault();
-    const enabled = findAll(root(), ".act:not(:disabled)");
-    if (!enabled.length) {
-      need(root(), ".notify-panel").focus();
-      return;
-    }
-    enabled[nextRow(enabled.findIndex((key) => key === root().ownerDocument.activeElement), enabled.length, event.shiftKey)].focus();
+    if (!trapTab(event, findAll(root(), ".act:not(:disabled)"))) need(root(), ".notify-panel").focus();
   }
 
   notifications.subscribe(draw);
