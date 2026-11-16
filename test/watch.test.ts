@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { Terminal } from "@xterm/headless";
 import { HerdrError, createHerdr, type Herdr, type ObserveHandlers } from "../server/herdr";
-import { OBSERVE_COLS, createWatcher, screenText, type WatchEvent, type Watcher } from "../server/watch";
+import { OBSERVE_COLS, OBSERVE_ROWS, createWatcher, screenText, type WatchEvent, type Watcher } from "../server/watch";
 import { makeFakeHerdr } from "./fake-herdr";
 import { decoded, fullFrame, partialFrame } from "./support/frames";
 import { until } from "./support/fake-events";
@@ -82,7 +82,14 @@ describe("herdr's observe stream through the emulator", () => {
   });
 });
 
-function setup({ graceMs = 60, debounceMs = 10, retryMs = { first: 20, max: 80 } } = {}) {
+test("screenText on the tall canvas keeps a styled blank row far below the text, and drops the blank rows under it", async () => {
+  const term = new Terminal({ cols: 30, rows: OBSERVE_ROWS, scrollback: 0, allowProposedApi: true });
+  await new Promise<void>((done) => term.write(`$ make\r\nbuilding${ESC}[250;1H${ESC}[44m${ESC}[K${ESC}[0m`, done));
+  expect(screenText(term)).toBe([`${ESC}[0m$ make${ESC}[0m`, `${ESC}[0mbuilding${ESC}[0m`, ...Array(247).fill(""), `${ESC}[0m${ESC}[48;5;4m${" ".repeat(30)}${ESC}[0m`].join("\n"));
+  term.dispose();
+});
+
+function setup({ graceMs = 60, debounceMs = 10, retryMs = { first: 20, max: 80 }, minRows = undefined as number | undefined } = {}) {
   const observations: { paneId: string; size: { cols: number; rows: number }; handlers: ObserveHandlers; stopped: boolean; at: number }[] = [];
   const reads: string[] = [];
   const texts = new Map<string, string>();
@@ -104,7 +111,7 @@ function setup({ graceMs = 60, debounceMs = 10, retryMs = { first: 20, max: 80 }
       return texts.get(paneId) ?? `text of ${paneId}`;
     },
   };
-  const watcher = createWatcher({ herdr, cols: 30, graceMs, debounceMs, retryMs });
+  const watcher = createWatcher({ herdr, cols: 30, minRows, graceMs, debounceMs, retryMs });
   watchers.push(watcher);
   const viewer = () => {
     const heard: WatchEvent[] = [];
@@ -133,13 +140,13 @@ function setup({ graceMs = 60, debounceMs = 10, retryMs = { first: 20, max: 80 }
 const SCREEN = ["$ make", "building", "", ""];
 
 describe("the watcher", () => {
-  test("a stream starts with the first viewer, at the wide canvas and the pane's rows; a second viewer shares it", async () => {
+  test("a stream starts with the first viewer, on the wide and tall canvas; a second viewer shares it", async () => {
     const world = setup();
     const first = world.viewer();
     const second = world.viewer();
     world.watcher.watch(first, "w1:p1");
     await until(() => world.observations.length === 1);
-    expect(world.observations[0].size).toEqual({ cols: 30, rows: 4 });
+    expect(world.observations[0].size).toEqual({ cols: 30, rows: OBSERVE_ROWS });
     world.watcher.watch(second, "w1:p1");
     await Bun.sleep(20);
     expect(world.observations).toHaveLength(1);
@@ -177,8 +184,42 @@ describe("the watcher", () => {
     expect([world.watcher.viewed("w1:p1"), world.watcher.viewed("w1:p2")]).toEqual([false, true]);
   });
 
-  test("the real default canvas is the wide one", () => {
-    expect(OBSERVE_COLS).toBe(400);
+  test("the real default canvas is the wide and tall one; a pane taller than it is observed on its own rows", async () => {
+    expect([OBSERVE_COLS, OBSERVE_ROWS]).toEqual([400, 300]);
+    const world = setup({ minRows: 2 });
+    world.watcher.watch(world.viewer(), "w1:p1");
+    await until(() => world.observations.length === 1);
+    expect(world.observations[0].size).toEqual({ cols: 30, rows: 4 });
+  });
+
+  test("the tall canvas changes nothing for a pane that didn't grow: the same screen, reads and pushes as on the pane's own rows", async () => {
+    const runs = [];
+    for (const minRows of [1, OBSERVE_ROWS]) {
+      const world = setup({ minRows });
+      const viewer = world.viewer();
+      world.watcher.watch(viewer, "w1:p1");
+      await until(() => world.observations.length === 1);
+      const height = world.observations[0].size.rows;
+      world.frame("w1:p1", fullFrame(SCREEN, { height }));
+      await world.settle();
+      world.texts.set("w1:p1", "text two");
+      world.frame("w1:p1", partialFrame([[3, 1, "done"]], { height }));
+      await world.settle();
+      world.frame("w1:p1", partialFrame([[4, 3, ""]], { height }));
+      await world.settle();
+      runs.push({ height, reads: [...world.reads], heard: [...viewer.heard] });
+    }
+    expect(runs.map(({ height }) => height)).toEqual([4, OBSERVE_ROWS]);
+    expect(runs[1].reads).toEqual(runs[0].reads);
+    expect(runs[1].heard).toEqual(runs[0].heard);
+
+    const screens = [4, OBSERVE_ROWS].map((rows) => {
+      const term = new Terminal({ cols: 30, rows, scrollback: 0, allowProposedApi: true });
+      term.write(decoded(fullFrame(SCREEN, { height: rows })).bytes);
+      return new Promise<string>((done) => term.write("", () => done(screenText(term))));
+    });
+    const [short, tall] = await Promise.all(screens);
+    expect(tall).toBe(short);
   });
 
   test("a change gives one read and one push; frames that change nothing read nothing; a burst reads once; the same text pushes nothing", async () => {
@@ -229,6 +270,35 @@ describe("the watcher", () => {
     world.frame("w1:p1", partialFrame([[4, 35, "x"]], { width: 40 }));
     await world.settle();
     expect(world.reads).toEqual(["w1:p1"]);
+  });
+
+  test("a pane that grew after the watch began still streams what lands on its new rows", async () => {
+    let screen = ["$ make", "building", "", ""];
+    const world = setup();
+    const viewer = world.viewer();
+    world.texts.set("w1:p1", "make, building");
+    // herdr as probed on 0.9.5: it draws the pane's screen on the canvas the stream asked for, cuts off the
+    // rows past it, redraws in full when the pane is resized, and a frame's height is the canvas, never the pane.
+    const herdrRedraws = async () => {
+      const [{ size }] = world.current("w1:p1");
+      world.frame("w1:p1", fullFrame(screen.slice(0, size.rows), { width: size.cols, height: size.rows }));
+      await world.settle();
+    };
+    world.watcher.watch(viewer, "w1:p1");
+    await until(() => world.observations.length === 1);
+    await herdrRedraws();
+    expect(viewer.heard).toEqual([
+      { type: "watch", pane_id: "w1:p1", streaming: true },
+      { type: "output", pane_id: "w1:p1", text: "make, building" },
+    ]);
+
+    screen = [...screen, "", "", "", ""];
+    await herdrRedraws();
+    screen[6] = "done";
+    world.texts.set("w1:p1", "make, building, done");
+    await herdrRedraws();
+
+    expect(viewer.heard.at(-1)).toEqual({ type: "output", pane_id: "w1:p1", text: "make, building, done" });
   });
 
   test("the last viewer leaving stops the stream only after the grace period; a viewer back within it keeps the same stream", async () => {

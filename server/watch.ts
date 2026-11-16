@@ -5,12 +5,12 @@
 import { Terminal, type IBufferCell } from "@xterm/headless";
 import { HerdrError, isRecord, type Frame, type Herdr, type Observation, type Pane } from "./herdr";
 
-// The canvas the stream is observed on. herdr pads a pane's rows to it, or
-// clips them: a wide canvas keeps any pane's whole width in view, so a change
-// is never cut off. The rows are the pane's own (`pane get`).
+// The canvas the stream is observed on. herdr pads a pane to it, or clips it,
+// and never resizes it, so the canvas is at least OBSERVE_ROWS tall and never
+// shorter than the pane when the watch began: a pane that grows within it
+// stays in view.
 export const OBSERVE_COLS = 400;
-// herdr's own default canvas height, for a pane that reports no rows.
-const DEFAULT_ROWS = 40;
+export const OBSERVE_ROWS = 300;
 
 // What a viewing page is told: `output`, the open Terminal's text, as the
 // output endpoint returns it; `watch`, whether its output is streamed now
@@ -36,9 +36,9 @@ type Watched = {
   grace?: ReturnType<typeof setTimeout>;
 };
 
-const viewportRows = (pane: Pane) => {
+const reportedRows = (pane: Pane) => {
   const rows = isRecord(pane.scroll) ? pane.scroll.viewport_rows : undefined;
-  return typeof rows === "number" && Number.isInteger(rows) && rows > 0 ? rows : DEFAULT_ROWS;
+  return typeof rows === "number" && Number.isInteger(rows) && rows > 0 ? rows : 0;
 };
 
 function styleOf(cell: IBufferCell) {
@@ -61,17 +61,30 @@ function styleOf(cell: IBufferCell) {
   return codes.join(";");
 }
 
+function lastPossiblyShownRow(term: Terminal) {
+  const buffer = term.buffer.active;
+  const cell = buffer.getNullCell();
+  for (let y = term.rows - 1; y >= 0; y--) {
+    const line = buffer.getLine(buffer.viewportY + y);
+    if (!line) continue;
+    if (line.translateToString(true) !== "") return y;
+    for (let x = 0; x < term.cols; x++) if (line.getCell(x, cell) && !cell.isAttributeDefault()) return y;
+  }
+  return -1;
+}
+
 export function screenText(term: Terminal): string {
   const buffer = term.buffer.active;
   const cell = buffer.getNullCell();
   const rows: string[] = [];
-  for (let y = 0; y < term.rows; y++) {
+  const lastRow = lastPossiblyShownRow(term);
+  for (let y = 0; y <= lastRow; y++) {
     const line = buffer.getLine(buffer.viewportY + y);
     if (!line) break;
     const runs: { style: string; chars: string }[] = [];
     for (let x = 0; x < term.cols; x++) {
       if (!line.getCell(x, cell) || cell.getWidth() === 0) continue;
-      const style = styleOf(cell);
+      const style = cell.isAttributeDefault() ? "" : styleOf(cell);
       const chars = cell.getChars() || " ";
       const last = runs[runs.length - 1];
       if (last && last.style === style) last.chars += chars;
@@ -92,12 +105,14 @@ export function screenText(term: Terminal): string {
 export function createWatcher({
   herdr,
   cols = OBSERVE_COLS,
+  minRows = OBSERVE_ROWS,
   debounceMs = 40,
   graceMs = 5_000,
   retryMs = { first: 500, max: 10_000 },
 }: {
   herdr: Pick<Herdr, "pane" | "observe" | "readStyled">;
   cols?: number;
+  minRows?: number;
   debounceMs?: number;
   graceMs?: number;
   retryMs?: { first: number; max: number };
@@ -152,7 +167,7 @@ export function createWatcher({
   async function open(entry: Watched) {
     const run = ++entry.generation;
     try {
-      const rows = viewportRows(await herdr.pane(entry.paneId));
+      const rows = Math.max(reportedRows(await herdr.pane(entry.paneId)), minRows);
       if (!isCurrent(entry, run)) return;
       const term = new Terminal({ cols, rows, scrollback: 0, allowProposedApi: true });
       entry.term = term;

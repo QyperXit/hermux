@@ -46,6 +46,7 @@ import { retryingText, terminalOfAgent } from "./terminals.js";
 
 const LIST_REFRESH_MS = 3000;
 const OUTPUT_REFRESH_MS = 2000;
+const WATCH_RETRY_MS = 5000;
 
 const READS_TERMINALS = new Set(["agent", "all"]);
 
@@ -108,6 +109,7 @@ export function createSession({ client, openStream, timers, opened }) {
   let serverStreamName = null;
   /** @type {string | null} */
   let watchRequestedPane = null;
+  let watchRequestFailed = false;
   let serverStreamsWatched = false;
   let pushedOutputCount = 0;
   /** @type {Set<(change: Change) => void>} */
@@ -295,13 +297,19 @@ export function createSession({ client, openStream, timers, opened }) {
 
   function syncWatch() {
     const wanted = visible && serverStreamName !== null && route.name === "agent" ? route.paneId : null;
-    if (wanted === watchRequestedPane) return;
+    if (wanted === watchRequestedPane && !watchRequestFailed) return;
     const previous = watchRequestedPane;
     watchRequestedPane = wanted;
+    watchRequestFailed = false;
     serverStreamsWatched = false;
     if (serverStreamName === null) return;
-    if (wanted !== null) client.watchOutput(wanted, serverStreamName).catch(() => {});
-    else if (previous !== null) client.unwatchOutput(previous, serverStreamName).catch(() => {});
+    if (wanted !== null) {
+      const stream = serverStreamName;
+      client.watchOutput(wanted, stream).catch((error) => {
+        if (describeError(error).code === "pane_not_found") return;
+        if (watchRequestedPane === wanted && serverStreamName === stream) watchRequestFailed = true;
+      });
+    } else if (previous !== null) client.unwatchOutput(previous, serverStreamName).catch(() => {});
   }
 
   /** @param {string | null} id */
@@ -406,6 +414,7 @@ export function createSession({ client, openStream, timers, opened }) {
       if (visible) stream?.start();
       every(LIST_REFRESH_MS, refreshList, listPollRuns);
       every(OUTPUT_REFRESH_MS, refreshOutput, outputTimerRuns);
+      every(WATCH_RETRY_MS, syncWatch, () => true);
     },
 
     /** @param {Route} next */

@@ -712,6 +712,49 @@ test("live output: a watch request that fails leaves the page polling", async ()
   expect(page.count("output w9:pD")).toBe(2);
 });
 
+test("live output: a watch request that fails is asked again later, and once streamed the output isn't polled", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pD" } });
+  await flush();
+  await page.live();
+  page.failing.set("watch w9:pD s1", failure("server_unreachable", "The laptop didn't answer."));
+  page.stream().fire("stream", { id: "s1" });
+  await flush();
+  expect(page.count("watch w9:pD s1")).toBe(1);
+  page.failing.delete("watch w9:pD s1");
+  await page.advance(4_999);
+  expect(page.count("watch w9:pD s1")).toBe(1);
+  await page.advance(1);
+  expect(page.count("watch w9:pD s1")).toBe(2);
+  page.stream().fire("watch", { pane_id: "w9:pD", streaming: true });
+  await flush();
+  page.reset();
+  await page.advance(10_000);
+  expect(page.calls).toEqual([]);
+});
+
+test("live output: a watch request refused because the pane is gone isn't asked again", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pD" } });
+  await flush();
+  await page.live();
+  page.failing.set("watch w9:pD s1", failure("pane_not_found", "No such pane."));
+  page.stream().fire("stream", { id: "s1" });
+  await flush();
+  await page.advance(15_000);
+  expect(page.count("watch w9:pD s1")).toBe(1);
+});
+
+test("live output: leaving a Terminal whose watch request failed still ends the watch, in case the request reached the server", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pD" } });
+  await flush();
+  await page.live();
+  page.failing.set("watch w9:pD s1", failure("server_unreachable", "The laptop didn't answer."));
+  page.stream().fire("stream", { id: "s1" });
+  await flush();
+  page.session.open({ name: "home" });
+  await flush();
+  expect(page.count("unwatch w9:pD s1")).toBe(1);
+});
+
 test("live output: a read that began before a push is dropped, so an older screen never replaces a pushed one", async () => {
   const page = await streamedPage();
   const read = page.hold("output w9:pD");
