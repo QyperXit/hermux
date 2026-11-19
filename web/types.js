@@ -39,6 +39,7 @@
 
 /**
  * @typedef {import("../server/uploads").Saved} Upload
+ * @typedef {import("../server/files").FileInfo} FileInfo
  */
 
 /**
@@ -56,6 +57,8 @@
  * @property {(paneId: string, stream: string) => Promise<void>} unwatchOutput
  * @property {(file: Blob, name: string, options?: { signal?: AbortSignal }) => Promise<Upload>} uploadImage
  * @property {(path: string, options?: { signal?: AbortSignal }) => Promise<Blob>} readPicture
+ * @property {(path: string) => Promise<FileInfo>} readFileInfo
+ * @property {(path: string, options?: { signal?: AbortSignal }) => Promise<Blob>} readFile
  */
 
 export {};

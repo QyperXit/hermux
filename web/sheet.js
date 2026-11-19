@@ -64,7 +64,7 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     need(root(), ".switcher-dim").addEventListener("click", () => close());
     need(root(), ".switcher-list").addEventListener("scroll", updateMore, { passive: true });
     need(root(), ".switcher-list").addEventListener("click", onRowClick);
-    bindDrag(need(root(), ".switcher"), need(root(), ".switcher-head"), need(root(), ".switcher-list"));
+    bindSwipeDown(need(root(), ".switcher"), need(root(), ".switcher-head"), need(root(), ".switcher-list"), () => close());
     document.addEventListener("keydown", onKey);
     // One frame after it is in the page, so it slides up from below.
     requestAnimationFrame(() => root().classList.add("is-open"));
@@ -162,57 +162,60 @@ export function createSheet({ app, root: rootElement, hrefOf, onSwap }) {
     if (rows.length) trapTab(event, rows);
   }
 
-  /**
-   * @param {HTMLElement} panel
-   * @param {HTMLElement} head
-   * @param {HTMLElement} list
-   */
-  function bindDrag(panel, head, list) {
-    /** @type {{ y: number, at: number, dy: number } | null} */
-    let drag = null;
-    /** @param {number} y */
-    const begin = (y) => {
-      drag = { y, at: performance.now(), dy: 0 };
-      panel.classList.add("is-dragging");
-    };
-    /** @param {number} y */
-    const move = (y) => {
-      if (!drag) return;
-      drag.dy = Math.max(0, y - drag.y);
-      panel.style.transform = drag.dy ? `translateY(${drag.dy}px)` : "";
-    };
-    /** @param {boolean} cancelled */
-    const end = (cancelled) => {
-      if (!drag) return;
-      const shut = !cancelled && closesOnSwipe({ dy: drag.dy, ms: performance.now() - drag.at });
-      drag = null;
-      panel.classList.remove("is-dragging");
-      panel.style.transform = "";
-      if (shut) close();
-    };
-    head.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
-      head.setPointerCapture(event.pointerId);
-      begin(event.clientY);
-    });
-    head.addEventListener("pointermove", (event) => drag && move(event.clientY));
-    head.addEventListener("pointerup", () => end(false));
-    head.addEventListener("pointercancel", () => end(true));
-    list.addEventListener("touchstart", (event) => {
-      if (list.scrollTop <= 0) begin(event.touches[0].clientY);
-    }, { passive: true });
-    list.addEventListener("touchmove", (event) => {
-      if (!drag) return;
-      if (event.touches[0].clientY <= drag.y) {
-        end(true);
-        return;
-      }
-      event.preventDefault();
-      move(event.touches[0].clientY);
-    }, { passive: false });
-    list.addEventListener("touchend", () => end(false));
-    list.addEventListener("touchcancel", () => end(true));
-  }
-
   return { open, close, render };
+}
+
+/**
+ * A swipe down on `head`, or on `list` while it sits at its top, moves `panel`
+ * with the finger and calls `close` past the swipe or flick distance.
+ * @param {HTMLElement} panel
+ * @param {HTMLElement} head
+ * @param {HTMLElement} list
+ * @param {() => void} close
+ */
+export function bindSwipeDown(panel, head, list, close) {
+  /** @type {{ y: number, at: number, dy: number } | null} */
+  let drag = null;
+  /** @param {number} y */
+  const begin = (y) => {
+    drag = { y, at: performance.now(), dy: 0 };
+    panel.classList.add("is-dragging");
+  };
+  /** @param {number} y */
+  const move = (y) => {
+    if (!drag) return;
+    drag.dy = Math.max(0, y - drag.y);
+    panel.style.transform = drag.dy ? `translateY(${drag.dy}px)` : "";
+  };
+  /** @param {boolean} cancelled */
+  const end = (cancelled) => {
+    if (!drag) return;
+    const shut = !cancelled && closesOnSwipe({ dy: drag.dy, ms: performance.now() - drag.at });
+    drag = null;
+    panel.classList.remove("is-dragging");
+    panel.style.transform = "";
+    if (shut) close();
+  };
+  head.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    head.setPointerCapture(event.pointerId);
+    begin(event.clientY);
+  });
+  head.addEventListener("pointermove", (event) => drag && move(event.clientY));
+  head.addEventListener("pointerup", () => end(false));
+  head.addEventListener("pointercancel", () => end(true));
+  list.addEventListener("touchstart", (event) => {
+    if (list.scrollTop <= 0) begin(event.touches[0].clientY);
+  }, { passive: true });
+  list.addEventListener("touchmove", (event) => {
+    if (!drag) return;
+    if (event.touches[0].clientY <= drag.y) {
+      end(true);
+      return;
+    }
+    event.preventDefault();
+    move(event.touches[0].clientY);
+  }, { passive: false });
+  list.addEventListener("touchend", () => end(false));
+  list.addEventListener("touchcancel", () => end(true));
 }

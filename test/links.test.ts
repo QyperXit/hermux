@@ -11,6 +11,9 @@ const RESET = sgr("0");
 
 const link = (url: string, text = url) => `<a class="a-link" href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 const copyKey = (path: string) => `<button class="copy-key" type="button" data-copy="${path}" aria-label="Copy ${path}">copy</button>`;
+const fileKey = (path: string) =>
+  `<button class="file-key" type="button" data-file="${path}" aria-haspopup="dialog" aria-label="File ${path}"><svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>file</button>`;
+const filePath = (path: string) => `<span class="path" data-copy="${path}" data-file="${path}" role="button" tabindex="0" aria-haspopup="dialog" aria-label="File ${path}">${path}</span>`;
 const hrefs = (html: string) => [...html.matchAll(/<a [^>]*href="([^"]*)"/g)].map(([, href]) => href);
 
 describe("links in the Reader", () => {
@@ -83,15 +86,15 @@ describe("links in the Reader", () => {
 });
 
 describe("laptop paths", () => {
-  test("/tmp, /home and ~ paths get a copy key after them, not a link; punctuation after them is left out", () => {
+  test("/tmp, /home and ~ paths get a copy key after them, not a link, and a named file its file key next; punctuation after them is left out", () => {
     expect(readerHtml(" Wrote /tmp/out/report.txt, then ~/notes/today.md and /home/you/proj/a b.")).toBe(
-      `<p class="p">Wrote /tmp/out/report.txt${copyKey("/tmp/out/report.txt")}, then ~/notes/today.md${copyKey("~/notes/today.md")} and /home/you/proj/a${copyKey("/home/you/proj/a")} b.</p>`,
+      `<p class="p">Wrote /tmp/out/report.txt${copyKey("/tmp/out/report.txt")}${fileKey("/tmp/out/report.txt")}, then ~/notes/today.md${copyKey("~/notes/today.md")}${fileKey("~/notes/today.md")} and /home/you/proj/a${copyKey("/home/you/proj/a")} b.</p>`,
     );
   });
 
   test("a path in a code chip keeps its chip and gets its key after it; a path inside an address is part of the link", () => {
     expect(readerHtml(` Edited ${CYAN}/home/you/proj/app.js${RESET} today`)).toBe(
-      `<p class="p">Edited <span class="a-code">/home/you/proj/app.js</span>${copyKey("/home/you/proj/app.js")} today</p>`,
+      `<p class="p">Edited <span class="a-code">/home/you/proj/app.js</span>${copyKey("/home/you/proj/app.js")}${fileKey("/home/you/proj/app.js")} today</p>`,
     );
     expect(readerHtml(" At https://example.com/home/you/x now")).toBe(`<p class="p">At ${link("https://example.com/home/you/x")} now</p>`);
     expect(readerHtml(" and/or ./tmp/x a/home/b")).not.toContain("copy");
@@ -104,8 +107,9 @@ describe("laptop paths", () => {
   });
 
   test("in a box-drawn block a path is long-pressed to copy, so no key moves the columns", () => {
-    const html = readerHtml(["╭ FILES ─────────────────╮", "│ /tmp/out/report.txt    │", "╰────────────────────────╯"].join("\n"));
-    expect(html).toContain(`│ <span class="path" data-copy="/tmp/out/report.txt">/tmp/out/report.txt</span>    │`);
+    const html = readerHtml(["╭ FILES ─────────────────╮", "│ /tmp/out/report.txt    │", "│ /tmp/out/build         │", "╰────────────────────────╯"].join("\n"));
+    expect(html).toContain(`│ ${filePath("/tmp/out/report.txt")}    │`);
+    expect(html).toContain(`│ <span class="path" data-copy="/tmp/out/build">/tmp/out/build</span>         │`);
     expect(html).not.toContain("copy-key");
   });
 });
@@ -125,9 +129,9 @@ describe("Earlier messages", () => {
   test("code spans never hold a link; paths in prose, code spans and tables are copyable", () => {
     const html = agent("Run `curl https://example.com/x` on `/tmp/a.txt` from ~/proj.\n\n| file |\n| /home/you/b.md |");
     expect(html).toContain(`<span class="a-code">curl https://example.com/x</span>`);
-    expect(html).toContain(`<span class="a-code">/tmp/a.txt</span>${copyKey("/tmp/a.txt")}`);
+    expect(html).toContain(`<span class="a-code">/tmp/a.txt</span>${copyKey("/tmp/a.txt")}${fileKey("/tmp/a.txt")}`);
     expect(html).toContain(`~/proj${copyKey("~/proj")}.`);
-    expect(html).toContain(`<span class="path" data-copy="/home/you/b.md">/home/you/b.md</span>`);
+    expect(html).toContain(filePath("/home/you/b.md"));
     expect(hrefs(html)).toEqual([]);
   });
 

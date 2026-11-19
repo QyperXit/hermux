@@ -205,8 +205,8 @@ test("main.ts subscribes to herdr's events on the socket HERDR_SOCKET_PATH names
     expect(text).toContain('event: live\ndata: {"live":true}\n\n');
     expect(text).toContain('event: change\ndata: {"changed":[{"pane_id":"w1:p1","agent_status":"working"}],"refetch":true}\n\n');
     controller.abort();
-    // The only herdr command run for it is `pane list`.
-    expect(fake.calls()).toEqual([["pane", "list"]]);
+    await until(() => fake.calls().length >= 2, 5_000, "the notifier's agent list");
+    expect(sorted(fake.calls())).toEqual(sorted([["pane", "list"], ["agent", "list"]]));
   } finally {
     proc.kill();
     await proc.exited;

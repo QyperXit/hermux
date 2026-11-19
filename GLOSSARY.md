@@ -46,6 +46,10 @@ _Avoid_: last output, preview
 The full-screen view of a picture file on the laptop, opened from its path in the Live screen or Earlier messages, with the screen's other pictures a swipe away.
 _Avoid_: lightbox, gallery, preview
 
+**File sheet**:
+The sheet raised by a laptop file's "file" key in the Live screen or Earlier messages: the file's name, size, changed time and path, with Open, Save, Share… and Copy path.
+_Avoid_: download dialog, file card, file viewer
+
 ## Notifications
 
 **Notification**:

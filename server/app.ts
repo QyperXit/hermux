@@ -3,12 +3,14 @@ import { HerdrError, checkTarget, type Herdr } from "./herdr";
 import type { LiveEvent, LiveEvents } from "./events";
 import { parseHistoryQuery, parseTableAnchors, type createHistory } from "./history";
 import { parseSubscription } from "./push-store";
+import { attachmentHeader, type Files } from "./files";
 import type { Pictures } from "./pictures";
 import type { Push } from "./push";
 import { createRoster } from "./roster";
 import type { Uploads } from "./uploads";
 import { stampedWorker } from "./app-shell";
 import type { Viewer, WatchEvent, Watcher } from "./watch";
+import { FILE_HEADER } from "../web/file-rules.js";
 import { UPLOAD_HEADER } from "../web/upload-header.js";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -30,6 +32,7 @@ const STATUS: Record<string, number> = {
   path_not_allowed: 403,
   not_found: 404,
   picture_not_found: 404,
+  file_not_found: 404,
   subscription_not_found: 404,
   agent_not_found: 404,
   pane_not_found: 404,
@@ -47,6 +50,11 @@ const STATUS: Record<string, number> = {
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
+
+const privateBytes = (bytes: Uint8Array<ArrayBuffer>, type: string, extra: Record<string, string> = {}) =>
+  new Response(bytes, {
+    headers: { "content-type": type, "content-length": String(bytes.length), ...extra, "x-content-type-options": "nosniff", "cache-control": "private, no-store" },
+  });
 
 const errorResponse = (code: string, message: string) => json({ error: { code, message } }, STATUS[code] ?? 502);
 
@@ -162,6 +170,7 @@ export function createApp({
   push,
   uploads,
   pictures,
+  files,
 }: {
   herdr: Herdr;
   webRoot: string;
@@ -178,6 +187,7 @@ export function createApp({
   // Images attached to messages; without it the upload route is unknown (404).
   uploads?: Uploads;
   pictures?: Pictures;
+  files?: Files;
 }) {
   const root = resolve(webRoot);
   const roster = createRoster(herdr, now);
@@ -384,7 +394,16 @@ export function createApp({
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
       refuseCrossSiteRead(request);
       const { bytes, type } = await pictures.read(url.searchParams.get("path"));
-      return new Response(bytes, { headers: { "content-type": type, "content-length": String(bytes.length), "x-content-type-options": "nosniff", "cache-control": "private, no-store" } });
+      return privateBytes(bytes, type);
+    }
+    if (resource === "files" && (target === undefined || target === "info") && action === undefined && files) {
+      if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");
+      refuseCrossSiteRead(request);
+      if (request.headers.get(FILE_HEADER) !== "1") throw new HerdrError("cross_site_request", "Files go only to this app's own page.");
+      const path = url.searchParams.get("path");
+      if (target === "info") return json(await files.info(path));
+      const { name, type, bytes } = await files.read(path);
+      return privateBytes(bytes, type, { "content-disposition": attachmentHeader(name) });
     }
     if (resource === "workspaces" && target !== undefined && action === "terminals") {
       if (request.method !== "GET") throw new HerdrError("method_not_allowed", "Use GET.");

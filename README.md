@@ -22,6 +22,7 @@ The screenshots use the built-in sample data.
 - **Saved commands.** One-tap replies you write yourself, behind the "/" button in the message bar.
 - **Send pictures.** Attach screenshots, photos from your gallery or new ones from the camera, up to 10 in one message. The pictures are saved on the computer and their paths go into your message, so the agent can open them.
 - **Open computer pictures.** A picture path in an agent's output gets a view key. It opens full screen, with zoom and swipe between pictures. Only pictures in your home folder or `/tmp`, outside hidden folders, can be opened.
+- **Get computer files.** A file path with an extension, such as a PDF or a zip, gets a file key. It shows the file's name, size and age, and opens it in the phone's viewer, saves it to Downloads, shares it or copies its path. Files up to 100 MB in your home folder or `/tmp`, outside hidden folders.
 - **Notifications.** Optional push notifications when an agent needs you or finishes, turned on from the bell.
 - **Switcher.** Every terminal in a Herdr workspace, agents and plain shells, one tap apart.
 - **Live updates.** Status changes and new output stream from Herdr as they happen. If the stream drops, the app polls until it's back.

@@ -92,6 +92,8 @@ function setup({ route = { name: "home" } as Route, visible = true, sample = fal
     unwatchOutput: (paneId: string, stream: string) => answer(`unwatch ${paneId} ${stream}`, () => undefined),
     uploadImage: () => answer("upload", () => ({ path: "/uploads/image.png", name: "image.png", size: 1 })),
     readPicture: () => answer("picture", () => new Blob()),
+    readFileInfo: () => answer("file info", () => ({ name: "a.pdf", size: 1, modified: 0, kind: "application/pdf" })),
+    readFile: () => answer("file", () => new Blob()),
   };
   const sources: FakeSource[] = [];
   let now = 0;

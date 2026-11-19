@@ -54,7 +54,9 @@ describe("which paths get a view key", () => {
     expect(html).toContain(
       `│ <span class="path" data-copy="/tmp/out/shot.png" data-view="/tmp/out/shot.png" role="button" tabindex="0" aria-label="View /tmp/out/shot.png">/tmp/out/shot.png</span>    │`,
     );
-    expect(html).toContain(`│ <span class="path" data-copy="/tmp/out/notes.txt">/tmp/out/notes.txt</span>   │`);
+    expect(html).toContain(
+      `│ <span class="path" data-copy="/tmp/out/notes.txt" data-file="/tmp/out/notes.txt" role="button" tabindex="0" aria-haspopup="dialog" aria-label="File /tmp/out/notes.txt">/tmp/out/notes.txt</span>   │`,
+    );
     expect(html).not.toContain("view-key");
   });
 

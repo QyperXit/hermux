@@ -5,6 +5,7 @@ import { createLiveEvents, herdrSocketPath } from "./events";
 import { createHerdr } from "./herdr";
 import { createHistory, openSessionStore } from "./history";
 import { createNotifier } from "./notifier";
+import { createFiles } from "./files";
 import { createPictures } from "./pictures";
 import { createPush, webPushSend } from "./push";
 import { createPushStore } from "./push-store";
@@ -52,7 +53,7 @@ const server = Bun.serve({
   hostname: HOSTNAME,
   port,
   maxRequestBodySize: MAX_BODY_BYTES,
-  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher, push, uploads, pictures: createPictures() }),
+  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher, push, uploads, pictures: createPictures(), files: createFiles() }),
 });
 
 console.log(`Agents server listening on http://${HOSTNAME}:${server.port} (herdr: ${herdrBin}, events: ${socketPath}, sessions: ${sessionStore}, read-only, push keys: ${pushDir}, uploads: ${uploads.folder})`);

@@ -53,16 +53,36 @@ const linkOpen = (url) => `<a class="a-link" href="${escapeHtml(url)}" target="_
 /** @param {string} path */
 export const copyKeyHtml = (path) => `<button class="copy-key" type="button" data-copy="${escapeHtml(path)}" aria-label="Copy ${escapeHtml(path)}">copy</button>`;
 
-// The laptop never shows a picture through a hidden folder, so such a path
-// gets no way to view it.
+const PICTURE = /\.(?:png|jpe?g|webp|gif)$/i;
+const NAMED_FILE = /^(?:~|\/tmp|\/home\/[^/]+)\/(?:[^/]+\/)*[^/]+\.[a-z0-9]{1,10}$/i;
+
 /** @param {string} path */
-const canView = (path) => /\.(?:png|jpe?g|webp|gif)$/i.test(path) && !/\/\./.test(path);
+const hasHiddenPart = (path) => /\/\./.test(path);
+
+/** @param {string} path */
+const canView = (path) => PICTURE.test(path) && !hasHiddenPart(path);
+
+/** @param {string} path */
+const canGetFile = (path) => NAMED_FILE.test(path) && !PICTURE.test(path) && !hasHiddenPart(path);
 
 /** @param {string} path */
 const viewKeyHtml = (path) => `<button class="view-key" type="button" data-view="${escapeHtml(path)}" aria-label="View ${escapeHtml(path)}">${icon("i-picture")}view</button>`;
 
 /** @param {string} path */
+const fileKeyHtml = (path) =>
+  `<button class="file-key" type="button" data-file="${escapeHtml(path)}" aria-haspopup="dialog" aria-label="File ${escapeHtml(path)}">${icon("i-file")}file</button>`;
+
+/** @param {string} path */
 const pathViewAttributes = (path) => ` data-view="${escapeHtml(path)}" role="button" tabindex="0" aria-label="View ${escapeHtml(path)}"`;
+
+/** @param {string} path */
+const pathFileAttributes = (path) => ` data-file="${escapeHtml(path)}" role="button" tabindex="0" aria-haspopup="dialog" aria-label="File ${escapeHtml(path)}"`;
+
+/** @param {string} path */
+const pathOpenAttributes = (path) => (canView(path) ? pathViewAttributes(path) : canGetFile(path) ? pathFileAttributes(path) : "");
+
+/** @param {string} path */
+const openKeyHtml = (path) => (canView(path) ? viewKeyHtml(path) : canGetFile(path) ? fileKeyHtml(path) : "");
 
 /** @param {string} cls */
 const isCode = (cls) => cls.split(" ").includes("a-code");
@@ -96,11 +116,11 @@ export function linkedRunsHtml(runs, copy) {
       const piece = escapeHtml(text.slice(at, pieceEnd));
       if (!target || !inTarget) inner += piece;
       else if (target.kind === "url") inner += `${linkOpen(target.text)}${piece}</a>`;
-      else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}"${canView(target.text) ? pathViewAttributes(target.text) : ""}>${piece}</span>`;
+      else if (copy === "press") inner += `<span class="path" data-copy="${escapeHtml(target.text)}"${pathOpenAttributes(target.text)}>${piece}</span>`;
       else inner += piece;
       at = pieceEnd;
       if (inTarget && target.kind === "path" && copy === "key" && target.end === at) {
-        html += `${open}${inner}${close}${copyKeyHtml(target.text)}${canView(target.text) ? viewKeyHtml(target.text) : ""}`;
+        html += `${open}${inner}${close}${copyKeyHtml(target.text)}${openKeyHtml(target.text)}`;
         inner = "";
       }
     }
@@ -153,12 +173,15 @@ export const picturePaths = (root) => [...new Set([...root.querySelectorAll("[da
 const CLICK_AFTER_LONG_PRESS_MS = 1000;
 
 /**
+ * Taps on `selector` (a key, or a box-drawn path) call `open`; Enter or Space
+ * on such a path does too, and a long-press on one only copies it.
  * @param {HTMLElement} root
- * @param {(trigger: HTMLElement, paths: string[]) => void} open
+ * @param {string} selector
+ * @param {(trigger: HTMLElement) => void} open
  */
-export function bindView(root, open) {
+function bindOpener(root, selector, open) {
   /** @param {Event} event */
-  const triggerOf = (event) => /** @type {HTMLElement | null | undefined} */ (/** @type {Element | null} */ (event.target)?.closest("[data-view]"));
+  const triggerOf = (event) => /** @type {HTMLElement | null | undefined} */ (/** @type {Element | null} */ (event.target)?.closest(selector));
   /** @type {{ trigger: HTMLElement, at: number } | null} */
   let pressed = null;
   root.addEventListener("contextmenu", (event) => {
@@ -172,12 +195,24 @@ export function bindView(root, open) {
     const trigger = triggerOf(event);
     const afterPress = pressed !== null && pressed.trigger === trigger && event.timeStamp - pressed.at < CLICK_AFTER_LONG_PRESS_MS;
     pressed = null;
-    if (trigger && !afterPress) open(trigger, picturePaths(root));
+    if (trigger && !afterPress) open(trigger);
   });
   root.addEventListener("keydown", (event) => {
     const trigger = triggerOf(event);
     if (!trigger?.matches(".path") || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault();
-    open(trigger, picturePaths(root));
+    open(trigger);
   });
 }
+
+/**
+ * @param {HTMLElement} root
+ * @param {(trigger: HTMLElement, paths: string[]) => void} open
+ */
+export const bindView = (root, open) => bindOpener(root, "[data-view]", (trigger) => open(trigger, picturePaths(root)));
+
+/**
+ * @param {HTMLElement} root
+ * @param {(trigger: HTMLElement) => void} open
+ */
+export const bindFile = (root, open) => bindOpener(root, "[data-file]", open);

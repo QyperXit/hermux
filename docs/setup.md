@@ -119,6 +119,15 @@ Where the Reader or Earlier messages show a laptop path to a picture (a name end
 - **What it sends.** Only PNG, JPEG, WebP and GIF, at most 25 MB, recognised by the file's own first bytes, never by its name. HEIC isn't shown. The answer is marked private and not to be stored, and the service worker never caches it.
 - **Same guards as everything else.** It needs the login (403 without it) and refuses requests from other sites (403). Other answers: 400 for a missing or relative path, 403 outside the allowed places or through a hidden folder, 404 when there's no such file, 413 over 25 MB, 415 when the file isn't one of the four picture types.
 
+## Getting laptop files on the phone
+
+Where the Reader or Earlier messages show a laptop path to a file that isn't a picture (a name with an extension, such as `report.pdf` or `photos.zip`), a "file" key opens a sheet with the file's name, size and when it changed, and Open, Save, Share… and Copy path. The page asks the server with two read-only routes that never write anything: `GET /api/files/info?path=<the path>` for the sheet, and `GET /api/files?path=<the path>` for the file itself, only when a button needs it.
+
+- **Where it may look.** The same rules as pictures: absolute paths only (a leading `~/` is your home folder), inside your home folder or `/tmp` after following links, never through a hidden part (`.push/`, `.uploads/`, `.ssh/` and every other hidden folder or file), regular files only (folders and pipes count as "not found").
+- **What it sends.** Any file up to 100 MB, as a download (`Content-Disposition: attachment`) with `X-Content-Type-Options: nosniff`, marked private and not to be stored; the service worker never caches it. The type comes from the file's own first bytes: `application/pdf` for a PDF, the picture's type for PNG, JPEG, WebP and GIF, and `application/octet-stream` for everything else, so a file is never run as a page. The info answers with the name, size, changed time and that type, also for a file over 100 MB, so the sheet can say it is too big.
+- **Guards.** It needs the login (403 without it), refuses requests from other sites (403), and answers only the app's own page, which sends an `X-Hermux-File: 1` header (403 without it). Other answers: 400 for a missing or relative path, 403 outside the allowed places or through a hidden folder, 404 when there's no such file, 405 for anything but GET, 413 over 100 MB.
+- **On the phone.** Open is offered for PDFs and pictures and hands the file to the browser, which shows it in the phone's own viewer; Save downloads it under its own name; Share… appears only where the browser can share that kind of file (Chrome on Android shares PDFs and pictures, not zips). If a big file took long to arrive, the browser may want a fresh tap: the sheet then says "Ready. Tap Open again."
+
 ## Sending to Atomic agents (herdr 0.9.5)
 
 herdr 0.9.5 accepts `agent prompt` and `agent send-keys` only for its built-in agent kinds, such as `pi`, `claude` and `codex`. Atomic agents report themselves as `atomic`. For them, the server sends with `pane send-text` and `pane send-keys` instead and makes herdr's checks itself:

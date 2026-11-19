@@ -163,6 +163,8 @@ describe("cache rules", () => {
     ["api/push/subscription", { method: "POST", body: "{}" }],
     ["api/push/test", { method: "POST", body: "{}" }],
     ["api/pictures?path=%2Fhome%2Fyou%2Fsketch.webp", { headers: { accept: "image/*" } }],
+    ["api/files?path=%2Ftmp%2Finvoice.pdf", { headers: { "x-hermux-file": "1" } }],
+    ["api/files/info?path=%2Ftmp%2Finvoice.pdf", { headers: { "x-hermux-file": "1" } }],
     ["app.js", { method: "POST", body: "{}" }],
     ["app.js", { method: "HEAD" }],
     ["app.js?x=1", {}],

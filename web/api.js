@@ -1,3 +1,4 @@
+import { FILE_HEADER, MAX_FILE_BYTES } from "./file-rules.js";
 import { UPLOAD_HEADER } from "./upload-header.js";
 /**
  * @typedef {import("./types.js").Client} Client
@@ -57,7 +58,18 @@ const PICTURE_PROBLEMS = {
 /** @param {number} status */
 export const pictureProblem = (status) => PICTURE_PROBLEMS[status] ?? `The laptop answered ${status}.`;
 
-export const PICTURE_UNREACHABLE = "Can't reach the laptop.";
+export const LAPTOP_UNREACHABLE = "Can't reach the laptop.";
+
+/** @type {Record<number, string>} */
+const FILE_PROBLEMS = {
+  400: "That path can't be opened as a file.",
+  403: "Not allowed. The laptop sends files from your home folder or /tmp only, never from a hidden folder.",
+  404: "Not found on the laptop.",
+  413: `Too big to get. The limit is ${MAX_FILE_BYTES / (1024 * 1024)} MB.`,
+};
+
+/** @param {number} status */
+export const fileProblem = (status) => FILE_PROBLEMS[status] ?? `The laptop answered ${status}.`;
 
 /**
  * @param {unknown} error
@@ -208,33 +220,64 @@ export function createHttpClient({ readTimeoutMs = READ_TIMEOUT_MS } = {}) {
       return request("api/uploads", { method: "POST", headers: { [UPLOAD_HEADER]: "1" }, body: form, signal });
     },
 
-    // The time limit covers only the wait for the laptop to start answering.
-    async readPicture(path, { signal } = {}) {
-      const answering = new AbortController();
-      const timer = setTimeout(() => answering.abort(), readTimeoutMs);
-      let response;
-      try {
-        response = await fetch(`api/pictures?path=${encodeURIComponent(path)}`, {
-          cache: "no-store",
-          signal: signal ? AbortSignal.any([signal, answering.signal]) : answering.signal,
-        });
-      } catch {
-        throw new ApiError("unreachable", PICTURE_UNREACHABLE);
-      } finally {
-        clearTimeout(timer);
-      }
-      if (response.ok) {
-        try {
-          return await response.blob();
-        } catch (error) {
-          if (signal?.aborted) throw error;
-          throw new ApiError("unreachable", PICTURE_UNREACHABLE);
-        }
-      }
-      const { code = `http_${response.status}` } = errorOf(await response.json().catch(() => null));
-      throw new ApiError(code, pictureProblem(response.status));
+    readPicture: (path, { signal } = {}) => blobOf(`api/pictures?path=${encodeURIComponent(path)}`, {}, signal, pictureProblem),
+
+    async readFileInfo(path) {
+      const response = await answered(`api/files/info?path=${encodeURIComponent(path)}`, FILE_HEADERS, undefined);
+      if (!response.ok) throw await refusal(response, fileProblem);
+      const info = await response.json().catch(() => null);
+      if (!info) throw new ApiError("unreachable", LAPTOP_UNREACHABLE);
+      return info;
     },
+
+    readFile: (path, { signal } = {}) => blobOf(`api/files?path=${encodeURIComponent(path)}`, FILE_HEADERS, signal, fileProblem),
   };
+
+  /**
+   * The time limit covers only the wait for the laptop to start answering.
+   * @param {string} url
+   * @param {Record<string, string>} headers
+   * @param {AbortSignal | undefined} signal
+   */
+  async function answered(url, headers, signal) {
+    const answering = new AbortController();
+    const timer = setTimeout(() => answering.abort(), readTimeoutMs);
+    try {
+      return await fetch(url, { cache: "no-store", headers, signal: signal ? AbortSignal.any([signal, answering.signal]) : answering.signal });
+    } catch {
+      throw new ApiError("unreachable", LAPTOP_UNREACHABLE);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * @param {string} url
+   * @param {Record<string, string>} headers
+   * @param {AbortSignal | undefined} signal
+   * @param {(status: number) => string} problem
+   */
+  async function blobOf(url, headers, signal, problem) {
+    const response = await answered(url, headers, signal);
+    if (!response.ok) throw await refusal(response, problem);
+    try {
+      return await response.blob();
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new ApiError("unreachable", LAPTOP_UNREACHABLE);
+    }
+  }
+}
+
+const FILE_HEADERS = { [FILE_HEADER]: "1" };
+
+/**
+ * @param {Response} response
+ * @param {(status: number) => string} problem
+ */
+async function refusal(response, problem) {
+  const { code = `http_${response.status}` } = errorOf(await response.json().catch(() => null));
+  return new ApiError(code, problem(response.status));
 }
 
 export function createPushClient() {

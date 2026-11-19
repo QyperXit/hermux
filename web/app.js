@@ -5,7 +5,8 @@ import { createAttachment } from "./attach.js";
 import { composerHtml, drawComposer } from "./composer.js";
 import { createKeyBar } from "./key-bar.js";
 import { escapeHtml, icon } from "./html.js";
-import { bindCopy, bindView } from "./links.js";
+import { createFileSheet } from "./file-sheet.js";
+import { bindCopy, bindFile, bindView } from "./links.js";
 import { listRenderer } from "./list-render.js";
 import { bellHtml, createNotifications, looksLikeBrave } from "./notifications.js";
 import { createNotifyPanel } from "./notify-panel.js";
@@ -95,6 +96,14 @@ const attachment = createAttachment({ client });
 const pictures = createPictureViewer({
   page: app,
   root: find(document, "#picture-root"),
+  client,
+  browser: { history, events: window, keys: document },
+  copy: writeClipboard,
+});
+
+const fileSheet = createFileSheet({
+  page: app,
+  root: find(document, "#file-root"),
   client,
   browser: { history, events: window, keys: document },
   copy: writeClipboard,
@@ -348,6 +357,7 @@ function bindTerminalScreen() {
   });
   bindCopy(output, { writeText: writeClipboard, announce: notify });
   bindView(output, pictures.open);
+  bindFile(output, fileSheet.open);
   latest.addEventListener("click", () => {
     output.scrollTo({ top: output.scrollHeight, behavior: "smooth" });
     latest.hidden = true;
@@ -431,6 +441,7 @@ function onRouteChange() {
   sheet.close({ restoreFocus: false });
   notifyPanel.close({ restoreFocus: false });
   pictures.close({ restoreFocus: false, popHistory: false });
+  fileSheet.close({ restoreFocus: false, popHistory: false });
   earlier.leave();
   savedTables.leave();
   session.open(parseRoute(location.hash));

@@ -1,5 +1,5 @@
 import { RECENT_IDLE_READS } from "./activity.js";
-import { pictureProblem } from "./api.js";
+import { fileProblem, pictureProblem } from "./api.js";
 
 /**
  * @typedef {import("./types.js").Agent} Agent
@@ -374,6 +374,14 @@ export function createSampleClient() {
       const picture = PICTURES[path];
       if (!picture) throw new HerdrError("picture_not_found", pictureProblem(404));
       return new Blob([picture], { type: "image/svg+xml" });
+    },
+
+    async readFileInfo() {
+      throw new HerdrError("file_not_found", fileProblem(404));
+    },
+
+    async readFile() {
+      throw new HerdrError("file_not_found", fileProblem(404));
     },
 
     async sendKeys(paneId, keys) {

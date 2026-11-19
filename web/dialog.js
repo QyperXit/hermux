@@ -1,4 +1,15 @@
 /**
+ * @typedef {{ addEventListener(type: "keydown", listener: (event: KeyboardEvent) => void): void, removeEventListener(type: "keydown", listener: (event: KeyboardEvent) => void): void }} KeyEvents
+ * @typedef {{ addEventListener(type: "popstate", listener: () => void): void, removeEventListener(type: "popstate", listener: () => void): void }} BackEvents
+ * @typedef {{ readonly state: unknown, pushState(data: unknown, unused: string): void, back(): void }} PageHistory
+ */
+
+export const COPIED_MS = 1500;
+
+/** @param {string} path */
+export const baseName = (path) => path.slice(path.lastIndexOf("/") + 1) || path;
+
+/**
  * @param {number} at
  * @param {number} count
  * @param {boolean} backwards

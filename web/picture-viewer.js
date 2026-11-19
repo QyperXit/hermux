@@ -1,6 +1,6 @@
-import { NOT_A_PICTURE, PICTURE_UNREACHABLE, describeError } from "./api.js";
+import { NOT_A_PICTURE, LAPTOP_UNREACHABLE, describeError } from "./api.js";
 import { formatSize } from "./attach.js";
-import { dialogLayer } from "./dialog.js";
+import { COPIED_MS, baseName, dialogLayer } from "./dialog.js";
 import { find, findAll, need } from "./dom.js";
 import { icon } from "./html.js";
 
@@ -8,9 +8,9 @@ import { icon } from "./html.js";
  * @typedef {{ scale: number, x: number, y: number }} View the picture's zoom, and its offset from the stage's centre in px
  * @typedef {{ width: number, height: number }} Size
  * @typedef {{ x: number, y: number }} Point
- * @typedef {{ addEventListener(type: "keydown", listener: (event: KeyboardEvent) => void): void, removeEventListener(type: "keydown", listener: (event: KeyboardEvent) => void): void }} KeyEvents
- * @typedef {{ addEventListener(type: "popstate", listener: () => void): void, removeEventListener(type: "popstate", listener: () => void): void }} BackEvents
- * @typedef {{ readonly state: unknown, pushState(data: unknown, unused: string): void, back(): void }} PageHistory
+ * @typedef {import("./dialog.js").KeyEvents} KeyEvents
+ * @typedef {import("./dialog.js").BackEvents} BackEvents
+ * @typedef {import("./dialog.js").PageHistory} PageHistory
  * @typedef {{ create: (blob: Blob) => string, revoke: (url: string) => void }} Previews
  */
 
@@ -20,7 +20,6 @@ const SWIPE_PX = 48;
 const DOUBLE_TAP_MS = 300;
 const TAP_SLOP_PX = 12;
 const DOUBLE_TAP_SLOP_PX = 32;
-const COPIED_MS = 1500;
 const FITTED = Object.freeze({ scale: 1, x: 0, y: 0 });
 
 /** @type {Previews} */
@@ -84,9 +83,6 @@ export function clampView({ scale, x, y }, stage, content) {
   const keep = (at, room) => Math.min(Math.max(0, room), Math.max(-Math.max(0, room), at)) || 0;
   return { scale: zoom, x: keep(x, (content.width * zoom - stage.width) / 2), y: keep(y, (content.height * zoom - stage.height) / 2) };
 }
-
-/** @param {string} path */
-const baseName = (path) => path.slice(path.lastIndexOf("/") + 1) || path;
 
 /** @param {unknown} state */
 const isOurs = (state) => typeof state === "object" && state !== null && "picture" in state;
@@ -229,7 +225,7 @@ export function createPictureViewer({ page: pageElement, root: rootElement, clie
       },
       (error) => {
         if (shown !== at || at.load !== load) return;
-        note(describeError(error, PICTURE_UNREACHABLE).message);
+        note(describeError(error, LAPTOP_UNREACHABLE).message);
       },
     );
   }
