@@ -6,8 +6,8 @@ It installs to your home screen as "Agents".
 
 | | | |
 |:---:|:---:|:---:|
-| <img src="docs/screenshots/home.png" alt="Home: the Inbox with a blocked and a finished agent, then Activity" width="240"> | <img src="docs/screenshots/question.png" alt="An agent asking a question, answered with the number and arrow keys" width="240"> | <img src="docs/screenshots/attach.png" alt="The clip menu: take a photo or choose pictures, with a row of attached pictures running off the screen's edge" width="240"> |
-| **Home**: who needs you, what finished, what's working | **Answer questions** with big keys | **Send pictures**: camera or gallery |
+| <img src="docs/screenshots/home.png" alt="Home: the Inbox with a blocked and a finished agent, then Activity" width="240"> | <img src="docs/screenshots/question.png" alt="An agent asking a question, shown as answers to tap" width="240"> | <img src="docs/screenshots/attach.png" alt="The clip menu: take a photo or choose pictures, with a row of attached pictures running off the screen's edge" width="240"> |
+| **Home**: who needs you, what finished, what's working | **Answer questions** by tapping an answer | **Send pictures**: camera or gallery |
 | <img src="docs/screenshots/picture-paths.png" alt="An agent's screen in the Reader, with view and copy keys after picture paths" width="240"> | <img src="docs/screenshots/viewer.png" alt="A picture from the computer opened full screen, 1 of 3" width="240"> | <img src="docs/screenshots/switcher.png" alt="The switcher listing every terminal in the agent's workspace" width="240"> |
 | **Reader**: picture paths get a view key | **Open computer pictures** full screen | **Switcher**: every terminal in the workspace |
 
@@ -18,6 +18,8 @@ The screenshots use the built-in sample data.
 - **Inbox.** Agents waiting on a question or approval, and agents that finished since you last opened them.
 - **Activity.** Working agents first, then the most recently active others. Older sessions are one tap away.
 - **Reader.** An agent's screen as readable text. Scroll up to load its earlier messages. Links open in a new tab.
+- **Answer questions.** An agent's question shows as big answers to tap, including pick-several questions and sets of questions. "Type something" and "Chat about this" open the message box for your own words.
+- **Workflow questions.** When a background workflow is waiting on you, a card shows its question and opens it in one tap.
 - **Keys.** Esc, Tab, arrows and Enter, number keys while an agent is asking, and a Ctrl+C you hold to send. You can add your own keys.
 - **Saved commands.** One-tap replies you write yourself, behind the "/" button in the message bar.
 - **Send pictures.** Attach screenshots, photos from your gallery or new ones from the camera, up to 10 in one message. The pictures are saved on the computer and their paths go into your message, so the agent can open them.
