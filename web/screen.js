@@ -14,9 +14,10 @@ import { CONTROL } from "./wrap.js";
  * @typedef {Line & { kind: Kind, chrome: boolean }} Row
  * @typedef {{ selected: boolean, number: string | null, ticked: boolean | null, start: number, end: number, numbered: boolean }} OptionRow
  */
-/** @typedef {OptionRow & { index: number, continuationRows: number, labelLines: Line[], inBox: boolean }} DialogRow */
+/** @typedef {OptionRow & { index: number, continuationRows: number, labelLines: Line[], inBox: boolean, cursorOnly?: boolean }} DialogRow */
 /** @typedef {{ start: number, end: number, runs: Run[] }} Prose */
-/** @typedef {{ rows: Row[], chromeStart: number, graph: boolean, prose: Prose[], options: Map<number, DialogRow> }} Screen */
+/** @typedef {{ start: number, end: number, lines: string[] }} Panel */
+/** @typedef {{ rows: Row[], chromeStart: number, graph: boolean, prose: Prose[], options: Map<number, DialogRow>, panel: Panel | null }} Screen */
 
 // Any escape sequence: CSI (an SGR ends in "m"), OSC up to BEL or ST, a string
 // command (DCS, SOS, PM, APC) up to ST, or a two-character escape. A broken
@@ -218,9 +219,10 @@ function withoutScrollbar(lines) {
 }
 
 // Atomic draws "↓ Jump to latest message · ctrl+end" over the right end of a
-// screen row. In an unwrapped read a long row goes on past that edge, so the
+// screen row, since 0.9.90 "↓ jump to bottom · ctrl+end" or "↓ 3 new messages
+// · ctrl+end". In an unwrapped read a long row goes on past that edge, so the
 // hint can sit mid-line; whatever follows it is the rest of the overdrawn row.
-const JUMP_HINT = /(?:^|\s+)↓ Jump to latest message\b.*$/;
+const JUMP_HINT = /(?:^|\s+)↓ (?:Jump to latest message|jump to bottom|\d+ new messages?)\b.*$/;
 /** @param {Line} line */
 const withoutJumpHint = (line) => {
   const hint = JUMP_HINT.exec(line.text);
@@ -238,17 +240,47 @@ const showsWorkflowGraph = (lines) =>
     .some((line) => GRAPH_PILL.test(line.text));
 
 // A rule: at least 8 of ─━═-, as Atomic draws the prompt box and a Markdown
-// rule. The prompt box's top rule may carry a label, e.g. "[stage: orchestrator-1] ────".
+// rule. The prompt box's top rule may carry a label, before it, e.g.
+// "[stage: orchestrator-1] ────", or since Atomic 0.9.90 a name at its end,
+// e.g. "──── yard ? ─".
 const RULE = /^\s*[─━═-]{8,}\s*$/;
-const BOX_TOP_RULE = /^\s*(?:\[[^\]]*\]\s*)?[─━═-]{8,}\s*$/;
+const RULE_NAME = String.raw` [^─━═]*[^\s─━═] ─`;
+const BOX_TOP_RULE = new RegExp(String.raw`^\s*(?:\[[^\]]*\]\s*)?[─━═-]{8,}(?:${RULE_NAME})?\s*$`);
+const NAMED_RULE = new RegExp(String.raw`^\s*[─━═-]{8,}${RULE_NAME}\s*$`);
+// The top edge of Atomic 0.9.90's /workflows picker, drawn in the prompt box's place, and its key hint.
+const WORKFLOWS_EDGE = /^\s*▔{8,}\s*$/;
+const WORKFLOWS_HINT = /^\s*↑↓ \S.* · esc \S+\s*$/;
+// Atomic 0.9.90's list of runs, focused with ↓ at the prompt, in the prompt
+// box's place: ❯ before the selected row, "  ↑ N more" over the rows and
+// "  +N more" under them when runs are out of view, over its key hint, the
+// hint a warning while a stop or dismiss waits for its second press.
+const RUN_LIST_ROW = /^(?:❯ | {2})\S \S/;
+export const RUN_LIST_MORE = /^ {2}(?:↑ \d+|\+\d+) more$/;
+const RUN_LIST_HINT = /^(?: {0,2}(?:\S.* · )?esc\/← back to prompt\b| {2}(?:\S.* finished · \S+ to (?:acknowledge|dismiss)|Press \S+ again within 3s to stop \S.*)$)/;
 /** @param {string} text */
 export const isRule = (text) => RULE.test(text);
 /** @param {string} text */
 export const isBoxTopRule = (text) => BOX_TOP_RULE.test(text);
 export const PROMPT = /^\s*❯/;
 // Atomic's footer under the prompt box: "(provider) model level • ~/folder (branch)",
-// or "provider/model  level • ~/folder (branch)".
-export const FOOTER = /^(?:\(\S+\) )?\S+(?: +\S+)? • [~/]/;
+// or "provider/model  level • ~/folder (branch)". Atomic 0.9.90 ends every
+// footer with "· ? keys": "esc to interrupt · ? keys" while it works, "← graph
+// · pgup/pgdn scroll · ctrl+o expand · ? keys" in a stage's chat.
+const CLASSIC_FOOTER = /^(?:\(\S+\) )?\S+(?: +\S+)? • [~/]/;
+const KEYS_FOOTER = /^\s*\S.* · \? keys\s*$/;
+export const FOOTER = new RegExp(`${CLASSIC_FOOTER.source}|${KEYS_FOOTER.source}`);
+// Atomic 0.9.90's line about the turn, straight over its usage line: while it
+// works "∀ Biffing…", "∀ Biffing… (25s)", "∀ Biffing… (1m 3s · ↑ 55 tokens)" or
+// "∀ Compacting… (3s · ctrl+c to cancel)", after it "∀ Emancipated for 5s" or
+// "∀ Emancipated for 5s · ↓ 1.2m tokens".
+const ELAPSED = String.raw`\d+(?:s|m \d+s|h \d+m)`;
+const TOKENS = String.raw`[↑↓] [\d.]+[kmbtKMB]? tokens`;
+const TURN_META = String.raw`\(${ELAPSED}(?: · ${TOKENS})?(?: · [^()]+)?\)`;
+const TURN = new RegExp(
+  String.raw`^\s*∀ (?:\S.*?(?:(?:…|\.\.\.)(?: ${TURN_META})?| ${TURN_META})|\p{Lu}[\p{L}'-]* for ${ELAPSED}(?: · ${TOKENS})?)\s*$`,
+  "u",
+);
+const TURN_ENDING_IN_TOKENS = new RegExp(String.raw`^\s*∀ \S.* · ${TOKENS}\)?\s*$`);
 
 // The right-aligned usage line: "↑72M • ↓2.8M • R2408M • W7.8M • CH99.4% • $1027.186 (sub) • 36.3%/1.0M (auto)".
 // On a narrow pane Atomic cuts it short with "...".
@@ -271,6 +303,43 @@ export function isUsage(line) {
  * @param {number} top
  * @returns {number | null}
  */
+function workflowsHintAt(texts, top) {
+  const hint = texts.findIndex((text, i) => i > top && WORKFLOWS_HINT.test(text));
+  return hint < 0 ? null : hint;
+}
+
+/**
+ * @param {string[]} texts
+ * @param {number} usage
+ * @returns {number | null}
+ */
+function runListHint(texts, usage) {
+  let i = usage + 1;
+  while (i < texts.length && (RUN_LIST_ROW.test(texts[i]) || RUN_LIST_MORE.test(texts[i]))) i++;
+  return i > usage + 1 && i < texts.length && RUN_LIST_HINT.test(texts[i]) ? i : null;
+}
+
+/**
+ * @param {string[]} texts
+ * @param {number} usage
+ */
+const drawnBy0990 = (texts, usage) => NAMED_RULE.test(texts[usage + 1]) || texts.slice(usage + 2).some((text) => KEYS_FOOTER.test(text));
+
+/**
+ * @param {string[]} texts
+ * @param {number} usage
+ */
+function startsAtTurnLine(texts, usage) {
+  if (usage === 0) return false;
+  const turn = texts[usage - 1];
+  return TURN_ENDING_IN_TOKENS.test(turn) || (TURN.test(turn) && drawnBy0990(texts, usage));
+}
+
+/**
+ * @param {string[]} texts
+ * @param {number} top
+ * @returns {number | null}
+ */
 function rowAfterBox(texts, top) {
   if (!/^\s*╭/.test(texts[top])) return null;
   const bottom = texts.findIndex((text, i) => i > top && /^\s*╰/.test(text));
@@ -278,21 +347,30 @@ function rowAfterBox(texts, top) {
 }
 
 // Atomic's own chrome starts at its usage line, drawn straight above the
-// prompt box, and runs to the end: usage line, prompt box, footer, 'esc to
-// interrupt', task line, background panel and hints. A box Atomic draws in the
-// prompt box's place (the /workflow connect picker) sits straight under the
-// usage line instead, with Atomic's footer somewhere below it: that box is the
-// screen's content, not chrome.
+// prompt box or 0.9.90's focused list of runs, or at the turn line over it,
+// and runs to the end: usage line, prompt box, footer, 'esc to interrupt',
+// task line, background panel and hints. A box Atomic draws in the prompt
+// box's place (the /workflow connect picker), or a list under a ▔ edge
+// (0.9.90's /workflows picker), sits straight under the usage line instead,
+// with Atomic's footer somewhere below it or, under a box with the turn line
+// over the usage line, nothing at all: that box or list, up to the list's key
+// hint, is the screen's content.
 /**
  * @param {string[]} texts
- * @returns {{ start: number, inPromptPlace: { start: number, end: number } | null }}
+ * @returns {{ start: number, inPromptPlace: { start: number, end: number, workflows: boolean } | null }}
  */
 function chromeOf(texts) {
   for (let i = texts.length - 2; i >= 0; i--) {
     if (!isUsage(texts[i])) continue;
-    if (BOX_TOP_RULE.test(texts[i + 1])) return { start: i, inPromptPlace: null };
-    const end = rowAfterBox(texts, i + 1);
-    if (end !== null && texts.slice(end).some((text) => FOOTER.test(text))) return { start: i, inPromptPlace: { start: i + 1, end } };
+    const turnLine = startsAtTurnLine(texts, i);
+    const start = turnLine ? i - 1 : i;
+    if (BOX_TOP_RULE.test(texts[i + 1]) || runListHint(texts, i) !== null) return { start, inPromptPlace: null };
+    const workflows = WORKFLOWS_EDGE.test(texts[i + 1]);
+    const end = workflows ? workflowsHintAt(texts, i + 1) : rowAfterBox(texts, i + 1);
+    if (end === null) continue;
+    const below = texts.slice(end);
+    const closed = below.some((text) => FOOTER.test(text)) || (!workflows && turnLine && below.every((text) => !text.trim()));
+    if (closed) return { start, inPromptPlace: { start: workflows ? i + 2 : i + 1, end, workflows } };
   }
   return { start: chromeStartIndex(texts), inPromptPlace: null };
 }
@@ -412,6 +490,38 @@ function pickerOptions(lines, chrome, options) {
   }
 }
 
+// A workflow stage's ctx.ui.select in its chat: a ╭ response ╮ box (inside the
+// question's own box) with "→ " (Atomic 0.9.90: "❯ ") before the option under
+// the cursor and two spaces before the others. Nothing is changed unless
+// exactly one is under it.
+// Its options are `cursorOnly`: picked by moving the cursor, never by a digit.
+const RESPONSE_TITLE = /╭ response ─/;
+const RESPONSE_ROW = /^([→❯] | {2})(\S.*?)\s*│[\s│]*$/;
+
+/**
+ * @param {Line[]} lines
+ * @param {boolean[]} chrome
+ * @param {Map<number, DialogRow>} options
+ */
+function responseOptions(lines, chrome, options) {
+  for (let top = 0; top < lines.length; top++) {
+    const edge = isContentRow(chrome, top) ? lines[top].text.search(RESPONSE_TITLE) : -1;
+    if (edge < 0) continue;
+    /** @type {DialogRow[]} */
+    const rows = [];
+    let i = top + 1;
+    for (; isContentRow(chrome, i) && lines[i].text[edge] === "│"; i++) {
+      const row = RESPONSE_ROW.exec(lines[i].text.slice(edge + 1));
+      if (!row) break;
+      const start = edge + 1 + row[1].length;
+      const end = start + row[2].length;
+      rows.push({ index: i, selected: row[1] !== "  ", number: null, ticked: null, start, end, numbered: false, continuationRows: 0, labelLines: [sliceLine(lines[i], start, end)], inBox: true, cursorOnly: true });
+    }
+    if (rows.length >= 2 && rows.filter((row) => row.selected).length === 1) for (const row of rows) options.set(row.index, row);
+    top = i;
+  }
+}
+
 /**
  * @param {Line[]} lines
  * @param {boolean[]} chrome
@@ -458,6 +568,7 @@ function dialogOptions(lines, chrome) {
   }
   flush();
   pickerOptions(lines, chrome, options);
+  responseOptions(lines, chrome, options);
   return options;
 }
 
@@ -465,15 +576,17 @@ function dialogOptions(lines, chrome) {
  * @param {Line[]} lines
  * @param {boolean[]} chrome
  * @param {Map<number, DialogRow>} options
+ * @param {boolean[]} drawn rows of a list Atomic draws in the prompt box's place, kept as drawn
  * @returns {Kind[]}
  */
-function kindsOf(lines, chrome, options) {
+function kindsOf(lines, chrome, options, drawn) {
   const optionLines = new Set([...options.values()].flatMap((row) => Array.from({ length: row.continuationRows + 1 }, (_, n) => row.index + n)));
   let inFence = false;
   return lines.map((line, index) => {
-    if (chrome[index]) return isRule(line.text) ? "rule" : isBoxLine(line.text) ? "box" : "chrome";
+    if (chrome[index]) return isRule(line.text) || NAMED_RULE.test(line.text) || WORKFLOWS_EDGE.test(line.text) ? "rule" : isBoxLine(line.text) ? "box" : "chrome";
     if (optionLines.has(index)) return "option";
     if (isBlank(line)) return "gap";
+    if (drawn[index]) return "box";
     if (isRule(line.text)) return "rule";
     if (inFence || isFence(line.text)) {
       if (isFence(line.text)) inFence = !inFence;
@@ -548,13 +661,72 @@ export function proseEndingAt(rows, last, stops) {
   return joined(rows, start, last + 1);
 }
 
+// Atomic's BACKGROUND panel of workflow runs, under its footer: a run of
+// chrome box rows that starts with its ╭ BACKGROUND title or, scrolled past
+// that, ends at its "↑↓ scroll" hint. Its lines are the rows inside the
+// borders, the title row as its title alone, without the bottom edge. While
+// the panel scrolls, its right edge is a scrollbar with a ┃ thumb.
+const PANEL_TITLE = /^\s*╭ BACKGROUND\b/;
+const PANEL_HINT = /^\s*↑↓ scroll\b/;
+const PANEL_TOP = /^\s*╭(.*?)─*[╮┃]?$/;
+const PANEL_SIDE = /^\s*│(.*?)[│┃]?$/;
+const PANEL_BOTTOM = /^\s*╰─*[╯┃]?$/;
+
+/** @param {string} text */
+const panelLine = (text) => {
+  if (PANEL_BOTTOM.test(text)) return [];
+  const top = PANEL_TOP.exec(text);
+  if (top) return top[1].trim() ? [top[1].trim()] : [];
+  const side = PANEL_SIDE.exec(text);
+  return [(side ? side[1] : text).trimEnd()];
+};
+
+/**
+ * @param {Row[]} rows
+ * @returns {Panel | null}
+ */
+function backgroundPanel(rows) {
+  const isPanelRow = (/** @type {number} */ i) => i < rows.length && rows[i].chrome && rows[i].kind === "box";
+  for (let start = 0; start < rows.length; start++) {
+    if (!isPanelRow(start)) continue;
+    let end = start;
+    while (isPanelRow(end)) end++;
+    if (PANEL_TITLE.test(rows[start].text) || (end < rows.length && PANEL_HINT.test(rows[end].text))) {
+      return { start, end, lines: rows.slice(start, end).flatMap((row) => panelLine(row.text)) };
+    }
+    start = end;
+  }
+  return null;
+}
+
+// Whether Atomic's own prompt box is on the screen with nothing over it: no
+// question dialog or run picker, not the workflow graph.
+/** @param {Screen} screen */
+export const promptBoxFree = ({ graph, options, rows }) =>
+  !graph && !options.size && rows.some((row, i) => row.chrome && PROMPT.test(row.text) && i > 0 && BOX_TOP_RULE.test(rows[i - 1].text));
+
+// The rows of Atomic 0.9.90's focused list of runs, above its key hint, or
+// null when the list isn't focused.
+/**
+ * @param {Screen} screen
+ * @returns {string[] | null}
+ */
+export function focusedRuns({ graph, rows, chromeStart }) {
+  if (graph) return null;
+  const texts = rows.map((row) => row.text);
+  const usage = texts.findIndex((text, i) => i >= chromeStart && isUsage(text));
+  const hint = usage < 0 ? null : runListHint(texts, usage);
+  return hint === null ? null : texts.slice(usage + 1, hint);
+}
+
 // The screen in `text` (herdr's ANSI or plain read). `rows` are styled, each
 // end trimmed, without the scrollbar and jump hint, with one blank row in a
 // row; on a workflow graph screen they are the rows as drawn. A row is
 // `chrome` when it is Atomic's own; `chromeStart` is the first such row
 // (rows.length when there is none; 0 on a graph screen, which is all Atomic's
-// drawing). `prose` is every paragraph outside the chrome, and `options` the
-// rows of a question dialog or the workflow picker by index.
+// drawing). `prose` is every paragraph outside the chrome, `options` the
+// rows of a question dialog or the workflow picker by index, and `panel`
+// Atomic's BACKGROUND panel in the chrome.
 /**
  * @param {string} text
  * @returns {Screen}
@@ -566,7 +738,8 @@ export function readScreen(text) {
   const { start: chromeStart, inPromptPlace } = graph ? { start: 0, inPromptPlace: null } : chromeOf(lines.map((line) => line.text));
   const chrome = lines.map((_, index) => index >= chromeStart && !(inPromptPlace && index >= inPromptPlace.start && index < inPromptPlace.end));
   const options = dialogOptions(lines, chrome);
-  const kinds = kindsOf(lines, chrome, options);
+  const drawn = lines.map((_, index) => Boolean(inPromptPlace?.workflows && index >= inPromptPlace.start && index < inPromptPlace.end));
+  const kinds = kindsOf(lines, chrome, options, drawn);
   const rows = lines.map((line, index) => ({ ...line, kind: kinds[index], chrome: chrome[index] }));
-  return { rows, chromeStart, graph, prose: proseOf(rows), options };
+  return { rows, chromeStart, graph, prose: proseOf(rows), options, panel: backgroundPanel(rows) };
 }

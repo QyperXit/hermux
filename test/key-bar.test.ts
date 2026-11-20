@@ -8,7 +8,7 @@ import { keyBarScreen } from "./support/key-bar";
 
 const BAR = "Terminal keys";
 const SLASH = "Saved commands";
-const DEFAULT_BAR_NAMES = ["Send Esc", "Send Tab", "Send Up", "Send Down", "Send Enter", "Hold to send Ctrl C"];
+const DEFAULT_BAR_NAMES = ["Send Esc", "Send Tab", "Send Up", "Send Down", "Send Enter", "Hold to send Ctrl C", "Send Ctrl X"];
 const ANSWER_NAMES = ["Send 1", "Send 2", "Send 3", "Send 4", "Send Left", "Send Right"];
 
 // A phone that already keeps this bar or these commands.
@@ -101,6 +101,13 @@ describe("tap keys", () => {
     expect(screen.names(BAR)).toEqual([...ANSWER_NAMES, ...DEFAULT_BAR_NAMES, "Add a key"]);
   });
 
+  test("a tap on Ctrl X sends it once, so a workflow stage's chat can be left", () => {
+    const screen = keyBarScreen();
+    screen.tap(screen.button("Send Ctrl X"));
+    screen.clock.advance(5000);
+    expect(screen.sentKeys).toEqual([{ key: "ctrl+x", label: "Ctrl X" }]);
+  });
+
   test("a tap on Esc or Up sends that key once, with its name", () => {
     const screen = keyBarScreen();
     screen.tap(screen.button("Send Esc"));
@@ -122,7 +129,7 @@ describe("tap keys", () => {
       { key: "right", label: "Right" },
     ]);
     screen.click(screen.button("Add a key"));
-    expect(screen.names(BAR)).toEqual([...ANSWER_NAMES, "Edit Esc", "Edit Tab", "Edit Up", "Edit Down", "Edit Enter", "Edit Ctrl C", "Add a key"]);
+    expect(screen.names(BAR)).toEqual([...ANSWER_NAMES, "Edit Esc", "Edit Tab", "Edit Up", "Edit Down", "Edit Enter", "Edit Ctrl C", "Edit Ctrl X", "Add a key"]);
     screen.tap(screen.button("Send 2"));
     expect(screen.sentKeys).toEqual([
       { key: "2", label: "2" },
@@ -147,7 +154,7 @@ describe("editing the bar", () => {
     expect(screen.focused()).toBe(screen.button("Move Esc right"));
 
     screen.click(screen.button("Move Esc right"));
-    const moved = [...ANSWER_NAMES, "Send Tab", "Send Esc", "Send Up", "Send Down", "Send Enter", "Hold to send Ctrl C", "Add a key"];
+    const moved = [...ANSWER_NAMES, "Send Tab", "Send Esc", "Send Up", "Send Down", "Send Enter", "Hold to send Ctrl C", "Send Ctrl X", "Add a key"];
     expect(screen.names(BAR)).toEqual(moved);
     expect(screen.focused()).toBe(screen.button("Move Esc right"));
     expect(screen.sentKeys).toEqual([]);
@@ -162,7 +169,7 @@ describe("editing the bar", () => {
     expect(menu.defaultPrevented).toBe(true);
     expect(screen.group("Edit the Up key").shown).toBe(true);
     screen.click(screen.button("Remove Up"));
-    const removed = [...ANSWER_NAMES, "Send Esc", "Send Tab", "Send Down", "Send Enter", "Hold to send Ctrl C", "Add a key"];
+    const removed = [...ANSWER_NAMES, "Send Esc", "Send Tab", "Send Down", "Send Enter", "Hold to send Ctrl C", "Send Ctrl X", "Add a key"];
     expect(screen.names(BAR)).toEqual(removed);
     expect(screen.announced()).toEqual(["Removed Up. The bar is saved on this phone."]);
     expect(screen.focused()).toBe(screen.button("Add a key"));
@@ -180,17 +187,17 @@ describe("editing the bar", () => {
     expect(screen.focused()).toBe(screen.button("Send Esc"));
   });
 
-  test("the picker adds Ctrl X (Ctrl ticked, X chosen): the bar gains it, keeps it and says so", () => {
+  test("the picker adds Ctrl R (Ctrl ticked, R chosen): the bar gains it, keeps it and says so", () => {
     const storage = memoryStorage();
     const screen = keyBarScreen({ storage });
     screen.click(screen.button("Add a key"));
     expect(screen.pageHas("is-editing-keys")).toBe(true);
     expect(screen.focused()).toBe(screen.field("Key"));
     expect(screen.field("Ctrl").checked).toBe(true);
-    screen.choose(screen.field("Key"), "x");
-    expect(screen.root.querySelector(".picker-status")?.textContent).toBe("Adds Ctrl X.");
+    screen.choose(screen.field("Key"), "r");
+    expect(screen.root.querySelector(".picker-status")?.textContent).toBe("Adds Ctrl R.");
     screen.click(screen.button("Add key"));
-    expect(screen.announced()).toEqual(["Added Ctrl X. The bar is saved on this phone."]);
+    expect(screen.announced()).toEqual(["Added Ctrl R. The bar is saved on this phone."]);
     expect(JSON.parse(storage.getItem("agents.keys") ?? "null")).toEqual([
       { key: "esc", label: "Esc" },
       { key: "tab", label: "Tab" },
@@ -199,19 +206,20 @@ describe("editing the bar", () => {
       { key: "enter", label: "Enter" },
       { key: "ctrl+c", label: "Ctrl C" },
       { key: "ctrl+x", label: "Ctrl X" },
+      { key: "ctrl+r", label: "Ctrl R" },
     ]);
 
     // With the picker open, a bar key is edited, not sent.
-    screen.tap(screen.button("Edit Ctrl X"));
+    screen.tap(screen.button("Edit Ctrl R"));
     expect(screen.sentKeys).toEqual([]);
-    expect(screen.group("Edit the Ctrl X key").shown).toBe(true);
+    expect(screen.group("Edit the Ctrl R key").shown).toBe(true);
 
     screen.click(screen.root.querySelector("[data-picker-done]")!);
     expect(screen.pageHas("is-editing-keys")).toBe(false);
     expect(screen.focused()).toBe(screen.button("Add a key"));
-    screen.tap(screen.button("Send Ctrl X"));
-    expect(screen.sentKeys).toEqual([{ key: "ctrl+x", label: "Ctrl X" }]);
-    expect(keyBarScreen({ storage }).names(BAR)).toContain("Send Ctrl X");
+    screen.tap(screen.button("Send Ctrl R"));
+    expect(screen.sentKeys).toEqual([{ key: "ctrl+r", label: "Ctrl R" }]);
+    expect(keyBarScreen({ storage }).names(BAR)).toContain("Send Ctrl R");
   });
 
   test("the picker says why a combination can't be added, and adds a key under the user's own label", () => {

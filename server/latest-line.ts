@@ -10,9 +10,10 @@ const SPINNER = /^\s*[∀\u2800-\u28ff✢✳✶✻✽]\s+\S.*?(?:\.\.\.|…)(?:\
 // Atomic's background-run panel: ╭ BACKGROUND … ╮, │ … │, ╰───╯.
 const PANEL = /^\s*[╭│╰].*[╮│╯]\s*$/;
 // Atomic's key hints: transcript scroll, a question dialog's keys ("enter
-// select · ↑/↓ navigate · esc cancel") and a tool row's expand hints ("(ctrl+o
-// Expand)", "Press ctrl+o for live detail").
-const HINT = /^\s*(?:↑↓ scroll\b|.*\benter select\b.*\besc cancel\b|.*\(.*\bExpand\)\s*$|Press \S+ for live detail\s*$)/;
+// select · ↑/↓ navigate · esc cancel", or since 0.9.90 "↑↓ select · enter
+// choose · esc cancel") and a tool row's expand hints ("(ctrl+o Expand)",
+// "Press ctrl+o for live detail").
+const HINT = /^\s*(?:↑↓ scroll\b|↑↓ select · .*· esc \S+\s*$|.*\benter select\b.*\besc cancel\b|.*\(.*\bExpand\)\s*$|Press \S+ for live detail\s*$)/;
 // The rows Atomic adds to every question dialog itself.
 const DIALOG_ROW = /^\s*(?:❯\s*)?\d+\.\s+(?:Type something\.|Chat about this)\s*$/;
 // The timer Atomic prints under a finished tool row: "Elapsed 6.0s", "Took 7.8s", "Observed for 10.0s".

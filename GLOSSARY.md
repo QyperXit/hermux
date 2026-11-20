@@ -50,6 +50,10 @@ _Avoid_: lightbox, gallery, preview
 The sheet raised by a laptop file's "file" key in the Live screen or Earlier messages: the file's name, size, changed time and path, with Open, Save, Share… and Copy path.
 _Avoid_: download dialog, file card, file viewer
 
+**Question card**:
+The card above the keys while an Agent is blocked by a workflow waiting in Atomic's BACKGROUND panel, or, from Atomic 0.9.90, in its list of runs under the footer: who is asking, the question as Atomic shows it there, and Open the question, which presses Atomic's F2 to open the graph of its newest running workflow, usually the one asking.
+_Avoid_: banner, prompt card, alert
+
 ## Notifications
 
 **Notification**:

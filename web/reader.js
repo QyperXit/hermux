@@ -85,6 +85,10 @@ function optionHtml(row) {
   );
 }
 
+/** @param {string[]} lines */
+const runPanelHtml = (lines) =>
+  `<div class="run-panel is-chrome">${lines.map((line) => `<div class="line"${indentStyle(line.length - line.trimStart().length)}>${escapeHtml(line.trim()) || " "}</div>`).join("")}</div>`;
+
 /** @param {string} text */
 export function shellParts(text) {
   const lines = shellRows(text);
@@ -130,10 +134,11 @@ function boxHtml(box, savedTables, anchors, read) {
 
 /**
  * The Live screen's parts, the anchor of each box table in it that no saved
- * table reads, and the saved tables its box tables are read from.
+ * table reads, the saved tables its box tables are read from, and the screen
+ * as read.
  * @param {string} text
  * @param {PipeTable[]} [savedTables] tables from the Agent's saved messages
- * @returns {{ parts: string[], anchors: string[], read: PipeTable[] }}
+ * @returns {{ parts: string[], anchors: string[], read: PipeTable[], screen: import("./screen.js").Screen }}
  */
 export function readLive(text, savedTables = []) {
   /** @type {string[]} */
@@ -141,8 +146,8 @@ export function readLive(text, savedTables = []) {
   /** @type {PipeTable[]} */
   const read = [];
   const screen = readScreen(text);
-  if (screen.graph) return { parts: [graphHtml(screen.rows)], anchors, read };
-  const { rows, options } = screen;
+  if (screen.graph) return { parts: [graphHtml(screen.rows)], anchors, read, screen };
+  const { rows, options, panel } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
   /** @type {string[]} */
   const html = [];
@@ -152,7 +157,10 @@ export function readLive(text, savedTables = []) {
   while (i < rows.length) {
     const line = rows[i];
     if (line.chrome) {
-      if (line.kind === "rule") {
+      if (panel && i === panel.start) {
+        html.push(runPanelHtml(panel.lines));
+        i = panel.end;
+      } else if (line.kind === "rule") {
         html.push(`<hr class="output-rule is-chrome">`);
         i++;
       } else if (line.kind === "box") {
@@ -202,5 +210,5 @@ export function readLive(text, savedTables = []) {
       throw new Error(`Line ${i} continues a dialog option that has no first row.`);
     }
   }
-  return { parts: html, anchors, read };
+  return { parts: html, anchors, read, screen };
 }

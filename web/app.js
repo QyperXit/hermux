@@ -12,6 +12,7 @@ import { bellHtml, createNotifications, looksLikeBrave } from "./notifications.j
 import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
 import { createPictureViewer } from "./picture-viewer.js";
+import { attachQuestionCard, drawQuestionCard } from "./question-card.js";
 import { drawLive } from "./live-render.js";
 import { readLive, shellParts } from "./reader.js";
 import { parseRoute, terminalHref } from "./routes.js";
@@ -31,6 +32,7 @@ import { createEarlier } from "./earlier.js";
 import { createSavedTables } from "./saved-tables.js";
 import { isAtBottom } from "./scroll.js";
 import { createSession } from "./session.js";
+import { blockedWorkflowAsk, choiceChooser, openChooser } from "./workflow-question.js";
 import { createSheet } from "./sheet.js";
 import { THEME_KEY, applyTheme, nextTheme, storedTheme, themeLabel } from "./theme.js";
 
@@ -40,6 +42,7 @@ import { THEME_KEY, applyTheme, nextTheme, storedTheme, themeLabel } from "./the
  * @typedef {import("./session.js").Snapshot} Snapshot
  * @typedef {ReturnType<typeof setTimeout> | 0} TimerId
  * @typedef {import("./pipe-table.js").PipeTable} PipeTable
+ * @typedef {import("./screen.js").Screen} Screen
  */
 
 const demo = new URLSearchParams(location.search).has("demo");
@@ -187,6 +190,9 @@ function renderList() {
 /** @type {WeakMap<HTMLElement, { text: string, shell: boolean, saved: PipeTable[] }>} */
 const drawnLive = new WeakMap();
 
+/** @type {Screen | null} The open Agent's Live screen as last read. */
+let liveScreen = null;
+
 function renderTerminalScreen() {
   app.dataset.screen = "agent";
   app.innerHTML = `
@@ -250,7 +256,6 @@ function updateTerminalScreen(view) {
   savedTables.open(terminal.pane_id, shell ? "shell" : "agent");
   const { folder } = describeTerminal(terminal);
   const status = terminal.status;
-  const blocked = status === "blocked";
   const siblings = view.workspace?.terminals ?? [];
   const switcher = hasSwitcher(siblings);
   app.dataset.kind = shell ? "shell" : "agent";
@@ -267,23 +272,32 @@ function updateTerminalScreen(view) {
   need(app, ".state").dataset.status = shell ? "shell" : String(status);
   const word = shell ? "Shell" : `${(status && STATE_WORDS[status]) ?? status}${terminal.since && status !== "idle" ? ` · ${duration(terminal.since)}` : ""}`;
   need(app, ".state-word").textContent = word;
-  drawComposer(app, { target: sendTarget(terminal), sending: view.sending, blocked });
+  drawBlockedControls(view);
+}
+
+/** @param {Snapshot} view */
+function drawBlockedControls({ terminal, sending }) {
+  if (!terminal) return;
+  const blocked = terminal.status === "blocked";
+  const ask = blockedWorkflowAsk(terminal.status, liveScreen);
+  const target = sendTarget(terminal);
+  drawComposer(app, { target, sending, blocked, withNote: !ask });
+  drawQuestionCard(app, ask, { target });
   keyBar.setBlocked(blocked);
   attachment.setBlocked(blocked);
 }
 
 /** @param {Snapshot} view */
-function renderOutput({ output: { text, error }, terminal }) {
+function renderOutput(view) {
+  const { output: { text, error }, terminal } = view;
   const output = find(app, ".output");
   const live = find(app, ".live");
   if (!output || !live) return;
   const atBottom = isAtBottom(output);
-  if (error && text === null) {
-    drawLive(live, [`<p class="output-empty">${escapeHtml(error)}</p>`, `<a class="link-key" href="#/">${icon("i-back")}Back to agents</a>`]);
-    return;
-  }
   if (text === null) {
-    drawLive(live, [`<p class="output-empty">Reading output…</p>`]);
+    liveScreen = null;
+    drawLive(live, error ? [`<p class="output-empty">${escapeHtml(error)}</p>`, `<a class="link-key" href="#/">${icon("i-back")}Back to agents</a>`] : [`<p class="output-empty">Reading output…</p>`]);
+    drawBlockedControls(view);
     return;
   }
   const shell = isShell(terminal ?? { kind: "" });
@@ -294,11 +308,14 @@ function renderOutput({ output: { text, error }, terminal }) {
   drawnLive.set(live, { text, shell, saved });
   if (shell) {
     drawLive(live, shellParts(text));
+    liveScreen = null;
   } else {
-    const { parts, anchors, read } = readLive(text, saved);
+    const { parts, anchors, read, screen } = readLive(text, saved);
     drawLive(live, parts);
     savedTables.live(text, anchors, read);
+    liveScreen = screen;
   }
+  drawBlockedControls(view);
   if (atBottom || !output.dataset.seen) {
     output.scrollTop = output.scrollHeight;
     output.dataset.seen = "1";
@@ -336,12 +353,21 @@ async function sendPrompt(text) {
 /**
  * @param {string} key
  * @param {string} label
+ * @param {((text: string) => string[] | null) | undefined} choose
  */
-async function sendKey(key, label) {
-  const sent = await session.sendKey(key);
+async function sendKeyWith(key, label, choose) {
+  const sent = await session.sendKey(key, choose);
   if (sent.status === "ignored") return;
   if (sent.error) notify(`${label} not sent. ${sent.error.message}`, { error: true });
   else notify(`Sent ${label}`);
+}
+
+/**
+ * @param {string} key
+ * @param {string} label
+ */
+function sendKey(key, label) {
+  return sendKeyWith(key, label, choiceChooser(key, liveScreen));
 }
 
 function bindTerminalScreen() {
@@ -370,6 +396,7 @@ function bindTerminalScreen() {
 
   keyBar.attach(app, { sendKey, sendText: sendPrompt, announce: notify });
   attachment.attach(app);
+  attachQuestionCard(app, (key, label) => sendKeyWith(key, label, openChooser(liveScreen)));
 
   const fit = () => fitField(textarea);
   textarea.addEventListener("input", fit);
@@ -445,6 +472,7 @@ function onRouteChange() {
   earlier.leave();
   savedTables.leave();
   session.open(parseRoute(location.hash));
+  liveScreen = null;
   const view = session.snapshot();
   delete app.dataset.agentStatus;
   delete app.dataset.kind;

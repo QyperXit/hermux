@@ -1,5 +1,26 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { latestLine } from "../server/latest-line";
+import {
+  CROWDED_SCREEN,
+  GENERAL_SCREEN,
+  IDLE_NAMED_SCREEN,
+  IDLE_QUOTE_SCREEN,
+  INTERRUPTED_SCREEN,
+  JUMP_PILL_SCREEN,
+  KEYS_HELP_SCREEN,
+  LIST_FOCUSED_SCREEN,
+  LIST_FOCUSED_WORKING_SCREEN,
+  LIST_HELP_WORKING_SCREEN,
+  LIST_PRESS_AGAIN_SCREEN,
+  LIST_TWO_SCREEN,
+  NEW_MESSAGES_SCREEN,
+  ONE_QUESTION_SCREEN,
+  PICKER_SCREEN,
+  SPINNER_ELAPSED_SCREEN,
+  SPINNER_REQUESTING_SCREEN,
+  SPINNER_SCREEN,
+  WORKING_NAMED_SCREEN,
+} from "./support/atomic-0990";
 
 const RULE = "─".repeat(101);
 
@@ -202,4 +223,63 @@ test("a wrapped │ quote joins into one line", () => {
   expect(latestLine([" Here's a message:", "", ...quote, "", RULE, "❯", RULE, "(anthropic) claude-opus-5-5 high • ~/x"].join("\n"))).toBe(
     "│ Hi Vai, you now have read-only access to the preview database, open the console and │ sign in with your Google account.",
   );
+});
+
+describe("Atomic 0.9.90", () => {
+  const PROMPT_0990 = ["↑1k • ↓2k • 1.0%/1.0M (auto)", RULE, "❯", RULE, "esc to interrupt · ? keys"];
+
+  test("the line is the agent's last words, never the rule named after its tab, the turn line or the list of runs under the footer", () => {
+    expect(latestLine(IDLE_NAMED_SCREEN)).toBe("- Connect the rest of the wind page: charts, then filters.");
+    expect(latestLine(IDLE_QUOTE_SCREEN)).toBe("│ I can meet on Thursday or Friday, any time after 2pm. If neither suits you, tell me │ a time that does.");
+    expect(latestLine(ONE_QUESTION_SCREEN)).toBe(
+      'Started. lamp-check wouldn\'t load at first with the error "outputs must be a schema map", so I added outputs: {}, to .atomic/workflows/lamp-check.ts to get it running.',
+    );
+    expect(latestLine(GENERAL_SCREEN)).toEndWith("If you want them fixed, tell me and I'll edit them and rerun.");
+    for (const text of [CROWDED_SCREEN, PICKER_SCREEN]) expect(latestLine(text)).toBe("started.");
+  });
+
+  test("while it works, its running tool row is the line, as a tool row always was; the spinner and 'esc to interrupt · ? keys' are skipped", () => {
+    expect(latestLine(WORKING_NAMED_SCREEN)).toBe('∀ Bash(ls ~/projects/yard && grep -rn "fence" ~/projects/yard/notes --include=*.md | head -…)');
+  });
+
+  test("a turn stopped before its first token: the finished line without a token count is skipped, Atomic's 'Interrupted' row is the line", () => {
+    expect(latestLine(INTERRUPTED_SCREEN)).toBe("◼ Interrupted · response");
+  });
+
+  test("the spinner without meta, with only its elapsed time, or with '↑ N tokens' is skipped", () => {
+    expect(latestLine(SPINNER_SCREEN)).toBe("Use the bash tool once to run: sleep 3; echo done. Then reply with one short sentence.");
+    expect(latestLine(SPINNER_ELAPSED_SCREEN)).toBe("Use the bash tool once to run: sleep 3; echo done. Then reply with one short sentence.");
+    expect(latestLine(SPINNER_REQUESTING_SCREEN)).toBe("⎿  done");
+  });
+
+  test("a finished line of a million tokens or more, or of minutes, is skipped", () => {
+    for (const turn of [" ∀ Thought for 1m 12s · ↓ 1.2m tokens", " ∀ Worked for 2h 4m"]) {
+      expect(latestLine([" All done.", "", turn, ...PROMPT_0990].join("\n"))).toBe("All done.");
+    }
+  });
+
+  test("scrolled up, the pill 'jump to bottom' or 'N new messages' is skipped, alone on its row or drawn over the end of the last words", () => {
+    expect(latestLine(JUMP_PILL_SCREEN)).toBe("started.");
+    expect(latestLine(NEW_MESSAGES_SCREEN)).toBe("10");
+    for (const pill of ["↓ 3 new messages · ctrl+end", "↓ 1 new message · ctrl+end"]) {
+      const text = JUMP_PILL_SCREEN.replace("↓ jump to bottom · ctrl+end", pill);
+      expect(text).not.toBe(JUMP_PILL_SCREEN);
+      expect(latestLine(text)).toBe("started.");
+    }
+    for (const pill of ["↓ jump to bottom · ctrl+end", "↓ 3 new messages · ctrl+end"]) {
+      expect(latestLine([` All done.${" ".repeat(40)}${pill}  :`, "", " ∀ Read for 6s · ↓ 215 tokens", ...PROMPT_0990].join("\n"))).toBe("All done.");
+    }
+  });
+
+  test("with its list of runs focused or its keys box open, the line is still the agent's last words", () => {
+    expect(latestLine(LIST_FOCUSED_SCREEN)).toBe("started.");
+    for (const text of [LIST_TWO_SCREEN, LIST_PRESS_AGAIN_SCREEN]) expect(latestLine(text)).toBe("again.");
+    expect(latestLine(KEYS_HELP_SCREEN)).toBe('The hat-check workflow finished after about 4 minutes. Its answer was "Blue hat", and nothing blocked the run.');
+    expect(latestLine(LIST_FOCUSED_WORKING_SCREEN)).toBe("∀ Wait(task-1-0-0) · 8s");
+    expect(latestLine(LIST_HELP_WORKING_SCREEN)).toBe("∀ Wait(task-1-0-0) · 10s");
+  });
+
+  test("a question dialog's key hint is skipped", () => {
+    expect(latestLine([" Use red or blue?", "  ↑↓ select · enter choose · esc cancel"].join("\n"))).toBe("Use red or blue?");
+  });
 });

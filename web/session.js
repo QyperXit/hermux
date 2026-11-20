@@ -363,6 +363,22 @@ export function createSession({ client, openStream, timers, opened }) {
 
   const stream = client.isSample ? null : createLiveStream({ open: openStream, onHealth: onStreamHealth, onEvent: onStreamEvent, onStream: onStreamName });
 
+  /** @type {Set<Promise<Sent>>} */
+  const keySends = new Set();
+
+  // The keys for `key`: as they are, or as `choose` makes them of the screen
+  // read once the keys already on their way have gone.
+  /**
+   * @param {Terminal} terminal
+   * @param {string} key
+   * @param {((text: string) => string[] | null) | undefined} choose
+   */
+  async function keysFor(terminal, key, choose) {
+    if (!choose) return [key];
+    await Promise.allSettled([...keySends]);
+    return choose(await client.readOutput(terminal.pane_id)) ?? [key];
+  }
+
   /**
    * @param {Terminal} terminal
    * @param {() => Promise<void>} send
@@ -464,11 +480,21 @@ export function createSession({ client, openStream, timers, opened }) {
       }
     },
 
-    /** @param {string} key @returns {Promise<Sent>} */
-    async sendKey(key) {
+    /**
+     * @param {string} key
+     * @param {(text: string) => string[] | null} [choose] the keys to send instead, from the screen as read now
+     * @returns {Promise<Sent>}
+     */
+    async sendKey(key, choose) {
       const terminal = openTerminal();
       if (!terminal) return { status: "ignored" };
-      return sendTo(terminal, () => client.sendKeys(terminal.pane_id, [key], terminal.kind));
+      const sent = sendTo(terminal, async () => client.sendKeys(terminal.pane_id, await keysFor(terminal, key, choose), terminal.kind));
+      keySends.add(sent);
+      try {
+        return await sent;
+      } finally {
+        keySends.delete(sent);
+      }
     },
   };
 }

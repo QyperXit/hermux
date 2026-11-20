@@ -29,6 +29,7 @@ export const DEFAULT_BAR = [
   { key: "down", label: "Down" },
   { key: "enter", label: "Enter" },
   { key: "ctrl+c", label: "Ctrl C" },
+  { key: "ctrl+x", label: "Ctrl X" },
 ];
 
 const DEFAULT_COMMANDS = ["continue", "yes, go ahead", "status?"];

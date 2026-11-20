@@ -29,9 +29,9 @@ export const composerHtml = () => `
 
 /**
  * @param {HTMLElement} screen the Terminal screen holding the composer
- * @param {{ target: string, sending: boolean, blocked: boolean }} state
+ * @param {{ target: string, sending: boolean, blocked: boolean, withNote?: boolean }} state
  */
-export function drawComposer(screen, { target, sending, blocked }) {
+export function drawComposer(screen, { target, sending, blocked, withNote = true }) {
   const message = `Message ${target}`;
   /** @type {HTMLTextAreaElement} */
   const field = need(screen, "#message");
@@ -44,5 +44,5 @@ export function drawComposer(screen, { target, sending, blocked }) {
   send.setAttribute("aria-label", `${sending ? "Sending to" : "Send to"} ${target}`);
   need(screen, ".saved").setAttribute("aria-label", `Send a saved command to ${target}`);
   need(screen, ".composer").hidden = blocked;
-  need(screen, ".blocked-note").hidden = !blocked;
+  need(screen, ".blocked-note").hidden = !blocked || !withNote;
 }

@@ -551,6 +551,35 @@ test("a send goes to the open Terminal as its kind, one message at a time, then 
   expect(page.calls).toEqual(["keys w9:pE atomic enter"]);
 });
 
+test("a key with a chooser waits for the keys already on their way, reads the screen, and sends the keys chosen from it", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pE" } });
+  await flush();
+  await page.live();
+  page.reset();
+  const read: string[] = [];
+  const choose = (text: string) => (read.push(text), ["down", "enter"]);
+  const earlier = page.hold("keys w9:pE atomic right");
+  const right = page.session.sendKey("right");
+  const two = page.session.sendKey("2", choose);
+  await flush();
+  expect([page.calls, read]).toEqual([["keys w9:pE atomic right"], []]);
+  earlier.resolve();
+  await right;
+  expect(await two).toMatchObject({ status: "sent", error: null });
+  expect(read).toEqual(["screen of w9:pE"]);
+  expect(page.calls.slice(0, 2)).toEqual(["keys w9:pE atomic right", "output w9:pE"]);
+  expect(page.calls).toContain("keys w9:pE atomic down enter");
+
+  page.reset();
+  expect(await page.session.sendKey("4", () => null)).toMatchObject({ status: "sent" });
+  expect(page.calls.slice(0, 2)).toEqual(["output w9:pE", "keys w9:pE atomic 4"]);
+
+  page.reset();
+  page.failing.set("output w9:pE", failure("pane_not_found", "That terminal is gone."));
+  expect(await page.session.sendKey("2", choose)).toMatchObject({ status: "refused", error: { code: "pane_not_found" } });
+  expect(page.calls.filter((call) => call.startsWith("keys"))).toEqual([]);
+});
+
 test("a hidden page closes the stream and its timers read nothing", async () => {
   const page = setup({ route: { name: "agent", paneId: "w9:pD" } });
   await flush();

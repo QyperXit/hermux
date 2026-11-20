@@ -609,7 +609,8 @@ button {
 .history-note,
 .history-gap,
 .history-join,
-.stacked-note {
+.stacked-note,
+.question-card-crowded {
   font-size: var(--text-s);
   line-height: var(--leading-output);
   color: var(--ink-soft);
@@ -744,8 +745,16 @@ button {
 }
 
 .line.is-chrome,
-.block.is-chrome {
+.block.is-chrome,
+.run-panel.is-chrome {
   color: var(--ink-soft);
+}
+
+.run-panel {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
 }
 
 .band {
@@ -1699,6 +1708,44 @@ button {
   align-items: center;
   gap: 12px;
   min-height: var(--key);
+  font-size: var(--text-m);
+}
+
+.question-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--face);
+}
+
+.app.is-composing .question-card,
+.app.is-editing-keys .question-card,
+.app.is-editing-commands .question-card {
+  display: none;
+}
+
+.question-card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.question-card-title .lamp {
+  margin-top: 4px;
+}
+
+.question-card-text {
+  font-size: var(--text-m);
+  line-height: 22px;
+  overflow-wrap: anywhere;
+}
+
+.question-card-open {
+  width: 100%;
   font-size: var(--text-m);
 }
 

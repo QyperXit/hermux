@@ -1,5 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { isRule, plainText, proseEndingAt, readScreen, shellRows } from "../web/screen.js";
+import { isBoxTopRule, isRule, isUsage, plainText, proseEndingAt, readScreen, shellRows } from "../web/screen.js";
+import {
+  GRAPH_SCREEN,
+  IDLE_NAMED_SCREEN,
+  IDLE_QUOTE_SCREEN,
+  INTERRUPTED_SCREEN,
+  JUMP_PILL_SCREEN,
+  KEYS_HELP_SCREEN,
+  LIST_FOCUSED_SCREEN,
+  LIST_FOCUSED_WORKING_SCREEN,
+  LIST_HELP_WORKING_SCREEN,
+  LIST_PRESS_AGAIN_SCREEN,
+  LIST_TWO_SCREEN,
+  NEW_MESSAGES_SCREEN,
+  ONE_QUESTION_SCREEN,
+  PICKER_SCREEN,
+  SPINNER_ELAPSED_SCREEN,
+  SPINNER_REQUESTING_SCREEN,
+  SPINNER_SCREEN,
+  WORKING_NAMED_SCREEN,
+} from "./support/atomic-0990";
 import { BACKGROUND, HINT, PICKER_FOOTER, PICKER_ROWS, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
 
 type Row = ReturnType<typeof readScreen>["rows"][number];
@@ -39,6 +59,14 @@ describe("rows", () => {
     expect(texts(` ### What I checked           ${TOOL} ↓ Jump to latest message · ctrl+end ${RESET}     `)).toEqual([" ### What I checked"]);
     expect(texts(" What a good design looks like ↓ Jump to latest message · ctrl+end :")).toEqual([" What a good design looks like"]);
     expect(texts(" Done.\n↓ Jump to latest message · ctrl+end\n Next.")).toEqual([" Done.", "", " Next."]);
+  });
+
+  test("Atomic 0.9.90's scroll pill is cut the same way, as 'jump to bottom' or 'N new messages'", () => {
+    for (const pill of ["↓ jump to bottom · ctrl+end", "↓ 3 new messages · ctrl+end", "↓ 1 new message · ctrl+end", "↓ jump to bottom"]) {
+      expect(texts(` Done.\n${" ".repeat(60)}${TOOL} ${pill} ${RESET}\n Next.`)).toEqual([" Done.", "", " Next."]);
+      expect(texts(` What a good design looks like ${pill} :`)).toEqual([" What a good design looks like"]);
+    }
+    expect(texts(" It went down ↓ 3 places.")).toEqual([" It went down ↓ 3 places."]);
   });
 
   test("row ends are trimmed and only one blank row in a row is kept; styles and shaded rows are read from the escape codes", () => {
@@ -113,6 +141,181 @@ describe("where Atomic's chrome starts", () => {
     for (const rule of ["────────", "  ━━━━━━━━━━  ", "════════", "--------", RULE]) expect(isRule(rule)).toBe(true);
     for (const text of ["---", "───────", "[label] ────────", "── a ──", ""]) expect(isRule(text)).toBe(false);
     expect(chrome([" Done.", "───────", "❯", "───────", FOOTER].join("\n"))).toEqual([]);
+  });
+});
+
+describe("Atomic 0.9.90's prompt box", () => {
+  const usage = "↑1k • ↓2k • 1.0%/1.0M (auto)";
+  const bottom = (text: string) => {
+    const screen = readScreen(text);
+    return screen.rows.slice(screen.chromeStart).map((row) => [row.kind, row.text.trim().replace(/─{8,}/, "────────")]);
+  };
+
+  test("the rule named after its tab tops the prompt box, and chrome starts at the turn line straight over the usage line", () => {
+    for (const [text, turn, name, footer] of [
+      [IDLE_NAMED_SCREEN, "∀ Emancipated for 5s · ↓ 160 tokens", "garden", "anthropic/claude-opus-5-5  medium • ~/projects/weather-app (previ... · ? keys"],
+      [IDLE_QUOTE_SCREEN, "∀ Yammered for 3s · ↓ 209 tokens", "draft one", "anthropic/claude-opus-5-5  high • ~/letters/cover · ? keys"],
+      [WORKING_NAMED_SCREEN, "∀ Abyss staring back… (7s · ↓ 573 tokens)", "yard ?", "esc to interrupt · ? keys"],
+    ]) {
+      const rows = bottom(text);
+      expect(rows.map(([kind]) => kind)).toEqual(["chrome", "chrome", "rule", "chrome", "rule", "chrome"]);
+      expect(rows[0][1]).toBe(turn);
+      expect(isUsage(rows[1][1])).toBe(true);
+      expect(rows.slice(2).map(([, row]) => row)).toEqual([`──────── ${name} ─`, "❯", "────────", footer]);
+    }
+  });
+
+  test("scrolled up, the pill row over the turn line is a gap, and chrome still starts at the turn line", () => {
+    const screen = readScreen(JUMP_PILL_SCREEN);
+    expect(screen.rows.slice(screen.chromeStart - 2, screen.chromeStart + 1).map((row) => [row.kind, row.text.trim()])).toEqual([
+      ["prose", "started."],
+      ["gap", ""],
+      ["chrome", "∀ Read for 6s · ↓ 215 tokens"],
+    ]);
+    expect(screen.rows.some((row) => row.text.includes("jump to bottom"))).toBe(false);
+    const drawnOver = readScreen(NEW_MESSAGES_SCREEN);
+    expect(drawnOver.rows.slice(drawnOver.chromeStart - 3, drawnOver.chromeStart + 1).map((row) => [row.kind, row.text.trim()])).toEqual([
+      ["prose", "9"],
+      ["prose", "10"],
+      ["gap", ""],
+      ["chrome", "∀ Chattered for 6s · ↓ 61 tokens"],
+    ]);
+  });
+
+  test("the rows under the footer, a list of runs, are chrome, and the agent's last words above the turn line are not", () => {
+    const screen = readScreen(ONE_QUESTION_SCREEN);
+    expect(bottom(ONE_QUESTION_SCREEN).slice(-3)).toEqual([
+      ["chrome", "anthropic/claude-opus-5-5  medium • ~/projects/yard · 1 needs input · ? keys"],
+      ["chrome", ""],
+      ["chrome", "◆ lamp-check  Paint the new fence green, or keep the old brown? The paint s...  needs input · 9s"],
+    ]);
+    expect(screen.rows[screen.chromeStart - 2].text).toContain("to get it running.");
+    expect(screen.rows[screen.chromeStart - 2].chrome).toBe(false);
+  });
+
+  test("a rule is named only at its end, after at least 8 of ─━═-, ending in ' ─'", () => {
+    for (const rule of ["──────── shed ? ─", "──────── draft 2 ─", "  ──────── x ─  "]) expect(isBoxTopRule(rule)).toBe(true);
+    for (const text of ["──────── shed ?", "─── shed ─", "──────── ─", "── a ──"]) expect(isBoxTopRule(text)).toBe(false);
+    for (const rule of ["──────── shed ? ─", "──────── x ─"]) expect(isRule(rule)).toBe(false);
+  });
+
+  test("without a usage line, Atomic 0.9.90's footers still close the prompt box", () => {
+    for (const footer of ["esc to interrupt · ? keys", "esc to interrupt · 1 needs input · ? keys", "anthropic/claude-opus-5-5  medium • /tmp/work · ? keys", "  ← graph · pgup/pgdn scroll · ctrl+o expand · ? keys"]) {
+      const rows = [" The run is on track.", "", `${RULE40} shed ─`, "❯", RULE40, footer];
+      expect(chrome(rows.join("\n"))).toEqual(rows.slice(2));
+    }
+    expect(chrome([" The run is on track.", "", RULE40, "❯", RULE40, "esc to interrupt"].join("\n"))).toEqual([]);
+  });
+
+  test("a turn line is chrome only straight over the usage line; a spinner without its token count, as before, is not", () => {
+    expect(chrome([" Done.", " ∀ Emancipated for 5s · ↓ 160 tokens", "", usage, RULE40, "❯", RULE40].join("\n"))[0]).toBe(usage);
+    expect(chrome([" Done.", " ∀ Working", usage, RULE40, "❯", RULE40].join("\n"))[0]).toBe(usage);
+    expect(chrome([" Done.", " ∀ Tickled for 4s · ↓ 234 tokens", usage, RULE40, "❯", RULE40].join("\n"))[0]).toBe(" ∀ Tickled for 4s · ↓ 234 tokens");
+  });
+
+  test("every form of the turn line is chrome: no meta, elapsed only, ↑ or ↓ tokens, a note, finished with or without tokens", () => {
+    for (const [text, turn] of [
+      [SPINNER_SCREEN, "∀ Aligning the chakras…"],
+      [SPINNER_ELAPSED_SCREEN, "∀ Aligning the chakras… (1s)"],
+      [SPINNER_REQUESTING_SCREEN, "∀ Surfing the syntax waves… (4s · ↑ 55 tokens)"],
+      [INTERRUPTED_SCREEN, "∀ Rustled for 0s"],
+    ]) {
+      const rows = bottom(text);
+      expect(rows.map(([kind]) => kind)).toEqual(["chrome", "chrome", "rule", "chrome", "rule", "chrome"]);
+      expect(rows[0][1]).toBe(turn);
+    }
+    for (const turn of [
+      " ∀ Working…",
+      " ∀ Compacting context… (3s · ctrl+c to cancel)",
+      " ∀ Biffing… (1m 12s · ↓ 1.2m tokens)",
+      " ∀ Biffing… (2h 4m · ↑ 3b tokens · ctrl+c to cancel)",
+      " ∀ Thought for 1m 12s · ↓ 1.2m tokens",
+      " ∀ Worked for 2h 4m",
+    ]) {
+      expect(chrome([" Done.", "", turn, usage, RULE40, "❯", RULE40, "esc to interrupt · ? keys"].join("\n"))[0]).toBe(turn);
+      expect(chrome([" Done.", "", turn, usage, `${RULE40} shed ─`, "❯", RULE40, "(anthropic) claude-opus-5-5 medium • ~/projects/shed"].join("\n"))[0]).toBe(turn);
+    }
+  });
+
+  test("without a footer ending '· ? keys' or a named rule, an older Atomic's spinner over its usage line stays the agent's row", () => {
+    for (const turn of [" ∀ Gestating...", " ∀ Working… (3s)", " ∀ Worked for 2s"]) {
+      expect(chrome([" Done.", turn, usage, RULE40, "❯", RULE40, "(anthropic) claude-opus-5-5 medium • ~/projects/shed"].join("\n"))[0]).toBe(usage);
+    }
+  });
+
+  test("a row that only looks like a turn line, straight over the usage line, is the agent's", () => {
+    for (const own of [" ∀ x ∈ S: x is fine", " ∀ Done for now", " ∀ Biffing (soon)"]) {
+      expect(chrome([" Done.", own, usage, RULE40, "❯", RULE40, "esc to interrupt · ? keys"].join("\n"))[0]).toBe(usage);
+    }
+  });
+
+  test("the /workflows picker in the prompt box's place: the usage line and its ▔ edge are chrome, the list is content, its key hint and the footer chrome", () => {
+    const screen = readScreen(PICKER_SCREEN);
+    const head = (text: string) => text.trim().slice(0, 20);
+    const rows = screen.rows.map((row) => [row.chrome, row.kind, head(row.text)]);
+    expect(rows.filter(([chrome]) => chrome)).toEqual([
+      [true, "chrome", head("↑1.5k • ↓9.8k • R146k")],
+      [true, "rule", "▔".repeat(20)],
+      [true, "chrome", head("↑↓ select · space preview")],
+      [true, "chrome", head("anthropic/claude-opus-5-5")],
+    ]);
+    expect(rows.filter(([chrome]) => !chrome).map(([, , text]) => text)).toEqual(
+      ["started.", "Workflows  ⌕ Search…", "❯ slow-walk · 9c2e5a71", "running · 41s", "lamp-check · 4b7d2c19", "needs input · Paint the new"].map(head),
+    );
+  });
+
+  test("its list of runs focused with ↓, in the prompt box's place, is chrome from the turn line over the usage line to the end", () => {
+    const LIST_FINISHED_SCREEN = LIST_TWO_SCREEN.replace("  ↑↓ select · enter/→ to open · x stop · esc/← back to prompt · ? keys", "  kite-check finished · x to acknowledge");
+    expect(LIST_FINISHED_SCREEN).not.toBe(LIST_TWO_SCREEN);
+    for (const [text, turn, above, last] of [
+      [LIST_FOCUSED_SCREEN, "∀ Freed for 6s · ↓ 201 tokens", "", "anthropic/claude-opus-5-5  medium • ~/projects/attic"],
+      [LIST_FOCUSED_WORKING_SCREEN, "∀ Stumbling… (25s · ↓ 357 tokens)", "", "↑↓ select · enter/→ to open · x stop · esc/← back to prompt · ? keys"],
+      [LIST_TWO_SCREEN, "∀ Recombobulated for 3s · ↓ 77 tokens", "", "anthropic/claude-opus-5-5  medium • ~/projects/porch"],
+      [LIST_PRESS_AGAIN_SCREEN, "∀ Recombobulated for 3s · ↓ 77 tokens", "", "anthropic/claude-opus-5-5  medium • ~/projects/porch"],
+      [LIST_FINISHED_SCREEN, "∀ Recombobulated for 3s · ↓ 77 tokens", "", "anthropic/claude-opus-5-5  medium • ~/projects/porch"],
+    ]) {
+      const screen = readScreen(text);
+      const rows = screen.rows.slice(screen.chromeStart);
+      expect(rows[0].text.trim()).toBe(turn);
+      expect(isUsage(rows[1].text)).toBe(true);
+      expect(rows.every((row) => row.chrome && (row.kind === "chrome" || row.kind === "gap"))).toBe(true);
+      expect(rows.some((row) => row.text.startsWith("❯ ◆ "))).toBe(true);
+      expect(rows[rows.length - 1].text.trim()).toBe(last);
+      expect(screen.rows[screen.chromeStart - 1]).toMatchObject({ text: above, chrome: false });
+    }
+  });
+
+  test("a row like the run list's under the usage line, without the list's key hint, is not the list", () => {
+    const screen = readScreen([" Done.", "", " ∀ Freed for 6s · ↓ 201 tokens", usage, "❯ ◆ hat-check  Wear the red hat?  needs input · 2m", "  ↑↓ select · enter choose · esc cancel"].join("\n"));
+    expect(screen.chromeStart).toBe(screen.rows.length);
+  });
+
+  test("a box in the prompt box's place, the keys help, starts the chrome at the turn line, with its footer under it or none while a turn runs", () => {
+    for (const [text, turn, title] of [
+      [KEYS_HELP_SCREEN, "∀ Pulsated for 3s · ↓ 181 tokens", "╭─ keys ─"],
+      [LIST_HELP_WORKING_SCREEN, "∀ Stumbling… (27s · ↓ 357 tokens)", "╭─ keys · agents ─"],
+    ]) {
+      const screen = readScreen(text);
+      expect(screen.rows[screen.chromeStart].text.trim()).toBe(turn);
+      expect(screen.rows[screen.chromeStart - 1].chrome).toBe(false);
+      expect(isUsage(screen.rows[screen.chromeStart + 1].text)).toBe(true);
+      const box = screen.rows.findIndex((row) => row.text.startsWith(title));
+      expect(box).toBe(screen.chromeStart + 2);
+      expect(screen.rows[box]).toMatchObject({ kind: "box", chrome: false });
+    }
+  });
+
+  test("a box under the usage line with nothing below it is the prompt box's stand-in only under a turn line", () => {
+    const box = ["╭─ keys ────────╮", "│ enter  send │", "╰─────────────╯", ""];
+    const older = readScreen([" Done.", "", usage, ...box].join("\n"));
+    expect(older.chromeStart).toBe(older.rows.length);
+    const working = readScreen([" Done.", "", " ∀ Stumbling… (27s · ↓ 357 tokens)", usage, ...box].join("\n"));
+    expect(working.rows[working.chromeStart].text).toBe(" ∀ Stumbling… (27s · ↓ 357 tokens)");
+    expect(working.rows.filter((row) => row.text.startsWith("│")).map((row) => row.chrome)).toEqual([false]);
+  });
+
+  test("the graph F2 opens is still a graph screen", () => {
+    expect(readScreen(GRAPH_SCREEN).graph).toBe(true);
   });
 });
 

@@ -18,7 +18,7 @@ import {
 import { isAllowedKey } from "../server/herdr";
 import { REFUSED_KEYS, VALID_KEYS } from "./support/key-grammar";
 
-test("the bar defaults to the v1 keys, and the answer keys stay apart from it", () => {
+test("the bar defaults to the v1 keys and Ctrl X, and the answer keys stay apart from it", () => {
   expect(loadBar(memoryStorage())).toEqual([
     { key: "esc", label: "Esc" },
     { key: "tab", label: "Tab" },
@@ -26,6 +26,7 @@ test("the bar defaults to the v1 keys, and the answer keys stay apart from it", 
     { key: "down", label: "Down" },
     { key: "enter", label: "Enter" },
     { key: "ctrl+c", label: "Ctrl C" },
+    { key: "ctrl+x", label: "Ctrl X" },
   ]);
   expect(ANSWER_KEYS.map(({ key }) => key)).toEqual(["1", "2", "3", "4", "left", "right"]);
 });
@@ -33,10 +34,17 @@ test("the bar defaults to the v1 keys, and the answer keys stay apart from it", 
 test("a changed bar is saved and read back in its order, labels included", () => {
   const store = memoryStorage();
   const bar = [...DEFAULT_BAR, { key: "ctrl+x", label: "Exit nano" }, { key: "f5", label: "F5" }];
-  saveBar(store, moveItem(bar, 6, -6));
+  saveBar(store, moveItem(bar, DEFAULT_BAR.length, -DEFAULT_BAR.length));
   expect(loadBar(store)).toEqual([{ key: "ctrl+x", label: "Exit nano" }, ...DEFAULT_BAR, { key: "f5", label: "F5" }]);
   saveBar(store, []);
   expect(loadBar(store)).toEqual([]);
+});
+
+test("a bar saved before Ctrl X joined the default keeps its keys as saved", () => {
+  const store = memoryStorage();
+  const before = DEFAULT_BAR.filter(({ key }) => key !== "ctrl+x");
+  saveBar(store, before);
+  expect(loadBar(store)).toEqual(before);
 });
 
 test("a saved bar with a key outside the grammar, or unreadable, falls back to the default", () => {

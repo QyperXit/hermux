@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readerHtml, readerParts, shellHtml } from "../web/reader.js";
 import { cssRules, declarations } from "./support/css";
 import { ACTIVE_RUN, BACKGROUND, FINISHED_RUN, HINT, PICKER_FOOTER, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
+import * as Atomic0990 from "./support/atomic-0990";
+import { GRAPH_SCREEN, ONE_QUESTION, ONE_QUESTION_SCREEN, ONE_RUN, PICKER_WITH_PANEL_SCREEN, STAGE_QUESTION_SCREEN } from "./support/workflow-question";
 
 const ESC = "\x1b";
 const sgr = (params: string) => `${ESC}[${params}m`;
@@ -158,6 +160,13 @@ describe("paragraphs, lists, blocks and the screen's own marks", () => {
     expect(readerHtml(" Done.\n↓ Jump to latest message · ctrl+end\n Next.")).toBe(`<p class="p">Done.</p><div class="gap"></div><p class="p">Next.</p>`);
   });
 
+  test("Atomic 0.9.90's scroll pill is dropped the same way, as 'jump to bottom' or 'N new messages'", () => {
+    for (const pill of ["↓ jump to bottom · ctrl+end", "↓ 3 new messages · ctrl+end"]) {
+      expect(readerHtml(` ### What I checked           ${TOOL} ${pill} ${RESET}     \n Next.`)).toBe(`<p class="p">### What I checked</p><p class="p">Next.</p>`);
+      expect(readerHtml(` Done.\n${" ".repeat(60)}${TOOL} ${pill} ${RESET}\n Next.`)).toBe(`<p class="p">Done.</p><div class="gap"></div><p class="p">Next.</p>`);
+    }
+  });
+
 });
 
 const USAGE = "↑72M • ↓2.8M • R2408M • W7.8M • CH99.4% • $1027.186 (sub) • 36.3%/1.0M (auto)";
@@ -260,9 +269,12 @@ describe("panels and tables", () => {
     expect(blocks(readerHtml(table.join("\n")))).toEqual([table.join("\n")]);
   });
 
-  test("Atomic's BACKGROUND panel under the usage line is one dimmed block in the chrome", () => {
+  test("Atomic's BACKGROUND panel under the usage line is one dimmed panel in the chrome, its rows inside the borders as wrapping lines", () => {
     const html = readerHtml([...prose, "", USAGE, RULE40, "❯", RULE40, FOOTER, "", ...PANEL, " ↑↓ scroll · Alt+k/Alt+j"].join("\n"));
-    expect(html).toContain(`<div class="block is-chrome">${PANEL.join("\n")}</div>`);
+    expect(html).toContain(
+      `<div class="run-panel is-chrome"><div class="line">BACKGROUND  1 run  ● 1 running</div><div class="line" style="padding-left:3ch">●  958abe02-f7b9-4e7b-a2d6-867a19b47275</div><div class="line" style="padding-left:5ch">goal · chain · 8/9 · 55m 58s</div></div>`,
+    );
+    expect(html).not.toContain("block is-chrome");
   });
 });
 
@@ -483,7 +495,10 @@ describe("Atomic's workflow picker in the prompt box's place", () => {
     expect(parts[at("Navigate")]).toBe(`<div class="line is-chrome" style="padding-left:2ch">${HINT.trim()}</div>`);
     expect(parts[at("claude-opus")]).toBe(`<div class="line is-chrome">${PICKER_FOOTER}</div>`);
     expect(parts[at("4.4%/1.0M")]).toBe(`<div class="line is-chrome" style="padding-left:12ch">${PICKER_USAGE}</div>`);
-    expect(parts[at("BACKGROUND")]).toBe(`<div class="block is-chrome">${BACKGROUND.join("\n")}</div>`);
+    expect(parts[at("BACKGROUND")]).toBe(
+      `<div class="run-panel is-chrome"><div class="line">BACKGROUND  1 run  ● 1 running</div><div class="line" style="padding-left:3ch">●  ${ACTIVE_RUN}</div><div class="line" style="padding-left:5ch">lint-run · single · pause · running · 13s</div></div>`,
+    );
+    expect(BACKGROUND).toHaveLength(4);
     expect(parts[at("Alt+k")]).toBe(`<div class="line is-chrome" style="padding-left:1ch">${SCROLL_HINT.trim()}</div>`);
     expect(parts.slice(at("Navigate")).join("")).not.toContain("copy-key");
   });
@@ -581,5 +596,161 @@ describe("Atomic's orange text", () => {
     expect(declarations(".a-accent")).toMatchObject({ color: "var(--link)" });
     expect(declarations(".a-accent")["text-decoration"]).toBeUndefined();
     expect(declarations(".a-link")).toMatchObject({ color: "var(--link)", "text-decoration": "underline" });
+  });
+});
+
+describe("a workflow's question on the Live screen", () => {
+  const panelOf = (html: string) => html.match(/<div class="run-panel is-chrome">.*?<\/div><\/div>/)?.[0] ?? "";
+  const panelLines = (html: string) => [...panelOf(html).matchAll(/<div class="line"[^>]*>(.*?)<\/div>/g)].map(([, inner]) => textOf(inner));
+
+  test("the BACKGROUND panel's rows come inside the page's own border, whole, each a line that wraps", () => {
+    expect(panelLines(readerHtml(ONE_QUESTION_SCREEN))).toEqual([
+      "BACKGROUND  2 runs  ● 1 running  ？ ↵ 1 needs attention (attach to workflow with `/workflow …",
+      `？  ${ONE_RUN}`,
+      "fence-check · single · 0/1 · 2m 50s",
+      ONE_QUESTION,
+      `Answer: /workflow connect ${ONE_RUN}`,
+      " ",
+      "✓  7d40b2e9-91c3-4a58-b6f0-2e8c5d1a4b07",
+      "two-questions · complete · 3m 1s",
+    ]);
+    expect(panelOf(readerHtml(ONE_QUESTION_SCREEN))).not.toMatch(/[│╭╮╰╯]/);
+    expect(declarations(".line")).toMatchObject({ "white-space": "pre-wrap", "overflow-wrap": "anywhere" });
+    expect(declarations(".run-panel")).not.toHaveProperty("white-space");
+    expect(declarations(".run-panel")).not.toHaveProperty("overflow-x");
+    expect(declarations(".run-panel.is-chrome")).toMatchObject({ color: "var(--ink-soft)" });
+  });
+
+  test("question text in the panel stays text", () => {
+    const hostile = ONE_QUESTION_SCREEN.replace("Paint the new fence green", `<img src=x onerror="alert(1)">&amp;`);
+    const html = panelOf(readerHtml(hostile));
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;amp;");
+  });
+
+  test("only the panel changes: the rest of its screen's chrome and other boxes are as before, and the graph is one block", () => {
+    const parts = readerParts(ONE_QUESTION_SCREEN);
+    const chrome = parts.filter((part) => part.includes("is-chrome") && !part.includes("run-panel"));
+    expect(chrome.map((part) => textOf(part).trim())).toEqual([
+      "↑5.5k • ↓977 • R271k • W46k • CH99.3% • $0.467 (sub) • 4.6%/1.0M (auto)",
+      "",
+      "❯",
+      "",
+      "anthropic/claude-opus-5-5  medium • ~/projects/yard (main)",
+      "",
+      "↑↓ scroll · Alt+k/Alt+j",
+    ]);
+    const picker = readerHtml(PICKER_WITH_PANEL_SCREEN);
+    expect(blocks(picker).some((block) => block.startsWith("╭ DISPATCHED"))).toBe(true);
+    expect(optionRowsOf(picker).map((row) => row.cls)).toEqual(["opt is-selected", "opt", "opt"]);
+    expect(panelLines(picker)[0]).toStartWith("BACKGROUND  2 runs");
+    const graph = readerParts(GRAPH_SCREEN);
+    expect(graph).toHaveLength(1);
+    expect(graph[0]).toStartWith(`<div class="block">`);
+    expect(graph[0]).not.toContain("run-panel");
+  });
+
+  test("a stage's chat with AWAITING INPUT reads its response box as options: the one under → is the Selection Bar, in the box", () => {
+    const html = readerHtml(STAGE_QUESTION_SCREEN);
+    expect(optionRowsOf(html).map((row) => [row.cls, visibleText(row.inner)])).toEqual([
+      ["opt is-selected", "Keep it"],
+      ["opt", "Move it to March"],
+      ["opt", "Drop it"],
+    ]);
+    expect(html.match(/opt-edge/g)).toHaveLength(3);
+    const parts = readerParts(STAGE_QUESTION_SCREEN);
+    const question = parts.find((part) => part.includes("Spring Tulip Parade")) ?? "";
+    expect(question).toStartWith(`<div class="block">`);
+    expect(textOf(question)).toContain("AWAITING INPUT");
+    expect(blocks(parts.join("")).at(-1)).toContain("↑↓ Choose · enter Submit");
+  });
+
+  test("a response box with no option, or two, under → is left as drawn", () => {
+    const none = STAGE_QUESTION_SCREEN.replace("→ Keep it", "  Keep it");
+    expect(readerHtml(none)).not.toContain('class="opt');
+    const two = STAGE_QUESTION_SCREEN.replace("  \u001b[0m\u001b[38;2;127;132;156mMove it to March", "→ \u001b[0m\u001b[38;2;127;132;156mMove it to March");
+    expect(two).not.toBe(STAGE_QUESTION_SCREEN);
+    expect(readerHtml(two)).not.toContain('class="opt');
+  });
+});
+
+describe("Atomic 0.9.90's own rows on the Live screen", () => {
+  const tail = (text: string, count: number) => readerParts(text).slice(-count);
+
+  test("from the turn line down, finished or still spinning, everything is dimmed chrome, its named rule a dimmed rule", () => {
+    for (const [text, turn] of [
+      [Atomic0990.IDLE_NAMED_SCREEN, "∀ Emancipated for 5s · ↓ 160 tokens"],
+      [Atomic0990.WORKING_NAMED_SCREEN, "∀ Abyss staring back… (7s · ↓ 573 tokens)"],
+    ]) {
+      const parts = tail(text, 7);
+      expect(parts[0]).not.toContain("is-chrome");
+      expect(parts[1]).toBe(`<div class="line is-chrome" style="padding-left:1ch">${turn}</div>`);
+      expect(parts[2]).toMatch(/^<div class="line is-chrome" style="padding-left:\d+ch">↑.*\(auto\)<\/div>$/);
+      expect(parts.slice(3, 6)).toEqual([`<hr class="output-rule is-chrome">`, `<div class="line is-chrome">❯</div>`, `<hr class="output-rule is-chrome">`]);
+      expect(parts[6]).toMatch(/^<div class="line is-chrome">.*· \? keys<\/div>$/);
+    }
+    expect(tail(Atomic0990.IDLE_NAMED_SCREEN, 8)[0]).toBe(`<p class="p li">- Connect the rest of the wind page: charts, then filters.</p>`);
+  });
+
+  test("scrolled up, the pill is no paragraph: the agent's last words, a gap, then Atomic's rows dimmed", () => {
+    const parts = tail(Atomic0990.JUMP_PILL_SCREEN, 10);
+    expect(parts.slice(0, 3)).toEqual([`<p class="p">started.</p>`, `<div class="gap"></div>`, `<div class="line is-chrome" style="padding-left:1ch">∀ Read for 6s · ↓ 215 tokens</div>`]);
+    expect(parts.slice(3).every((part) => part.includes("is-chrome"))).toBe(true);
+    expect(readerParts(Atomic0990.JUMP_PILL_SCREEN).some((part) => part.includes("jump to bottom"))).toBe(false);
+    const drawnOver = tail(Atomic0990.NEW_MESSAGES_SCREEN, 8);
+    expect(drawnOver.slice(0, 3)).toEqual([`<p class="p">10</p>`, `<div class="gap"></div>`, `<div class="line is-chrome" style="padding-left:1ch">∀ Chattered for 6s · ↓ 61 tokens</div>`]);
+    expect(drawnOver.slice(3).every((part) => part.includes("is-chrome"))).toBe(true);
+  });
+
+  test("the spinner stays dimmed through every form a turn shows, and a finished line without tokens is dimmed too", () => {
+    for (const [text, turn] of [
+      [Atomic0990.SPINNER_SCREEN, "∀ Aligning the chakras…"],
+      [Atomic0990.SPINNER_ELAPSED_SCREEN, "∀ Aligning the chakras… (1s)"],
+      [Atomic0990.SPINNER_REQUESTING_SCREEN, "∀ Surfing the syntax waves… (4s · ↑ 55 tokens)"],
+      [Atomic0990.INTERRUPTED_SCREEN, "∀ Rustled for 0s"],
+    ]) {
+      const parts = tail(text, 7);
+      expect(parts[0]).not.toContain("is-chrome");
+      expect(parts[1]).toBe(`<div class="line is-chrome" style="padding-left:1ch">${turn}</div>`);
+      expect(parts.slice(2).every((part) => part.includes("is-chrome"))).toBe(true);
+    }
+  });
+
+  test("the list of runs under the footer is dimmed chrome lines that wrap", () => {
+    expect(tail(Atomic0990.ONE_QUESTION_SCREEN, 1)[0]).toBe(
+      `<div class="line is-chrome" style="padding-left:2ch">◆ lamp-check  Paint the new fence green, or keep the old brown? The paint s...  needs input · 9s</div>`,
+    );
+  });
+
+  test("its focused list of runs, the turn line over it, its key hint and the footer are dimmed chrome lines", () => {
+    for (const [text, last] of [
+      [Atomic0990.LIST_FOCUSED_SCREEN, "started."],
+      [Atomic0990.LIST_TWO_SCREEN, "again."],
+    ]) {
+      const parts = readerParts(text);
+      const words = parts.findIndex((part) => part === `<p class="p">${last}</p>`);
+      expect(words).toBeGreaterThan(-1);
+      expect(parts[words + 2]).toMatch(/^<div class="line is-chrome" style="padding-left:1ch">∀ \S+ for \ds · ↓ \d+ tokens<\/div>$/);
+      expect(parts.slice(words + 2).every((part) => part.includes("is-chrome"))).toBe(true);
+      expect(parts.slice(words + 2).some((part) => part.includes("◆ kite-check") || part.includes("◆ hat-check"))).toBe(true);
+    }
+  });
+
+  test("with the keys box in the prompt box's place, the turn line over the usage line is dimmed chrome too", () => {
+    const parts = readerParts(Atomic0990.KEYS_HELP_SCREEN);
+    expect(parts).toContain(`<div class="line is-chrome" style="padding-left:1ch">∀ Pulsated for 3s · ↓ 181 tokens</div>`);
+  });
+
+  test("the /workflows picker keeps its rows as drawn in one block, between the dimmed usage line and its dimmed key hint", () => {
+    const parts = tail(Atomic0990.PICKER_SCREEN, 5);
+    expect(parts[0]).toStartWith(`<div class="line is-chrome"`);
+    expect(parts[1]).toBe(`<hr class="output-rule is-chrome">`);
+    expect(parts[2]).toStartWith(`<div class="block">`);
+    expect(parts[2].split("\n")).toHaveLength(5);
+    expect(parts[2]).toContain("❯ slow-walk · 9c2e5a71");
+    expect(parts.slice(3)).toEqual([
+      `<div class="line is-chrome" style="padding-left:2ch">↑↓ select · space preview · enter open · type to search · esc close</div>`,
+      `<div class="line is-chrome">anthropic/claude-opus-5-5  medium • ~/projects/yard</div>`,
+    ]);
   });
 });
