@@ -27,10 +27,13 @@ export function auditCalls(calls: string[][], allowed: readonly string[] = HERDR
     if (!SENDS.includes(command)) return;
     const previous = calls[index - 1] ?? [];
     const afterText = command === "pane send-keys" && call[3] === "enter" && previous.slice(0, 3).join(" ") === `pane send-text ${call[2]}`;
-    if (!afterText) expect([["agent", "get", call[2]], ["pane", "get", call[2]]]).toContainEqual(previous);
+    const afterRead = command === "pane send-text" && previous.slice(0, 3).join(" ") === `pane read ${call[2]}`;
+    const recheck = afterRead ? (calls[index - 2] ?? []) : previous;
+    if (afterRead) expect(recheck).toEqual(["agent", "get", call[2]]);
+    if (!afterText) expect([["agent", "get", call[2]], ["pane", "get", call[2]]]).toContainEqual(recheck);
     if (command === "pane send-text") {
       expect(call).toHaveLength(4);
-      if (previous[0] === "agent") {
+      if (recheck[0] === "agent") {
         expect(call[3].startsWith("\x1b[200~") && call[3].endsWith("\x1b[201~")).toBe(true);
         expect(call[3].slice(6, -6)).not.toContain("\x1b[201~");
       }

@@ -54,6 +54,14 @@ _Avoid_: download dialog, file card, file viewer
 The card above the keys while an Agent is blocked by a workflow waiting in Atomic's BACKGROUND panel, or, from Atomic 0.9.90, in its list of runs under the footer: who is asking, the question as Atomic shows it there, and Open the question, which presses Atomic's F2 to open the graph of its newest running workflow, usually the one asking.
 _Avoid_: banner, prompt card, alert
 
+**Agent's question**:
+Atomic 0.9.90's own question to you (its ask_user_question box, or its trust prompt), drawn on the Live screen as its header, the question and an option row for each answer, tapped to answer.
+_Avoid_: dialog, popup, question card (that is a workflow's)
+
+**Typing field**:
+The field inside an Agent's question that takes your own words: "Type something.", "Chat about this" or the notes. Only while it is open does a blocked Agent take text from the message box.
+_Avoid_: input, text box, other
+
 ## Notifications
 
 **Notification**:

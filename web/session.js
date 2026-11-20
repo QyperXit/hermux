@@ -42,6 +42,7 @@ import { retryingText, terminalOfAgent } from "./terminals.js";
 
 /**
  * @typedef {{ status: "ignored" } | { status: "sent", terminal: Terminal, error: null } | { status: "refused", terminal: Terminal, error: RequestError }} Sent
+ * @typedef {Sent | { status: "unchosen", terminal: Terminal, error: null }} SentChosen
  */
 
 const LIST_REFRESH_MS = 3000;
@@ -366,8 +367,18 @@ export function createSession({ client, openStream, timers, opened }) {
   /** @type {Set<Promise<Sent>>} */
   const keySends = new Set();
 
-  // The keys for `key`: as they are, or as `choose` makes them of the screen
-  // read once the keys already on their way have gone.
+  // What `choose` makes of the screen read once the keys already on their
+  // way have gone.
+  /**
+   * @param {Terminal} terminal
+   * @param {(text: string) => string[] | null} choose
+   */
+  async function chosenKeys(terminal, choose) {
+    await Promise.allSettled([...keySends]);
+    return choose(await client.readOutput(terminal.pane_id));
+  }
+
+  // The keys for `key`: as they are, or as `choose` makes them of the screen.
   /**
    * @param {Terminal} terminal
    * @param {string} key
@@ -375,8 +386,21 @@ export function createSession({ client, openStream, timers, opened }) {
    */
   async function keysFor(terminal, key, choose) {
     if (!choose) return [key];
-    await Promise.allSettled([...keySends]);
-    return choose(await client.readOutput(terminal.pane_id)) ?? [key];
+    return (await chosenKeys(terminal, choose)) ?? [key];
+  }
+
+  // `sent`, counted among the keys on their way until it settles.
+  /**
+   * @param {Promise<Sent>} sent
+   * @returns {Promise<Sent>}
+   */
+  async function onItsWay(sent) {
+    keySends.add(sent);
+    try {
+      return await sent;
+    } finally {
+      keySends.delete(sent);
+    }
   }
 
   /**
@@ -488,13 +512,28 @@ export function createSession({ client, openStream, timers, opened }) {
     async sendKey(key, choose) {
       const terminal = openTerminal();
       if (!terminal) return { status: "ignored" };
-      const sent = sendTo(terminal, async () => client.sendKeys(terminal.pane_id, await keysFor(terminal, key, choose), terminal.kind));
-      keySends.add(sent);
-      try {
-        return await sent;
-      } finally {
-        keySends.delete(sent);
-      }
+      return onItsWay(sendTo(terminal, async () => client.sendKeys(terminal.pane_id, await keysFor(terminal, key, choose), terminal.kind)));
+    },
+
+    /**
+     * Sends the keys `choose` picks from the screen read once the keys
+     * already on their way have gone; nothing when it picks none.
+     * @param {(text: string) => string[] | null} choose
+     * @returns {Promise<SentChosen>}
+     */
+    async sendChosenKeys(choose) {
+      const terminal = openTerminal();
+      if (!terminal) return { status: "ignored" };
+      let chosen = false;
+      const result = await onItsWay(
+        sendTo(terminal, async () => {
+          const keys = await chosenKeys(terminal, choose);
+          if (!keys?.length) return;
+          chosen = true;
+          await client.sendKeys(terminal.pane_id, keys, terminal.kind);
+        }),
+      );
+      return result.status === "sent" && !chosen ? { status: "unchosen", terminal, error: null } : result;
     },
   };
 }

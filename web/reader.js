@@ -1,4 +1,6 @@
-import { leading, readScreen, shellRows, trimStart } from "./screen.js";
+import { isTypingRole } from "./agent-question.js";
+import { isBlank, leading, trimStart } from "./line.js";
+import { readScreen, shellRows, wrappedParagraphs } from "./screen.js";
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml } from "./links.js";
 import { savedTableHtml } from "./history.js";
@@ -11,6 +13,8 @@ import { anchorOf, boxTable, boxTableHtml, savedRowsOf } from "./table.js";
  * @typedef {import("./screen.js").DialogRow} DialogRow
  * @typedef {import("./links.js").CopyMode} CopyMode
  * @typedef {import("./pipe-table.js").PipeTable} PipeTable
+ * @typedef {import("./agent-question.js").Question} Question
+ * @typedef {import("./agent-question.js").QuestionOption} QuestionOption
  */
 
 /**
@@ -52,9 +56,6 @@ const withoutColours = (line) => ({ ...line, runs: [{ text: line.text, cls: "" }
 // space, not layout, so a blank run keeps at most MAX_GRAPH_GAP rows.
 const MAX_GRAPH_GAP = 3;
 
-/** @param {Line} line */
-const isBlank = (line) => !line.text.trim();
-
 /** @param {Line[]} rows */
 function graphHtml(rows) {
   let end = rows.length;
@@ -84,6 +85,53 @@ function optionHtml(row) {
     `<span class="opt-label">${label}</span></div>`
   );
 }
+
+/**
+ * @param {string} className
+ * @param {string} text
+ */
+const paragraphHtml = (className, text) => `<p class="${className}">${escapeHtml(text)}</p>`;
+
+// A typing row Atomic draws empty while its field is open.
+/** @type {Record<QuestionOption["role"], string>} */
+const EMPTY_LABEL = { type: "Type something.", chat: "Chat about this", answer: "", commit: "" };
+
+/** @param {QuestionOption} option */
+function answerHtml(option) {
+  const classes = ["ask-opt", isTypingRole(option.role) && "is-quiet", option.selected && "is-cursor", option.ticked === true && "is-ticked"].filter(Boolean).join(" ");
+  const tick = option.ticked === null ? "" : `<span class="ask-tick" aria-hidden="true"></span>${hidden(option.ticked ? "ticked, " : "not ticked, ")}`;
+  const marks = `${option.answered ? `<span class="ask-answered" aria-hidden="true">✔</span>${hidden(", your answer")}` : ""}${option.selected ? hidden(", Atomic's cursor") : ""}`;
+  const description = option.description ? `<span class="ask-desc">${escapeHtml(option.description)}</span>` : "";
+  const label = option.label || EMPTY_LABEL[option.role];
+  return (
+    `<button class="${classes}" type="button" data-answer="${option.number}">` +
+    `<span class="ask-num">${option.number}</span>` +
+    `<span class="ask-body">${tick}<span class="ask-label">${escapeHtml(label)}</span>${marks}${description}</span></button>`
+  );
+}
+
+// Atomic 0.9.90's own question: its header small, the question large, and
+// each option a row to tap.
+/** @param {Question} question */
+function questionHtml(question) {
+  const step = question.step ? `Question ${question.step.at} of ${question.step.of}` : "";
+  const title = question.title || step ? `<p class="ask-title"><span>${escapeHtml(question.title)}</span>${step ? `<span class="ask-step">${step}</span>` : ""}</p>` : "";
+  const text = question.text.map((paragraph, index) => paragraphHtml(index === question.prompt ? "ask-text" : "ask-lead", paragraph)).join("");
+  return (
+    `<section class="ask" aria-label="${question.form === "trust" ? "Atomic is asking" : "The agent is asking"}">` +
+    title +
+    text +
+    `<div class="ask-options" role="group" aria-label="Answers">${question.options.map(answerHtml).join("")}</div>` +
+    question.after.map((paragraph) => paragraphHtml("ask-after", paragraph)).join("") +
+    `</section>`
+  );
+}
+
+/**
+ * @param {Row} first
+ * @param {Run[]} runs
+ */
+const bandParagraphHtml = (first, runs) => `<p class="p"${indentStyle(leading(first) - 1, "margin-left")}>${runsHtml(runs)}</p>`;
 
 /** @param {string[]} lines */
 const runPanelHtml = (lines) =>
@@ -147,7 +195,7 @@ export function readLive(text, savedTables = []) {
   const read = [];
   const screen = readScreen(text);
   if (screen.graph) return { parts: [graphHtml(screen.rows)], anchors, read, screen };
-  const { rows, options, panel } = screen;
+  const { rows, options, panel, question } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
   /** @type {string[]} */
   const html = [];
@@ -156,6 +204,12 @@ export function readLive(text, savedTables = []) {
   const isContentRow = (at) => at < rows.length && !rows[at].chrome;
   while (i < rows.length) {
     const line = rows[i];
+    if (question && i === question.start) {
+      if (question.heading !== null) html.push(monoLineHtml(withoutColours(rows[question.heading]), " is-chrome", null));
+      html.push(questionHtml(question));
+      i = question.end;
+      continue;
+    }
     if (line.chrome) {
       if (panel && i === panel.start) {
         html.push(runPanelHtml(panel.lines));
@@ -192,11 +246,10 @@ export function readLive(text, savedTables = []) {
       const band = [];
       while (isContentRow(i) && rows[i].kind === "band" && rows[i].band === line.band) band.push(rows[i++]);
       /** @param {Row} row */
-      const rowHtml = (row) =>
-        line.band === "tool"
-          ? monoLineHtml(row)
-          : `<p class="p"${indentStyle(leading(row) - 1, "margin-left")}>${runsHtml(trimStart(row).runs)}</p>`;
-      html.push(`<div class="band band-${line.band}">${band.map(rowHtml).join("")}</div>`);
+      const rowHtml = (row) => (line.band === "tool" ? monoLineHtml(row) : bandParagraphHtml(row, trimStart(row).runs));
+      // Atomic 0.9.90 wraps the user's message to the pane; its rows join again.
+      const joinedHtml = () => wrappedParagraphs(band).map((paragraph) => bandParagraphHtml(band[paragraph.start], paragraph.runs)).join("");
+      html.push(`<div class="band band-${line.band}">${line.band === "you" && screen.atomic0990 ? joinedHtml() : band.map(rowHtml).join("")}</div>`);
     } else if (line.kind === "box") {
       /** @type {Row[]} */
       const box = [];

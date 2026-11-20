@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { latestLine } from "../server/latest-line";
+import { plainText } from "../web/screen.js";
+import * as Q from "./support/atomic-0990-question";
 import {
   CROWDED_SCREEN,
   GENERAL_SCREEN,
@@ -275,11 +277,35 @@ describe("Atomic 0.9.90", () => {
     expect(latestLine(LIST_FOCUSED_SCREEN)).toBe("started.");
     for (const text of [LIST_TWO_SCREEN, LIST_PRESS_AGAIN_SCREEN]) expect(latestLine(text)).toBe("again.");
     expect(latestLine(KEYS_HELP_SCREEN)).toBe('The hat-check workflow finished after about 4 minutes. Its answer was "Blue hat", and nothing blocked the run.');
-    expect(latestLine(LIST_FOCUSED_WORKING_SCREEN)).toBe("∀ Wait(task-1-0-0) · 8s");
-    expect(latestLine(LIST_HELP_WORKING_SCREEN)).toBe("∀ Wait(task-1-0-0) · 10s");
+    expect(latestLine(LIST_FOCUSED_WORKING_SCREEN)).toBe("∀ Wait(task-1-0-0)");
+    expect(latestLine(LIST_HELP_WORKING_SCREEN)).toBe("∀ Wait(task-1-0-0)");
   });
 
   test("a question dialog's key hint is skipped", () => {
     expect(latestLine([" Use red or blue?", "  ↑↓ select · enter choose · esc cancel"].join("\n"))).toBe("Use red or blue?");
+  });
+});
+
+describe("a blocked Atomic 0.9.90's latest line is its question", () => {
+  const cases: [string, string][] = [
+    [Q.ASK_SCREEN, "Color: Red or blue?"],
+    [Q.ASK_TYPED_SCREEN, "Color: Red or blue?"],
+    [Q.ASK_FIVE_SCREEN, "Fence: Which paint should the fence get?"],
+    [Q.MULTI_SCREEN, "Toppings: Which toppings do you want?"],
+    [Q.TABS_REVISITED_SCREEN, "Roof: Which roof?"],
+    [Q.REVIEW_SCREEN, "Review: Ready to submit your answers?"],
+    [Q.NOTES_SCREEN, "Layout: Which door layout?"],
+    [Q.TRUST_SCREEN, "Trust project folder?"],
+  ];
+  test("never the ticking ∀ Questions row, a key hint or a row of Atomic's logo", () => {
+    for (const [screen, line] of cases) {
+      expect(latestLine(screen)).toBe(line);
+      expect(latestLine(plainText(screen))).toBe(line);
+    }
+  });
+
+  test("a long question is all of it, on one line", () => {
+    expect(latestLine(plainText(Q.LONG_SCREEN))).toStartWith("Plan: The shed needs a new roof before winter and the budget only covers");
+    expect(latestLine(plainText(Q.LONG_SCREEN))).toEndWith("whenever the wind comes from the west?");
   });
 });

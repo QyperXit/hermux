@@ -5,9 +5,15 @@ import { makeFakeHerdr, type FakeConfig } from "./fake-herdr";
 import { WEB } from "./support/agents";
 import { ALLOWED_LOGIN, auditCalls, herdrError, paste } from "./support/http";
 import { REFUSED_KEYS, REPRESENTATIVE_KEYS } from "./support/key-grammar";
+import * as Q from "./support/atomic-0990-question";
+import { WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
+import { GRAPH_SCREEN, STAGE_QUESTION_SCREEN } from "./support/workflow-question";
 import { AGENTS, ATOMIC, CONFIG, BLOCKED_ATOMIC, PI, SHELLS, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
 
 type Call = string[];
+
+const screenRead = (pane: string) => ["pane", "read", pane, "--source", "recent-unwrapped", "--lines", "200", "--format", "ansi"];
+
 type Target = {
   name: string;
   pane: string;
@@ -289,7 +295,7 @@ describe.concurrent("blocked agents", () => {
   test("custom-kind agent: a message is refused with 409 agent_blocked and nothing is sent", async () => {
     const { request, calls } = setup();
     expect(await errorOf(await request("POST", ...prompt(BLOCKED_ATOMIC, "should not arrive", "atomic")))).toEqual([409, "agent_blocked"]);
-    expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC]]);
+    expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], screenRead(BLOCKED_ATOMIC)]);
   });
 
   test("custom-kind agent: the re-check catches a block between sends", async () => {
@@ -297,7 +303,7 @@ describe.concurrent("blocked agents", () => {
     expect((await request("POST", ...prompt(ATOMIC, "first", "atomic"))).status).toBe(200);
     fake.setConfig({ ...CONFIG, agents: AGENTS.map((agent) => (agent.pane_id === ATOMIC ? { ...agent, agent_status: "blocked" } : agent)) });
     expect(await errorOf(await request("POST", ...prompt(ATOMIC, "second", "atomic")))).toEqual([409, "agent_blocked"]);
-    expect(calls()).toEqual([CUSTOM.recheck, ...CUSTOM.message("first"), CUSTOM.recheck]);
+    expect(calls()).toEqual([CUSTOM.recheck, ...CUSTOM.message("first"), CUSTOM.recheck, screenRead(ATOMIC)]);
   });
 
   test("built-in agent: herdr's own `agent prompt` refusal is answered as 409 agent_blocked with herdr's message", async () => {
@@ -315,5 +321,67 @@ describe.concurrent("blocked agents", () => {
     expect((await request("POST", ...keys(BLOCKED_ATOMIC, ["2", "enter"], "atomic"))).status).toBe(200);
     expect((await request("POST", ...keys(PI, ["2", "enter"], "pi"))).status).toBe(200);
     expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], ["pane", "send-keys", BLOCKED_ATOMIC, "2", "enter"], BUILT_IN.recheck, ...BUILT_IN.keys(["2", "enter"])]);
+  });
+});
+
+describe.concurrent("typed answers to a blocked agent", () => {
+  const READ = screenRead(BLOCKED_ATOMIC);
+  const showing = (screen: string): FakeConfig => ({ ...CONFIG, ansiOutputs: { [BLOCKED_ATOMIC]: screen } });
+  const typed = (text: string) => [["pane", "send-text", BLOCKED_ATOMIC, paste(text)], ["pane", "send-keys", BLOCKED_ATOMIC, "enter"]];
+
+  const open: [string, string][] = [
+    ["Type something., empty", Q.ASK_TYPE_FOCUSED_SCREEN],
+    ["Type something., typed into", Q.ASK_TYPED_SCREEN],
+    ["Chat about this", Q.ASK_CHAT_TYPED_SCREEN],
+    ["Chat about this, row 6", Q.ASK_SIX_SCREEN],
+    ["the notes field", Q.NOTES_SCREEN],
+  ];
+  for (const [name, screen] of open) {
+    test(`with ${name} open, the text is pasted and Enter pressed, after the re-check and a read of the screen`, async () => {
+      const { request, calls } = setup(showing(screen));
+      const response = await request("POST", ...prompt(BLOCKED_ATOMIC, "purple, please", "atomic"));
+      expect(response.status).toBe(200);
+      expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], READ, ...typed("purple, please")]);
+    });
+  }
+
+  const closed: [string, string][] = [
+    ["the cursor on an option row", Q.ASK_SCREEN],
+    ["a caret left on the cursor's option row", Q.ASK_SCREEN.replace("❯ 1. Red\u001b[0m ", "❯ 1. Red\u001b[0m\u001b[7m \u001b[0m")],
+    ["the cursor on Submit", Q.MULTI_SUBMIT_SCREEN],
+    ["a questionnaire's Review", Q.REVIEW_SCREEN],
+    ["the trust prompt", Q.TRUST_SCREEN],
+    ["the workflow graph", GRAPH_SCREEN],
+    ["the /workflow connect picker", WORKFLOW_PICKER_SCREEN],
+    ["a workflow stage's chat", STAGE_QUESTION_SCREEN],
+    ["no question at all", "Which port should it use?"],
+  ];
+  for (const [name, screen] of closed) {
+    test(`with ${name} on screen, the text is refused with 409 agent_blocked as before and nothing is sent`, async () => {
+      const { request, calls } = setup(showing(screen));
+      const response = await request("POST", ...prompt(BLOCKED_ATOMIC, "purple, please", "atomic"));
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: { code: "agent_blocked", message: `agent ${BLOCKED_ATOMIC} is blocked and requires interactive input` } });
+      expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], READ]);
+    });
+  }
+
+  test("a screen that can't be read is a closed field: refused, nothing sent", async () => {
+    const { request, calls } = setup({ ...showing(Q.ASK_TYPED_SCREEN), answers: { "pane read --format ansi": herdrError("pane_not_found", "pane gone", "cli:pane:read") } });
+    expect(await errorOf(await request("POST", ...prompt(BLOCKED_ATOMIC, "purple, please", "atomic")))).toEqual([409, "agent_blocked"]);
+    expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], READ]);
+  });
+
+  test("an agent that isn't blocked is never read first, field or not", async () => {
+    const { request, calls } = setup({ ...CONFIG, ansiOutputs: { [ATOMIC]: Q.ASK_SCREEN } });
+    expect((await request("POST", ...prompt(ATOMIC, "hello", "atomic"))).status).toBe(200);
+    expect(calls()).toEqual([CUSTOM.recheck, ...CUSTOM.message("hello")]);
+  });
+
+  test("a built-in agent is still left to herdr's own refusal", async () => {
+    const blocked = { ...CONFIG, agents: AGENTS.map((agent) => (agent.pane_id === PI ? { ...agent, agent_status: "blocked" } : agent)), ansiOutputs: { [PI]: Q.ASK_TYPED_SCREEN }, answers: { prompt: herdrError("agent_blocked", `agent ${PI} is blocked`, "cli:agent:prompt") } };
+    const { request, calls } = setup(blocked);
+    expect(await errorOf(await request("POST", ...prompt(PI, "hello", "pi")))).toEqual([409, "agent_blocked"]);
+    expect(calls()).toEqual([BUILT_IN.recheck, ...BUILT_IN.message("hello")]);
   });
 });

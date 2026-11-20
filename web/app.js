@@ -1,6 +1,7 @@
 import { createHttpClient, createPushClient } from "./api.js";
 import { homeLists, memoryStorage, recordOpened } from "./home.js";
 import { find, fitField, need } from "./dom.js";
+import { answerTap, keysIfStillAsked, takesTypedAnswer } from "./agent-question.js";
 import { createAttachment } from "./attach.js";
 import { composerHtml, drawComposer } from "./composer.js";
 import { createKeyBar } from "./key-bar.js";
@@ -15,6 +16,7 @@ import { createPictureViewer } from "./picture-viewer.js";
 import { attachQuestionCard, drawQuestionCard } from "./question-card.js";
 import { drawLive } from "./live-render.js";
 import { readLive, shellParts } from "./reader.js";
+import { readScreen } from "./screen.js";
 import { parseRoute, terminalHref } from "./routes.js";
 import { duration } from "./rows.js";
 import { FRESHNESS_SLOT, allScreenHtml, homeScreenHtml } from "./screens.js";
@@ -281,7 +283,7 @@ function drawBlockedControls({ terminal, sending }) {
   const blocked = terminal.status === "blocked";
   const ask = blockedWorkflowAsk(terminal.status, liveScreen);
   const target = sendTarget(terminal);
-  drawComposer(app, { target, sending, blocked, withNote: !ask });
+  drawComposer(app, { target, sending, blocked, answering: takesTypedAnswer(liveScreen?.question ?? null), withNote: !ask });
   drawQuestionCard(app, ask, { target });
   keyBar.setBlocked(blocked);
   attachment.setBlocked(blocked);
@@ -362,11 +364,38 @@ async function sendKeyWith(key, label, choose) {
   else notify(`Sent ${label}`);
 }
 
+let answerInFlight = false;
+
+// Answers the question on the Live screen with option `number`, its keys
+// chosen again from the screen read just before they are sent, and only while
+// that screen still asks the same question.
+/** @param {number} number */
+async function answerWith(number) {
+  const asked = liveScreen?.question ?? null;
+  const tap = answerTap(asked, number);
+  if (!tap.send) {
+    notify(tap.message, { error: tap.error });
+    return;
+  }
+  if (answerInFlight) return;
+  answerInFlight = true;
+  try {
+    const sent = await session.sendChosenKeys((text) => keysIfStillAsked(asked, readScreen(text).question, number));
+    if (sent.status === "ignored") return;
+    if (sent.status === "unchosen") notify(`${tap.label} not sent. The question changed; check it again.`, { error: true });
+    else if (sent.error) notify(`${tap.label} not sent. ${sent.error.message}`, { error: true });
+    else notify(tap.typing ? "Type your answer in the box below." : `Sent ${tap.label}`);
+  } finally {
+    answerInFlight = false;
+  }
+}
+
 /**
  * @param {string} key
  * @param {string} label
  */
 function sendKey(key, label) {
+  if (liveScreen?.question && /^[1-9]$/.test(key)) return answerWith(Number(key));
   return sendKeyWith(key, label, choiceChooser(key, liveScreen));
 }
 
@@ -384,6 +413,10 @@ function bindTerminalScreen() {
   bindCopy(output, { writeText: writeClipboard, announce: notify });
   bindView(output, pictures.open);
   bindFile(output, fileSheet.open);
+  output.addEventListener("click", (event) => {
+    const answer = event.target instanceof Element ? event.target.closest("[data-answer]") : null;
+    if (answer instanceof HTMLElement) answerWith(Number(answer.dataset.answer));
+  });
   latest.addEventListener("click", () => {
     output.scrollTo({ top: output.scrollHeight, behavior: "smooth" });
     latest.hidden = true;

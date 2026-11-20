@@ -6,13 +6,16 @@
 //   pane list, get, read (every pane is a terminal that can be listed and read);
 //   workspace list, tab list (labels and tab numbers only);
 //   pane send-text, pane send-keys, each straight after the re-check of the
-//     pane: `agent get` for an agent, `pane get` for a plain shell;
+//     pane: `agent get` for an agent, `pane get` for a plain shell, and
+//     for text to a blocked agent a read of its screen;
 //   terminal session observe: a read-only stream of a pane's screen,
 //     with stdin closed, so nothing can be typed through it.
 // Keys come from the shared grammar (web/key-grammar.js) only. Never pane run,
 // pane close, agent start, focus or rename, server stop, terminal session
 // control, terminal attach, or --machine.
+import { takesTypedAnswer } from "../web/agent-question.js";
 import { KEY_HELP, isAllowedKey } from "../web/key-grammar.js";
+import { readScreen } from "../web/screen.js";
 
 export { isAllowedKey };
 
@@ -286,6 +289,24 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     }
   }
 
+  // The screen with Atomic's highlighting as ANSI SGR codes. If herdr can't
+  // give it, the plain text is read instead; the page renders both.
+  async function readStyled(paneId: string, kind?: string): Promise<string> {
+    checkTarget(paneId);
+    return styled(readArgs(paneId, kind), () => read(paneId, kind));
+  }
+
+  // A blocked agent takes text only while its screen, read now, shows Atomic
+  // 0.9.90's own typing field for its question open; a failed read is a
+  // closed field.
+  async function typingFieldOpen(paneId: string): Promise<boolean> {
+    try {
+      return takesTypedAnswer(readScreen(await readStyled(paneId)).question);
+    } catch {
+      return false;
+    }
+  }
+
   async function enterAfterText(paneId: string, what: string) {
     try {
       await run(["pane", "send-keys", paneId, "enter"]);
@@ -307,12 +328,7 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
 
     read,
 
-    // The screen with Atomic's highlighting as ANSI SGR codes. If herdr can't
-    // give it, the plain text is read instead; the page renders both.
-    async readStyled(paneId: string, kind?: string): Promise<string> {
-      checkTarget(paneId);
-      return styled(readArgs(paneId, kind), () => read(paneId, kind));
-    },
+    readStyled,
 
     // herdr 0.9.5 doesn't report a pane's bracketed-paste mode, so a plain
     // shell's text is sent with no paste markers, and each line of the
@@ -332,7 +348,7 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
         await run(["agent", "prompt", paneId, text]);
         return;
       }
-      if (target.agent.agent_status === "blocked") {
+      if (target.agent.agent_status === "blocked" && !(await typingFieldOpen(paneId))) {
         throw new HerdrError("agent_blocked", `agent ${paneId} is blocked and requires interactive input`);
       }
       await run(["pane", "send-text", paneId, `${PASTE_START}${text}${PASTE_END}`]);

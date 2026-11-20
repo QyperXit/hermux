@@ -1,4 +1,8 @@
 import { CONTROL } from "./wrap.js";
+import { askQuestion, trustQuestion } from "./agent-question.js";
+import { isBlank, leading, sliceLine, trimEnd, trimStart } from "./line.js";
+
+export { sliceLine, trimEnd, trimStart };
 
 /**
  * @typedef {{ index?: number, rgb?: number[] }} Colour
@@ -10,14 +14,15 @@ import { CONTROL } from "./wrap.js";
  */
 
 /**
- * @typedef {"gap" | "option" | "rule" | "code" | "band" | "box" | "prose" | "chrome"} Kind
+ * @typedef {"gap" | "option" | "rule" | "code" | "band" | "box" | "prose" | "chrome" | "question"} Kind
  * @typedef {Line & { kind: Kind, chrome: boolean }} Row
  * @typedef {{ selected: boolean, number: string | null, ticked: boolean | null, start: number, end: number, numbered: boolean }} OptionRow
  */
 /** @typedef {OptionRow & { index: number, continuationRows: number, labelLines: Line[], inBox: boolean, cursorOnly?: boolean }} DialogRow */
 /** @typedef {{ start: number, end: number, runs: Run[] }} Prose */
 /** @typedef {{ start: number, end: number, lines: string[] }} Panel */
-/** @typedef {{ rows: Row[], chromeStart: number, graph: boolean, prose: Prose[], options: Map<number, DialogRow>, panel: Panel | null }} Screen */
+/** @typedef {import("./agent-question.js").Question} Question */
+/** @typedef {{ rows: Row[], chromeStart: number, graph: boolean, prose: Prose[], options: Map<number, DialogRow>, panel: Panel | null, question: Question | null, atomic0990: boolean }} Screen */
 
 // Any escape sequence: CSI (an SGR ends in "m"), OSC up to BEL or ST, a string
 // command (DCS, SOS, PM, APC) up to ST, or a two-character escape. A broken
@@ -165,39 +170,14 @@ export const plainText = (text) =>
     .map((line) => line.text)
     .join("\n");
 
-/**
- * @param {Line} line
- * @param {number} start
- * @param {number} [end]
- * @returns {Line}
- */
-export function sliceLine(line, start, end = line.text.length) {
-  /** @type {Run[]} */
-  const runs = [];
-  let offset = 0;
-  for (const run of line.runs) {
-    const from = Math.max(start - offset, 0);
-    const to = Math.min(end - offset, run.text.length);
-    if (to > from) runs.push({ text: run.text.slice(from, to), cls: run.cls });
-    offset += run.text.length;
-  }
-  return { text: line.text.slice(start, end), runs, band: line.band };
-}
-
-/** @param {Line} line */
-export const trimEnd = (line) => sliceLine(line, 0, line.text.trimEnd().length);
-/** @param {Line} line */
-export const leading = (line) => line.text.length - line.text.trimStart().length;
-/** @param {Line} line */
-export const trimStart = (line) => sliceLine(line, leading(line));
-/** @param {Line} line */
-const isBlank = (line) => !line.text.trim();
+/** @param {Line[]} lines */
+const indicesWithoutBlankRuns = (lines) => lines.flatMap((line, index) => (!isBlank(line) || (index > 0 && !isBlank(lines[index - 1])) ? [index] : []));
 
 /**
  * @template {Line} T
  * @param {T[]} lines
  */
-const withoutBlankRuns = (lines) => lines.filter((line, index) => !isBlank(line) || (index > 0 && !isBlank(lines[index - 1])));
+const withoutBlankRuns = (lines) => indicesWithoutBlankRuns(lines).map((index) => lines[index]);
 
 /** @param {string} text */
 export const shellRows = (text) => withoutBlankRuns(parseAnsi(text).map(trimEnd));
@@ -626,6 +606,17 @@ const joined = (rows, start, end) => ({
   runs: rows.slice(start, end).flatMap((part, index) => [...(index ? [{ text: " ", cls: "" }] : []), ...trimStart(part).runs]),
 });
 
+/**
+ * @param {Row[]} rows
+ * @param {number} start
+ * @param {(row: Row) => boolean} joins
+ */
+function paragraphEnd(rows, start, joins) {
+  let end = start + 1;
+  while (end < rows.length && end - start < MAX_JOINED_LINES && joins(rows[end]) && wrapsOnto(rows[end - 1].text.trim(), rows[end].text.trim())) end++;
+  return end;
+}
+
 /** @param {Row[]} rows */
 function proseOf(rows) {
   /** @type {Prose[]} */
@@ -635,12 +626,27 @@ function proseOf(rows) {
       start++;
       continue;
     }
-    let end = start + 1;
-    while (end < rows.length && end - start < MAX_JOINED_LINES && rows[end].kind === "prose" && wrapsOnto(rows[end - 1].text.trim(), rows[end].text.trim())) end++;
+    const end = paragraphEnd(rows, start, (row) => row.kind === "prose");
     prose.push(joined(rows, start, end));
     start = end;
   }
   return prose;
+}
+
+// `rows` as paragraphs, joined where Atomic wrapped them by the same rule.
+/**
+ * @param {Row[]} rows
+ * @returns {Prose[]}
+ */
+export function wrappedParagraphs(rows) {
+  /** @type {Prose[]} */
+  const paragraphs = [];
+  for (let start = 0; start < rows.length; ) {
+    const end = paragraphEnd(rows, start, () => true);
+    paragraphs.push(joined(rows, start, end));
+    start = end;
+  }
+  return paragraphs;
 }
 
 // The same wrap rule walked back from the end: row `last` with the rows it
@@ -719,14 +725,72 @@ export function focusedRuns({ graph, rows, chromeStart }) {
   return hint === null ? null : texts.slice(usage + 1, hint);
 }
 
+// Atomic 0.9.90 shades the user's own messages with 45,45,48, the shade older
+// Atomic gave tool rows, and draws its tool rows unshaded: a "● Bash(…)" row
+// (✗ when it failed, ∀ while it runs), then its output under "  ⎿  " and on
+// six-space rows. Its "⚛ Context cleared" notice keeps that shade too.
+const TOOL_HEAD = /^ [●✗∀] \S/;
+const TOOL_CALL = /^ [●✗∀] [\p{L}_][\w-]*\(.*\)(?: · .*)?$/u;
+const TOOL_OUTPUT = /^ {3}⎿ /;
+const TOOL_MORE = /^ {6}/;
+const NOTICE = /^ ⚛ /;
+
+/**
+ * @param {Question | null} question
+ * @param {number} index
+ */
+const inQuestion = (question, index) => question !== null && index >= question.start && index < question.end;
+
+/**
+ * @param {Line[]} lines
+ * @param {boolean[]} chrome
+ * @param {Question | null} question
+ * @returns {Line[]}
+ */
+function bandsOf0990(lines, chrome, question) {
+  let tool = false;
+  return lines.map((line, i) => {
+    if (chrome[i] || inQuestion(question, i)) {
+      tool = false;
+      return line;
+    }
+    if (line.band) {
+      tool = false;
+      return line.band === "tool" && !NOTICE.test(line.text) ? { ...line, band: "you" } : line;
+    }
+    if (TOOL_HEAD.test(line.text)) tool = TOOL_CALL.test(line.text) || TOOL_OUTPUT.test(lines[i + 1]?.text ?? "");
+    else if (tool) tool = TOOL_OUTPUT.test(line.text) || (TOOL_MORE.test(line.text) && !isBlank(line));
+    return tool ? { ...line, band: "tool" } : line;
+  });
+}
+
+// Atomic 0.9.90 drew a screen with its question box, or chrome with its
+// named rule, "· ? keys" footer, /workflows edge or turn line.
+/**
+ * @param {Line[]} lines
+ * @param {boolean[]} chrome
+ * @param {number} chromeStart
+ * @param {Question | null} question
+ */
+const drawnByAtomic0990 = (lines, chrome, chromeStart, question) =>
+  question?.form === "ask" ||
+  [TURN, TURN_ENDING_IN_TOKENS].some((turn) => turn.test(lines[chromeStart]?.text ?? "")) ||
+  lines.some((line, i) => chrome[i] && (NAMED_RULE.test(line.text) || KEYS_FOOTER.test(line.text) || WORKFLOWS_EDGE.test(line.text)));
+
+/** @param {Line} line */
+const showsCaret = (line) => line.runs.some((run) => run.cls.split(" ").includes("a-inv"));
+
 // The screen in `text` (herdr's ANSI or plain read). `rows` are styled, each
 // end trimmed, without the scrollbar and jump hint, with one blank row in a
 // row; on a workflow graph screen they are the rows as drawn. A row is
 // `chrome` when it is Atomic's own; `chromeStart` is the first such row
 // (rows.length when there is none; 0 on a graph screen, which is all Atomic's
 // drawing). `prose` is every paragraph outside the chrome, `options` the
-// rows of a question dialog or the workflow picker by index, and `panel`
-// Atomic's BACKGROUND panel in the chrome.
+// rows of a question dialog or the workflow picker by index, `panel`
+// Atomic's BACKGROUND panel in the chrome, `question` Atomic 0.9.90's own
+// question box or trust prompt, and `atomic0990` whether Atomic 0.9.90 drew
+// the screen: its user's messages are then the Message Band and its tool
+// rows the Tool Band.
 /**
  * @param {string} text
  * @returns {Screen}
@@ -734,12 +798,20 @@ export function focusedRuns({ graph, rows, chromeStart }) {
 export function readScreen(text) {
   const parsed = parseAnsi(text);
   const graph = showsWorkflowGraph(parsed);
-  const lines = graph ? parsed.map(trimEnd) : withoutBlankRuns(withoutScrollbar(parsed).map(withoutJumpHint).map(trimEnd));
-  const { start: chromeStart, inPromptPlace } = graph ? { start: 0, inPromptPlace: null } : chromeOf(lines.map((line) => line.text));
-  const chrome = lines.map((_, index) => index >= chromeStart && !(inPromptPlace && index >= inPromptPlace.start && index < inPromptPlace.end));
+  const drawnLines = graph ? parsed : withoutScrollbar(parsed).map(withoutJumpHint);
+  const trimmed = drawnLines.map(trimEnd);
+  const kept = graph ? trimmed.map((_, index) => index) : indicesWithoutBlankRuns(trimmed);
+  const read = kept.map((index) => trimmed[index]);
+  const caret = kept.map((index) => showsCaret(drawnLines[index]));
+  const { start: chromeStart, inPromptPlace } = graph ? { start: 0, inPromptPlace: null } : chromeOf(read.map((line) => line.text));
+  const chrome = read.map((_, index) => index >= chromeStart && !(inPromptPlace && index >= inPromptPlace.start && index < inPromptPlace.end));
+  const question = graph ? null : (askQuestion(read, caret) ?? trustQuestion(read, chromeStart));
+  const atomic0990 = !graph && drawnByAtomic0990(read, chrome, chromeStart, question);
+  const lines = atomic0990 ? bandsOf0990(read, chrome, question) : read;
   const options = dialogOptions(lines, chrome);
   const drawn = lines.map((_, index) => Boolean(inPromptPlace?.workflows && index >= inPromptPlace.start && index < inPromptPlace.end));
   const kinds = kindsOf(lines, chrome, options, drawn);
-  const rows = lines.map((line, index) => ({ ...line, kind: kinds[index], chrome: chrome[index] }));
-  return { rows, chromeStart, graph, prose: proseOf(rows), options, panel: backgroundPanel(rows) };
+  /** @type {Row[]} */
+  const rows = lines.map((line, index) => ({ ...line, kind: inQuestion(question, index) ? "question" : kinds[index], chrome: chrome[index] }));
+  return { rows, chromeStart, graph, prose: proseOf(rows), options, panel: backgroundPanel(rows), question, atomic0990 };
 }

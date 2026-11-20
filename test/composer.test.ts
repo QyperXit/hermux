@@ -3,7 +3,7 @@ import { drawComposer } from "../web/composer.js";
 import { asPageElement } from "./support/fake-dom";
 import { keyBarScreen } from "./support/key-bar";
 
-function composer(state: { target?: string; sending?: boolean; blocked?: boolean } = {}) {
+function composer(state: { target?: string; sending?: boolean; blocked?: boolean; answering?: boolean } = {}) {
   const screen = keyBarScreen();
   const draw = (next: typeof state = {}) => drawComposer(asPageElement(screen.root), { target: "weather-app", sending: false, blocked: false, ...state, ...next });
   draw();
@@ -66,6 +66,29 @@ describe("a blocked Agent", () => {
     expect(screen.root.querySelector("#message")!.shown).toBe(false);
     draw({ blocked: false });
     expect([screen.root.querySelector(".composer")!.shown, note().shown]).toEqual([true, false]);
+  });
+});
+
+describe("a blocked Agent whose question's own typing field is open", () => {
+  test("shows the message box, named for the answer, and no blocked note; it goes again when the field closes", () => {
+    const { screen, draw } = composer();
+    const note = () => screen.root.querySelector(".blocked-note")!;
+    draw({ blocked: true, answering: true });
+    expect([screen.root.querySelector(".composer")!.shown, note().shown]).toEqual([true, false]);
+    expect(screen.field("Your answer for weather-app").placeholder).toBe("Your answer");
+    expect(screen.button("Send your answer to weather-app").getAttribute("type")).toBe("submit");
+    draw({ blocked: true, answering: false });
+    expect([screen.root.querySelector(".composer")!.shown, note().shown]).toEqual([false, true]);
+    expect(screen.root.querySelector('label[for="message"]')!.textContent).toBe("Message weather-app");
+  });
+
+  test("keeps attach and / hidden, so no menu of theirs opens to be closed by the next redraw; they come back after", () => {
+    const { screen, draw } = composer();
+    const shown = () => [".attach", ".slash", ".send"].map((selector) => screen.root.querySelector(selector)!.shown);
+    draw({ blocked: true, answering: true });
+    expect(shown()).toEqual([false, false, true]);
+    draw({ blocked: false });
+    expect(shown()).toEqual([true, true, true]);
   });
 });
 

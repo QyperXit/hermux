@@ -6,6 +6,8 @@ import { createRoster } from "../server/roster";
 import type { Terminal } from "../server/terminals";
 import { makeFakeHerdr, type FakeAgent, type FakeConfig } from "./fake-herdr";
 import { until } from "./support/fake-events";
+import { plainText as uncoloured } from "../web/screen.js";
+import { ASK_SCREEN } from "./support/atomic-0990-question";
 import { FOOTER } from "./support/screens";
 
 const fakes: ReturnType<typeof makeFakeHerdr>[] = [];
@@ -113,6 +115,13 @@ describe.concurrent("which changes notify", () => {
     change(WEATHER, "blocked");
     await until(() => sent.length === 1, 3_000, "the notification");
     expect(sent).toEqual([{ title: "weather-app · tab 2 needs you", body: "Which database should I use?", pane_id: WEATHER, tag: `pane-${WEATHER}` }]);
+  });
+
+  test("an Atomic 0.9.90 asking its own question needs you, its question the body, not the ticking ∀ Questions row", async () => {
+    const { sent, change } = await setup({ config: { outputs: { ...OUTPUTS, [WEATHER]: uncoloured(ASK_SCREEN) } } });
+    change(WEATHER, "blocked");
+    await until(() => sent.length === 1, 3_000, "the notification");
+    expect(sent).toEqual([{ title: "weather-app · tab 2 needs you", body: "Color: Red or blue?", pane_id: WEATHER, tag: `pane-${WEATHER}` }]);
   });
 
   test("an agent that goes from working to done has finished: one notification with its session and its latest line", async () => {
