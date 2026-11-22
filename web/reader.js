@@ -1,6 +1,7 @@
 import { isTypingRole } from "./agent-question.js";
 import { isBlank, leading, trimStart } from "./line.js";
 import { readScreen, shellRows, wrappedParagraphs } from "./screen.js";
+import { isPausedState, pausedHelpers, taskRows } from "./subagents.js";
 import { MAX_INDENT_CH, escapeHtml } from "./html.js";
 import { linkedRunsHtml } from "./links.js";
 import { savedTableHtml } from "./history.js";
@@ -111,6 +112,40 @@ function questionHtml(question) {
   );
 }
 
+// /tasks while it lists only paused helpers as working: each paused
+// helper's row is a key that opens it, the other rows stay as drawn.
+/**
+ * @param {Row[]} rows
+ * @param {{ start: number, end: number }} list
+ * @param {import("./subagents.js").TaskRow[]} tasks
+ */
+function pausedTasksHtml(rows, list, tasks) {
+  /** @type {string[]} */
+  const html = [];
+  /** @type {Line[]} */
+  let block = [];
+  const flush = () => {
+    if (block.length) html.push(blockHtml(block));
+    block = [];
+  };
+  for (let i = list.start; i < list.end; i++) {
+    const index = tasks.findIndex((task) => task.at === i);
+    const task = tasks[index];
+    if (!task || !isPausedState(task.state)) {
+      block.push(rows[i]);
+      continue;
+    }
+    flush();
+    html.push(
+      `<button class="task-open${task.cursor ? " is-cursor" : ""}" type="button" data-task="${index}" data-task-name="${escapeHtml(task.name)}">` +
+        `<span class="task-open-mark" aria-hidden="true">${escapeHtml(task.mark)}</span><span class="task-open-name">${escapeHtml(task.name)}</span>` +
+        `<span class="task-open-what">${escapeHtml(task.task ?? "")}</span><span class="task-open-state">${escapeHtml(task.state ?? "")}</span>${hidden(`${task.cursor ? ", Atomic's cursor" : ""}, open it`)}</button>`,
+    );
+  }
+  flush();
+  return html;
+}
+
 /**
  * @param {Row} first
  * @param {Run[]} runs
@@ -176,6 +211,7 @@ export function readLive(text, savedTables = []) {
   const screen = readScreen(text);
   const { rows, options, question } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
+  const tasks = screen.list && pausedHelpers(screen) ? taskRows(screen) : null;
   /** @type {string[]} */
   const html = [];
   let i = 0;
@@ -187,6 +223,11 @@ export function readLive(text, savedTables = []) {
       if (question.heading !== null) html.push(monoLineHtml(withoutColours(rows[question.heading]), " is-chrome", null));
       html.push(questionHtml(question));
       i = question.end;
+      continue;
+    }
+    if (tasks && screen.list && i === screen.list.start) {
+      html.push(...pausedTasksHtml(rows, screen.list, tasks));
+      i = screen.list.end;
       continue;
     }
     if (line.chrome) {

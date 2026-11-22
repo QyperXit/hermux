@@ -14,9 +14,10 @@ import { bellHtml, createNotifications, looksLikeBrave } from "./notifications.j
 import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
 import { createPictureViewer } from "./picture-viewer.js";
+import { attachPausedCard } from "./paused-card.js";
 import { attachQuestionCard } from "./question-card.js";
 import { attachSubagentStrip, stripHtml } from "./subagent-strip.js";
-import { stepTowards } from "./subagents.js";
+import { showHelpersStep, stepToTask, stepTowards } from "./subagents.js";
 import { drawLive } from "./live-render.js";
 import { readLive, shellParts } from "./reader.js";
 import { readScreen } from "./screen.js";
@@ -377,14 +378,15 @@ const STEP_MS = 150;
 const MAX_STEPS = 16;
 let bringing = false;
 
-// Brings main, or the first subagent waiting, to Atomic's screen, one send
-// at a time, each chosen from the screen read just before it (see
-// stepTowards); a read that doesn't show the last send yet is read again.
+// Brings an agent to Atomic's screen, one send at a time, each chosen from
+// the screen read just before it (`next`: stepTowards, stepToTask); a read
+// that doesn't show the last send yet is read again.
 /**
- * @param {"main" | "waiting"} target
+ * @param {(screen: import("./screen.js").Screen, progress: import("./subagents.js").Progress) => import("./subagents.js").Step} next
  * @param {string} label
+ * @param {string} there what to say once it is on screen
  */
-async function bringToScreen(target, label) {
+async function bringToScreen(next, label, there) {
   if (bringing) return;
   bringing = true;
   /** @type {import("./subagents.js").Progress} */
@@ -394,7 +396,7 @@ async function bringToScreen(target, label) {
       /** @type {{ step: import("./subagents.js").Step | null }} */
       const chosen = { step: null };
       const sent = await session.sendChosenKeys((text) => {
-        const step = stepTowards(readScreen(text), target, progress);
+        const step = next(readScreen(text), progress);
         chosen.step = step;
         return "keys" in step ? step.keys : null;
       });
@@ -405,7 +407,7 @@ async function bringToScreen(target, label) {
       }
       const taken = chosen.step;
       if (taken && "done" in taken) {
-        notify(target === "main" ? "Main is on screen." : "The question is on screen.");
+        notify(there);
         return;
       }
       if (taken && "refused" in taken) {
@@ -419,6 +421,22 @@ async function bringToScreen(target, label) {
   } finally {
     bringing = false;
   }
+}
+
+// Show helpers: /tasks typed into Atomic's empty main prompt, chosen from a
+// fresh read (see showHelpersStep).
+async function showHelpers() {
+  /** @type {{ step: ReturnType<typeof showHelpersStep> | null }} */
+  const chosen = { step: null };
+  const sent = await session.sendChosenText((text) => {
+    chosen.step = showHelpersStep(readScreen(text));
+    return "text" in chosen.step ? chosen.step.text : null;
+  });
+  if (sent.status === "ignored") return;
+  const taken = chosen.step;
+  if (sent.error) notify(`Show helpers stopped. ${sent.error.message}`, { error: true });
+  else if (taken && "refused" in taken) notify(taken.refused, { error: true });
+  else notify("Atomic's /tasks is on screen. Tap the paused helper to open it.");
 }
 
 /**
@@ -450,6 +468,11 @@ function bindTerminalScreen() {
   output.addEventListener("click", (event) => {
     const answer = event.target instanceof Element ? event.target.closest("[data-answer]") : null;
     if (answer instanceof HTMLElement) answerWith(Number(answer.dataset.answer));
+    const task = event.target instanceof Element ? event.target.closest("[data-task]") : null;
+    if (task instanceof HTMLElement) {
+      const target = { name: task.dataset.taskName ?? "", row: Number(task.dataset.task) };
+      bringToScreen((screen, progress) => stepToTask(screen, target, progress), `Opening ${target.name}`, `${target.name} is on screen. Send it a message to carry on.`);
+    }
   });
   latest.addEventListener("click", () => {
     output.scrollTo({ top: output.scrollHeight, behavior: "smooth" });
@@ -463,8 +486,9 @@ function bindTerminalScreen() {
 
   keyBar.attach(app, { sendKey, sendText: sendPrompt, announce: notify });
   attachment.attach(app);
-  attachQuestionCard(app, () => bringToScreen("waiting", "Open the question"));
-  attachSubagentStrip(app, () => bringToScreen("main", "Back to main"));
+  attachQuestionCard(app, () => bringToScreen((screen, progress) => stepTowards(screen, "waiting", progress), "Open the question", "The question is on screen."));
+  attachPausedCard(app, showHelpers);
+  attachSubagentStrip(app, () => bringToScreen((screen, progress) => stepTowards(screen, "main", progress), "Back to main", "Main is on screen."));
 
   const fit = () => fitField(textarea);
   textarea.addEventListener("input", fit);

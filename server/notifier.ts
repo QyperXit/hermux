@@ -44,7 +44,7 @@ export function notificationFor(terminal: Terminal, transition: Transition): Pay
 const transitionOf = (previous: string | undefined, status: string): Transition | null => {
   if (previous === status) return null;
   if (status === "blocked") return "needs-you";
-  if (status === "done" && previous === "working") return "finished";
+  if (status === "done" && (previous === "working" || previous === "paused")) return "finished";
   return null;
 };
 

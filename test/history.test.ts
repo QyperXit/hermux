@@ -571,7 +571,7 @@ describe.concurrent("the session store is read-only", () => {
       expect(code.toLowerCase()).not.toContain(word);
     }
     const statements = [...code.matchAll(/"(SELECT [^"]*(?:"\s*\+\s*"[^"]*)*)"/g)].map(([statement]) => statement.replace(/"\s*\+\s*"/g, ""));
-    expect(statements).toHaveLength(2);
+    expect(statements).toHaveLength(5);
     for (const statement of statements) expect(statement).toMatch(/LIMIT \?\d/);
     expect(statements.find((statement) => statement.includes("session_entries"))).toContain("WHERE session_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3");
     for (const file of ["app.ts", "events.ts", "herdr.ts", "latest-line.ts", "main.ts", "roster.ts"]) {

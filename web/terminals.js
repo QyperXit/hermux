@@ -16,6 +16,7 @@ const SHELL = "shell";
 export const STATE_WORDS = {
   blocked: "Needs you",
   working: "Working",
+  paused: "Paused",
   done: "Done",
   idle: "Idle",
   unknown: "Unclear",

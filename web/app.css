@@ -205,6 +205,13 @@ button {
   border: 2px dotted var(--ink-soft);
 }
 
+[data-status="paused"] > .lamp,
+.lamp[data-status="paused"] {
+  border-radius: 0;
+  background: linear-gradient(to right, transparent 3px, var(--ink-soft) 3px 5px, transparent 5px 7px, var(--ink-soft) 7px 9px, transparent 9px);
+  box-shadow: none;
+}
+
 @keyframes breathe {
   0%,
   100% {
@@ -610,7 +617,8 @@ button {
 .history-gap,
 .history-join,
 .stacked-note,
-.question-card-note {
+.question-card-note,
+.paused-card-note {
   font-size: var(--text-s);
   line-height: var(--leading-output);
   color: var(--ink-soft);
@@ -1803,7 +1811,8 @@ button {
   font-size: var(--text-m);
 }
 
-.question-card {
+.question-card,
+.paused-card {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -1814,11 +1823,15 @@ button {
 
 .app.is-composing .question-card,
 .app.is-editing-keys .question-card,
-.app.is-editing-commands .question-card {
+.app.is-editing-commands .question-card,
+.app.is-composing .paused-card,
+.app.is-editing-keys .paused-card,
+.app.is-editing-commands .paused-card {
   display: none;
 }
 
-.question-card-title {
+.question-card-title,
+.paused-card-title {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1836,9 +1849,55 @@ button {
   overflow-wrap: anywhere;
 }
 
-.question-card-open {
+.question-card-open,
+.paused-card-open {
   width: 100%;
   font-size: var(--text-m);
+}
+
+.task-open {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 var(--unit);
+  width: 100%;
+  min-height: var(--key);
+  margin: 4px 0;
+  padding: 6px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--body);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-m);
+  line-height: 20px;
+  text-align: left;
+}
+
+.task-open.is-cursor {
+  border-color: var(--ink-soft);
+}
+
+.task-open:active {
+  background: var(--key-face);
+}
+
+.task-open-name {
+  font-weight: 600;
+}
+
+.task-open-what {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: var(--text-s);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-open-mark,
+.task-open-state {
+  color: var(--ink-soft);
+  font-size: var(--text-s);
 }
 
 .subagent-strip {

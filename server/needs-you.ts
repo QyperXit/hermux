@@ -1,9 +1,10 @@
 // Atomic 0.10 tells herdr it is working while one of its subagents waits for
-// an answer, so herdr's events never say it needs you. This passes herdr's
-// events on, and while herdr calls an agent working it looks at the agent's
-// screen every few seconds (the read its Latest line takes, reused as that
-// is): a waiting subagent turns the agent's status to blocked in the events,
-// for the page and for notifications, until it no longer waits.
+// an answer, or while only helpers it paused are left, so herdr's events
+// never say it needs you or is paused. This passes herdr's events on, and
+// while herdr calls an agent working it looks at the agent's screen every few
+// seconds (the read its Latest line takes, reused as that is): a waiting
+// subagent turns the agent's status to blocked in the events, for the page
+// and for notifications, and paused helpers to paused, until that changes.
 import type { ChangedTerminal, LiveEvent, LiveEvents } from "./events";
 import { HerdrError } from "./herdr";
 import { shownStatus, type createRoster } from "./roster";
@@ -21,7 +22,7 @@ export function createNeedsYou({
 }) {
   const listeners = new Set<(event: LiveEvent) => void>();
   const herdrStatus = new Map<string, string>();
-  const waiting = new Set<string>();
+  const turned = new Map<string, "blocked" | "paused">();
   let seeded = false;
   let looking = false;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -31,7 +32,7 @@ export function createNeedsYou({
     for (const listener of listeners) listener(event);
   };
 
-  const shown = (paneId: string, status: string) => shownStatus(status, waiting.has(paneId));
+  const shown = (paneId: string, status: string) => shownStatus(status, turned.get(paneId) === "blocked", turned.get(paneId) === "paused");
 
   function onEvent(event: LiveEvent) {
     if (event.type === "live" && event.live) seeded = false;
@@ -41,7 +42,7 @@ export function createNeedsYou({
     }
     const changed = event.changed.map((change): ChangedTerminal => {
       herdrStatus.set(change.pane_id, change.agent_status);
-      if (change.agent_status !== "working") waiting.delete(change.pane_id);
+      if (change.agent_status !== "working") turned.delete(change.pane_id);
       return { ...change, agent_status: shown(change.pane_id, change.agent_status) };
     });
     emit({ ...event, changed });
@@ -57,14 +58,15 @@ export function createNeedsYou({
       const listed = new Set(agents.map((agent) => agent.pane_id));
       for (const paneId of [...herdrStatus.keys()]) if (!listed.has(paneId)) herdrStatus.delete(paneId);
       const changed: ChangedTerminal[] = [];
-      for (const { pane_id, agent_status, waiting: waits } of agents) {
+      for (const { pane_id, agent_status, waiting, paused } of agents) {
         herdrStatus.set(pane_id, agent_status);
-        if (waits === waiting.has(pane_id)) continue;
-        if (waits) waiting.add(pane_id);
-        else waiting.delete(pane_id);
+        const turnedTo = waiting ? "blocked" : paused ? "paused" : undefined;
+        if (turnedTo === turned.get(pane_id)) continue;
+        if (turnedTo) turned.set(pane_id, turnedTo);
+        else turned.delete(pane_id);
         changed.push({ pane_id, agent_status: shown(pane_id, agent_status) });
       }
-      for (const paneId of [...waiting]) if (!listed.has(paneId)) waiting.delete(paneId);
+      for (const paneId of [...turned.keys()]) if (!listed.has(paneId)) turned.delete(paneId);
       if (changed.length && !seeding) emit({ type: "change", changed, refetch: true });
     } catch (error) {
       if (!(error instanceof HerdrError)) console.error(error);

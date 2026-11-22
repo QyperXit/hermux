@@ -1,6 +1,7 @@
 import { RECENT_IDLE_READS, RECENT_ROWS } from "../web/activity.js";
 import { HerdrError, SHELL, type Agent, type Herdr, type Pane, type Tab } from "./herdr";
-import { readLatest, shellLatestLine } from "./latest-line";
+import { pausedLine, type Paused } from "../web/subagents.js";
+import { readLook, shellLatestLine } from "./latest-line";
 import { kindOf, tabsOf, toTerminals, type Terminal } from "./terminals";
 
 export const LATEST_LINE_STATUSES = new Set(["blocked", "working", "unknown", "done"]);
@@ -18,9 +19,10 @@ type LatestLine = { latest_line: string | null; latest_line_error?: LineError };
 type AgentState = { status: string; seq: unknown };
 type Look = AgentState & { at: number; since?: number };
 type Read = { at: number; line: string | null };
-type AgentRead = AgentState & Read & { waiting: boolean };
-type AgentLine = LatestLine & { waiting: boolean };
-type PaneLine = LatestLine & { waiting?: boolean };
+type Helpers = { waiting: boolean; paused: Paused | null };
+type AgentRead = AgentState & Read & Helpers;
+type AgentLine = LatestLine & Helpers;
+type PaneLine = LatestLine & Partial<Helpers>;
 
 const stateOf = (agent: Agent): AgentState => ({ status: agent.agent_status, seq: agent.state_change_seq });
 const sameState = (a: AgentState, b: AgentState) => a.status === b.status && a.seq === b.seq;
@@ -56,19 +58,35 @@ function failedRead(error: unknown): LatestLine {
 }
 
 // Atomic 0.10 tells herdr it is working while a subagent waits for an
-// answer; its screen showing that makes the agent blocked, "Needs you".
-export const shownStatus = (status: string, waiting: boolean | undefined) => (status === "working" && waiting ? "blocked" : status);
+// answer, or while only helpers it paused are left; its screen showing that
+// makes the agent blocked, "Needs you", or paused.
+export function shownStatus(status: string, waiting: boolean | undefined, paused?: boolean) {
+  if (status !== "working") return status;
+  return waiting ? "blocked" : paused ? "paused" : status;
+}
+
+const statusOf = (status: string, read: PaneLine) => shownStatus(status, read.waiting, Boolean(read.paused));
+
+// A paused agent's line says so; any other keeps the line read.
+function shownLine(status: string, read: PaneLine): LatestLine {
+  const { waiting, paused, ...line } = read;
+  return statusOf(status, read) === "paused" && paused ? { ...line, latest_line: pausedLine(paused) } : line;
+}
 
 // Only Atomic draws an agent panel with subagents in it.
 const showsSubagents = (agent: Agent) => agent.agent === "atomic";
 
 function withLine(terminal: Terminal, read: PaneLine | undefined): Terminal {
   if (!read) return terminal;
-  const { waiting, ...line } = read;
-  return { ...terminal, ...line, status: terminal.status === null ? null : shownStatus(terminal.status, waiting) };
+  const status = terminal.status === null ? null : statusOf(terminal.status, read);
+  return { ...terminal, ...shownLine(terminal.status ?? "", read), status };
 }
 
-export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" | "tabs" | "read">, now: () => number) {
+// `pausedInStore`: the helpers Atomic's saved session records as paused, for
+// a screen that may hide them (see mayHidePaused); none when unsure.
+type RosterOptions = { pausedInStore?: (agent: Agent, text: string) => string[] | null };
+
+export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" | "tabs" | "read">, now: () => number, { pausedInStore }: RosterOptions = {}) {
   const looks = new Map<string, Look>();
   const agentReads = new Map<string, AgentRead>();
   const shellReads = new Map<string, Read>();
@@ -98,17 +116,21 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
   async function agentLine(agent: Agent): Promise<AgentLine> {
     const state = stateOf(agent);
     const cached = agentReads.get(agent.pane_id);
-    if (cached && canReuse(cached, agent)) return { latest_line: cached.line, waiting: cached.waiting };
+    if (cached && canReuse(cached, agent)) return { latest_line: cached.line, waiting: cached.waiting, paused: cached.paused };
     const at = now();
     try {
-      const read = readLatest(await herdr.read(agent.pane_id, kindOf(agent.agent)));
+      const text = await herdr.read(agent.pane_id, kindOf(agent.agent));
+      const read = readLook(text);
       const line = read.line;
-      const waiting = read.waiting && showsSubagents(agent);
-      agentReads.set(agent.pane_id, { ...state, at, line, waiting });
-      return { latest_line: line, waiting };
+      const subagents = showsSubagents(agent);
+      const waiting = read.waiting && subagents;
+      const confirmed = subagents && agent.agent_status === "working" && read.unlisted ? pausedInStore?.(agent, text) : null;
+      const paused = !subagents ? null : (read.paused ?? (confirmed ? { names: confirmed } : null));
+      agentReads.set(agent.pane_id, { ...state, at, line, waiting, paused });
+      return { latest_line: line, waiting, paused };
     } catch (error) {
       agentReads.delete(agent.pane_id);
-      return { ...failedRead(error), waiting: false };
+      return { ...failedRead(error), waiting: false, paused: null };
     }
   }
 
@@ -170,17 +192,16 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
     return all.filter((terminal) => scope.has(terminal.pane_id)).map((terminal) => withLine(terminal, lines.get(terminal.pane_id)));
   }
 
-  // Every listed agent's herdr status, and whether a subagent waits on it: read
-  // only for an Atomic agent herdr calls working, from the screen its Latest
-  // line is read from (and reused as that is).
-  async function lookForWaiting(): Promise<{ pane_id: string; agent_status: string; waiting: boolean }[]> {
+  // Every listed agent's herdr status, and whether a subagent waits on it or
+  // only paused helpers are left: read only for an Atomic agent herdr calls
+  // working, from the screen its Latest line is read from (and reused as that is).
+  async function lookForWaiting(): Promise<{ pane_id: string; agent_status: string; waiting: boolean; paused: boolean }[]> {
     const agents = stampListed(await herdr.list());
     return Promise.all(
-      agents.map(async (agent) => ({
-        pane_id: agent.pane_id,
-        agent_status: agent.agent_status,
-        waiting: agent.agent_status === "working" && showsSubagents(agent) && (await agentLine(agent)).waiting,
-      })),
+      agents.map(async (agent) => {
+        const read = agent.agent_status === "working" && showsSubagents(agent) ? await agentLine(agent) : null;
+        return { pane_id: agent.pane_id, agent_status: agent.agent_status, waiting: Boolean(read?.waiting), paused: Boolean(read?.paused) };
+      }),
     );
   }
 
@@ -191,8 +212,9 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
       const tabOf = tabsOf(tabs);
       const lines = await linesOf(agentsToRead(agents, shownIdlePanes), []);
       return agents.map((agent) => {
-        const { waiting, ...line } = lines.get(agent.pane_id) ?? {};
-        return { ...agent, agent_status: shownStatus(agent.agent_status, waiting), tab: tabOf(agent.tab_id), ...line };
+        const read = lines.get(agent.pane_id);
+        const status = read ? statusOf(agent.agent_status, read) : agent.agent_status;
+        return { ...agent, agent_status: status, tab: tabOf(agent.tab_id), ...(read && shownLine(agent.agent_status, read)) };
       });
     },
 

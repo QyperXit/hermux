@@ -3,7 +3,7 @@
 // furniture below that line, and none of it may be shown as the agent's words.
 import { questionLine } from "../web/agent-question.js";
 import { FOOTER, PROMPT, isBoxTopRule, isRule, isUsage, proseEndingAt, readScreen, type Row, type Screen } from "../web/screen.js";
-import { waitingLine, waitingSubagent, type Waiting } from "../web/subagents.js";
+import { mayHidePaused, pausedHelpers, waitingLine, waitingSubagent, type Paused, type Waiting } from "../web/subagents.js";
 
 const INTERRUPT = /^\s*esc to interrupt\b/;
 // One spinner glyph (Atomic's ∀, a braille frame or a star), then a short
@@ -97,9 +97,17 @@ function lineOf({ rows, chromeStart, question, atomic0990 }: Screen, waiting: Wa
 // The Latest line, and whether the screen shows a subagent of Atomic 0.10
 // waiting for an answer: its agent needs you while herdr says it works.
 export function readLatest(text: string): { line: string | null; waiting: boolean } {
+  const { line, waiting } = readLook(text);
+  return { line, waiting };
+}
+
+// The same, the helpers it shows paused with nothing else at work (its
+// agent is paused while herdr says it works), and whether it may hide a
+// paused helper that only Atomic's saved session can confirm.
+export function readLook(text: string): { line: string | null; waiting: boolean; paused: Paused | null; unlisted: boolean } {
   const screen = readScreen(text);
   const waiting = waitingSubagent(screen);
-  return { line: lineOf(screen, waiting), waiting: waiting !== null };
+  return { line: lineOf(screen, waiting), waiting: waiting !== null, paused: waiting ? null : pausedHelpers(screen), unlisted: !waiting && mayHidePaused(screen) };
 }
 
 export function shellLatestLine(text: string): string | null {

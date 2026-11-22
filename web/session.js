@@ -370,10 +370,12 @@ export function createSession({ client, openStream, timers, opened }) {
   // What `choose` makes of the screen read once the keys already on their
   // way have gone.
   /**
+   * @template T
    * @param {Terminal} terminal
-   * @param {(text: string) => string[] | null} choose
+   * @param {(text: string) => T} choose
+   * @returns {Promise<T>}
    */
-  async function chosenKeys(terminal, choose) {
+  async function chosenFrom(terminal, choose) {
     await Promise.allSettled([...keySends]);
     return choose(await client.readOutput(terminal.pane_id));
   }
@@ -408,6 +410,28 @@ export function createSession({ client, openStream, timers, opened }) {
       refreshStale(failure);
       return { status: "refused", terminal, error: failure };
     }
+  }
+
+  // Sends, through `send`, what `choose` picks from the screen read once the
+  // keys already on their way have gone; "unchosen" when it picks nothing.
+  /**
+   * @template T
+   * @param {Terminal} terminal
+   * @param {(text: string) => T | null} choose
+   * @param {(picked: T) => Promise<unknown>} send
+   * @returns {Promise<SentChosen>}
+   */
+  async function sendChosen(terminal, choose, send) {
+    let chosen = false;
+    const result = await onItsWay(
+      sendTo(terminal, async () => {
+        const picked = await chosenFrom(terminal, choose);
+        if (!picked) return;
+        chosen = true;
+        await send(picked);
+      }),
+    );
+    return result.status === "sent" && !chosen ? { status: "unchosen", terminal, error: null } : result;
   }
 
   return {
@@ -512,16 +536,26 @@ export function createSession({ client, openStream, timers, opened }) {
     async sendChosenKeys(choose) {
       const terminal = openTerminal();
       if (!terminal) return { status: "ignored" };
-      let chosen = false;
-      const result = await onItsWay(
-        sendTo(terminal, async () => {
-          const keys = await chosenKeys(terminal, choose);
-          if (!keys?.length) return;
-          chosen = true;
-          await client.sendKeys(terminal.pane_id, keys, terminal.kind);
-        }),
+      return sendChosen(
+        terminal,
+        (text) => {
+          const keys = choose(text);
+          return keys?.length ? keys : null;
+        },
+        (keys) => client.sendKeys(terminal.pane_id, keys, terminal.kind),
       );
-      return result.status === "sent" && !chosen ? { status: "unchosen", terminal, error: null } : result;
+    },
+
+    /**
+     * Sends the text `choose` picks from the screen read once the keys
+     * already on their way have gone, as a message; nothing when it picks none.
+     * @param {(text: string) => string | null} choose
+     * @returns {Promise<SentChosen>}
+     */
+    async sendChosenText(choose) {
+      const terminal = openTerminal();
+      if (!terminal || sending) return { status: "ignored" };
+      return sendChosen(terminal, choose, (text) => client.sendPrompt(terminal.pane_id, text, terminal.kind));
     },
   };
 }

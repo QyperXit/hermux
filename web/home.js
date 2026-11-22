@@ -117,10 +117,11 @@ export function homeLists(agents, storage) {
   const blocked = newestFirst(agents.filter(is("blocked")));
   const finished = newestFirst(agents.filter((agent) => is("done", "idle")(agent) && isFinished(agent, storage)));
   const working = newestFirst(agents.filter(is("working", "unknown")));
-  const shown = new Set([...blocked, ...finished, ...working]);
+  const paused = newestFirst(agents.filter(is("paused")));
+  const shown = new Set([...blocked, ...finished, ...working, ...paused]);
   const recent = newestFirst(agents.filter((agent) => !shown.has(agent))).slice(0, RECENT_ROWS);
   const older = new Set(recent.slice(FULL_ROWS));
-  const inActivity = new Set([...working, ...recent]);
+  const inActivity = new Set([...working, ...paused, ...recent]);
   const activity = newestFirst(agents.filter((agent) => inActivity.has(agent))).map((agent) => ({ agent, older: older.has(agent) }));
   return {
     blocked,
@@ -152,15 +153,22 @@ export function allAgents(agents) {
   return newestFirst(agents).sort((a, b) => Number(b.agent_status === "blocked") - Number(a.agent_status === "blocked"));
 }
 
-/** @param {Pick<Home, "blocked" | "finished" | "working">} home */
-export function summaryLine({ blocked, finished, working }) {
+/** @param {Home["activity"]} activity */
+const pausedCount = (activity) => activity.filter(({ agent }) => agent.agent_status === "paused").length;
+
+/** @param {Pick<Home, "blocked" | "finished" | "working"> & Partial<Pick<Home, "activity">>} home */
+export function summaryLine({ blocked, finished, working, activity = [] }) {
+  const paused = pausedCount(activity);
   const parts = [blocked.length ? `${blocked.length} need${blocked.length === 1 ? "s" : ""} you` : "Nothing needs you"];
   if (finished.length) parts.push(`${finished.length} finished`);
   if (working.length) parts.push(`${working.length} working`);
+  if (paused) parts.push(`${paused} paused`);
   return parts.join(" · ");
 }
 
-/** @param {Pick<Home, "working">} home */
-export function calmLine({ working }) {
-  return working.length ? `Nothing new. ${working.length} working.` : "Nothing new.";
+/** @param {Pick<Home, "working"> & Partial<Pick<Home, "activity">>} home */
+export function calmLine({ working, activity = [] }) {
+  const paused = pausedCount(activity);
+  const parts = [...(working.length ? [`${working.length} working`] : []), ...(paused ? [`${paused} paused`] : [])];
+  return parts.length ? `Nothing new. ${parts.join(" · ")}.` : "Nothing new.";
 }

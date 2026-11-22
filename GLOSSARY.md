@@ -9,7 +9,7 @@ Any Herdr pane the app shows. A Terminal is either an Agent or a Shell.
 _Avoid_: pane (except when talking to herdr), tab, window
 
 **Agent**:
-A Terminal running a coding agent that herdr recognises. It has a status: working, blocked, done, idle or unclear.
+A Terminal running a coding agent that herdr recognises. It has a status: working, blocked, paused, done, idle or unclear.
 _Avoid_: bot, session (a Session is something else, below)
 
 **Shell**:
@@ -54,6 +54,14 @@ _Avoid_: download dialog, file card, file viewer
 A helper agent an Agent on Atomic 0.10 starts. Atomic lists its subagents in its agent panel and shows one at a time on the main screen; one waiting for an answer makes its Agent need you.
 _Avoid_: workflow, child, worker (that is one subagent's name)
 
+**Paused**:
+An Agent on Atomic 0.10 whose only unfinished Subagents are ones you paused (Esc on a shown Subagent) and whose own turn is over. herdr still calls it working; hermux reads it from main's screen, or when Atomic lists the helper nowhere, from its saved session, and shows "‖ Paused" in Activity, quietly: no lamp, no Inbox, no Notification. A message to the paused Subagent carries it on.
+_Avoid_: stopped (Atomic's word for a Subagent ended for good), idle, stuck
+
+**Paused card**:
+The card above the keys while an Agent is Paused and main is on Atomic's screen: "A helper is paused · send it a message to carry on" and Show helpers, which opens Atomic's /tasks list, where each paused Subagent's row opens it.
+_Avoid_: question card (that is for a Subagent waiting for an answer)
+
 **Question card**:
 The card above the keys while a Subagent waits for an answer and no question is on the Live screen: "‹name› is asking · ‹its task›", its question when the main chat shows it, and Open ‹name›'s question, which brings that Subagent's chat, and its question, to the screen.
 _Avoid_: banner, prompt card, alert
@@ -73,7 +81,7 @@ _Avoid_: input, text box, other
 ## Notifications
 
 **Notification**:
-A push message to the phone when an Agent needs you (it is blocked, or a Subagent of it waits for an answer) or has finished (it went from working to done). It names the Agent's folder and name, and tapping it opens that Terminal. Not the Inbox, which is a list inside the app.
+A push message to the phone when an Agent needs you (it is blocked, or a Subagent of it waits for an answer) or has finished (it went from working, or Paused, to done). It names the Agent's folder and name, and tapping it opens that Terminal. Not the Inbox, which is a list inside the app.
 _Avoid_: alert, ping
 
 ## Home
@@ -83,5 +91,5 @@ The Agents that need you, plus those that finished since you last opened them in
 _Avoid_: notifications, alerts
 
 **Activity**:
-The working Agents plus the most recently active others, in order of latest activity.
+The working and Paused Agents plus the most recently active others, in order of latest activity.
 _Avoid_: feed, recent list

@@ -20,12 +20,12 @@ CREATE TABLE session_entries (
   entry_json TEXT NOT NULL CHECK(json_valid(entry_json)), PRIMARY KEY(session_id, seq)) STRICT;`;
 
 export type Entry = Record<string, unknown>;
-export type Session = { id: string; cwd?: string; internal?: number; modified?: string; entries: Entry[] };
+export type Session = { id: string; cwd?: string; internal?: number; modified?: string; header?: Entry; entries: Entry[] };
 
 const insertSession = (db: Database, session: Session) => {
   db.run(
-    "INSERT INTO session_sessions (id, cwd, created_at, header_json, internal, last_seq, modified_at, message_count, first_message, name, has_name, summary_state) VALUES (?, ?, ?, '{}', ?, ?, ?, ?, '\"\"', NULL, 0, '{}')",
-    [session.id, session.cwd ?? CWD, "2026-10-29T00:00:00Z", session.internal ?? 0, session.entries.length, session.modified ?? "2026-10-29T10:00:00Z", session.entries.length],
+    "INSERT INTO session_sessions (id, cwd, created_at, header_json, internal, last_seq, modified_at, message_count, first_message, name, has_name, summary_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '\"\"', NULL, 0, '{}')",
+    [session.id, session.cwd ?? CWD, "2026-10-29T00:00:00Z", JSON.stringify(session.header ?? {}), session.internal ?? 0, session.entries.length, session.modified ?? "2026-10-29T10:00:00Z", session.entries.length],
   );
   insertEntries(db, session.id, 1, session.entries);
 };
@@ -57,5 +57,11 @@ export function addSession(path: string, session: Session) {
 export function addEntries(path: string, sessionId: string, firstSeq: number, entries: Entry[]) {
   const db = new Database(path);
   insertEntries(db, sessionId, firstSeq, entries);
+  db.close();
+}
+
+export function bumpLastSeq(path: string, sessionId: string, lastSeq: number) {
+  const db = new Database(path);
+  db.run("UPDATE session_sessions SET last_seq = ? WHERE id = ?", [lastSeq, sessionId]);
   db.close();
 }

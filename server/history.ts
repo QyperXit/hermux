@@ -1,16 +1,19 @@
 // Earlier messages of an Atomic agent's conversation. herdr only returns
 // the visible screen for Atomic agents, so the server reads Atomic's own session
 // store, READ-ONLY: the SQLite file is opened with `readonly: true` (SQLite's
-// SQLITE_OPEN_READONLY), and the only statements here are the two SELECTs below.
+// SQLITE_OPEN_READONLY), and the only statements here are the SELECTs below.
 // Nothing writes, checkpoints, vacuums or locks it for writing.
 //
 // Every entry read is an indexed lookup by session_id and seq with a LIMIT
 // (the table's primary key). The candidate lookup by folder reads only
 // session_sessions, never entry_json, and runs only when a pane is (re)matched
 // or the page asks for a live table's saved copy; a pane with no match is not
-// looked up again until its screen changes.
+// looked up again until its screen changes. A session's subagent records are
+// read only to confirm a paused helper, and not again until the
+// session's last seq moves.
 import { Database } from "bun:sqlite";
 import { MAX_ANCHOR_CHARS, MAX_ANCHORS, holdsAnchor, pipeTables, withoutLinkTargets, type PipeTable } from "../web/pipe-table.js";
+import { plainText } from "../web/screen.js";
 import { CONTROL, matchKey } from "../web/wrap.js";
 import { HerdrError, isRecord, type Agent, type Herdr } from "./herdr";
 
@@ -47,6 +50,14 @@ const CANDIDATES_SQL =
 const ENTRIES_SQL =
   "SELECT seq, CASE WHEN json_extract(entry_json, '$.type') = 'message' AND json_extract(entry_json, '$.message.role') IN ('user', 'assistant') THEN entry_json END AS json " +
   "FROM session_entries WHERE session_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3";
+const LAST_SEQ_SQL = "SELECT last_seq FROM session_sessions WHERE id = ?1 LIMIT ?2";
+const PARENT_SQL = "SELECT json_extract(header_json, '$.parentSessionId') AS parent FROM session_sessions WHERE id = ?1 LIMIT ?2";
+// A subagent's record starts as Atomic writes it; a prefix match reads a long
+// session about four times faster than json_extract, and a record written
+// otherwise is just not found (no helper confirmed paused).
+const CHILDREN_SQL = "SELECT entry_json AS json FROM session_entries WHERE session_id = ?1 AND entry_json LIKE ?2 ORDER BY seq DESC LIMIT ?3";
+const CHILD_RECORD = '{"type":"custom","customType":"subagent-child"%';
+const MAX_CHILD_RECORDS = 5000;
 
 export type SessionStore = ReturnType<typeof openSessionStore>;
 
@@ -66,8 +77,42 @@ export function openSessionStore(path: string) {
       if (!rows.every(isEntryRow)) throw new Error("Atomic's session store returned an entry the server couldn't read.");
       return rows;
     },
+    lastSeq: (sessionId: string): number | null => {
+      const row = db.query(LAST_SEQ_SQL).get(sessionId, 1);
+      return isRecord(row) && Number.isSafeInteger(row.last_seq) ? Number(row.last_seq) : null;
+    },
+    // The session this one was started from (a helper's or a fork's parent), if any.
+    parentOf: (sessionId: string): string | null => {
+      const row = db.query(PARENT_SQL).get(sessionId, 1);
+      return isRecord(row) && typeof row.parent === "string" ? row.parent : null;
+    },
+    // Every subagent record, newest first.
+    children: (sessionId: string): unknown[] =>
+      db.query(CHILDREN_SQL).all(sessionId, CHILD_RECORD, MAX_CHILD_RECORDS).flatMap((row) => {
+        if (!isRecord(row) || typeof row.json !== "string") return [];
+        try {
+          const entry: unknown = JSON.parse(row.json);
+          return isRecord(entry) && entry.customType === "subagent-child" && isRecord(entry.data) ? [entry.data] : [];
+        } catch {
+          return [];
+        }
+      }),
     close: () => db.close(),
   };
+}
+
+// The helper records `session` wrote itself: a fork copies its parent's,
+// which still name the parent as their owner.
+const ownRecords = (records: unknown[], session: string) =>
+  records.filter((record): record is Record<string, unknown> => isRecord(record) && isRecord(record.owner) && record.owner.sessionId === session);
+
+// The helpers whose latest record says you paused them and nothing since:
+// still running, `pausedByUser`, not resumed (that sets it false), finished
+// or stopped (state "terminal").
+function pausedHelperNames(records: Record<string, unknown>[]): string[] {
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const record of records) if (typeof record.childId === "string" && !latest.has(record.childId)) latest.set(record.childId, record);
+  return [...latest.values()].flatMap((record) => (record.state === "running" && record.pausedByUser === true && typeof record.agent === "string" ? [record.agent] : []));
 }
 
 const folderOf = (agent: Agent) => (typeof agent.cwd === "string" ? agent.cwd : "");
@@ -196,6 +241,8 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
   let store: SessionStore | null = null;
   let failedAt: number | null = null;
   const matches = new Map<string, { cwd: string; session: string }>();
+  const records = new Map<string, { lastSeq: number; own: Record<string, unknown>[] }>();
+  const pausedMatches = new Map<string, { cwd: string; screen: string; session: string | null }>();
   const unmatched = new Map<string, { cwd: string; screen: string; reason: "no_match" | "ambiguous" }>();
 
   function getStore(): SessionStore | null {
@@ -244,6 +291,7 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
   }
 
   const shows = (s: SessionStore, session: string, screen: string) => latestTextKeys(s, session).some((key) => screen.includes(key));
+  const sessionsShown = (s: SessionStore, cwd: string, screen: string) => s.candidates(cwd).filter((session) => shows(s, session, screen));
 
   function match(s: SessionStore, paneId: string, cwd: string, screen: string): string | "no_match" | "ambiguous" {
     const cached = matches.get(paneId);
@@ -252,7 +300,7 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
     const known = unmatched.get(paneId);
     if (known && known.cwd === cwd && known.screen === screen) return known.reason;
     unmatched.delete(paneId);
-    const found = s.candidates(cwd).filter((session) => shows(s, session, screen));
+    const found = sessionsShown(s, cwd, screen);
     if (found.length !== 1) {
       const reason = found.length ? "ambiguous" : "no_match";
       unmatched.set(paneId, { cwd, screen, reason });
@@ -260,6 +308,38 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
     }
     matches.set(paneId, { cwd, session: found[0] });
     return found[0];
+  }
+
+  // A session's own helper records, read again only when its last seq moves.
+  function ownOf(s: SessionStore, session: string): Record<string, unknown>[] {
+    const lastSeq = s.lastSeq(session);
+    if (lastSeq === null) return [];
+    let known = records.get(session);
+    if (!known || known.lastSeq !== lastSeq) {
+      known = { lastSeq, own: ownRecords(s.children(session), session) };
+      records.set(session, known);
+    }
+    return known.own;
+  }
+
+  // The pane's session for confirming a paused helper: the one session left
+  // of the folder's sessions whose latest words are on screen, once a
+  // helper's own session (which main quotes) is left out. A session is a
+  // helper's when its parent is on screen too and the parent's own records
+  // name it; a fork, which its parent doesn't name, stays.
+  function pausedMatch(s: SessionStore, paneId: string, cwd: string, screen: string): string | null {
+    const known = pausedMatches.get(paneId);
+    if (known && known.cwd === cwd && known.screen === screen) return known.session;
+    const shown = sessionsShown(s, cwd, screen);
+    const onScreen = new Set(shown);
+    const isNamedHelper = (session: string) => {
+      const parent = s.parentOf(session);
+      return parent !== null && onScreen.has(parent) && ownOf(s, parent).some((record) => record.childSessionId === session);
+    };
+    const left = shown.filter((session) => !isNamedHelper(session));
+    const session = left.length === 1 ? left[0] : null;
+    pausedMatches.set(paneId, { cwd, screen, session });
+    return session;
   }
 
   function tablesIn(s: SessionStore, session: string, anchors: Set<string>): PipeTable[] {
@@ -273,6 +353,25 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
   }
 
   return {
+    // The helpers Atomic's saved session records as paused by you, for the
+    // pane whose screen `text` is, when one session matches (see
+    // pausedMatch); null when none or several do, the store can't be read,
+    // or none is paused.
+    pausedHelpers(agent: Agent, text: string): string[] | null {
+      const s = getStore();
+      const cwd = folderOf(agent);
+      if (!s || !cwd) return null;
+      try {
+        const session = pausedMatch(s, agent.pane_id, cwd, matchKey(plainText(text)));
+        if (!session) return null;
+        const names = pausedHelperNames(ownOf(s, session));
+        return names.length ? names : null;
+      } catch (error) {
+        console.error(error);
+        return null;
+      }
+    },
+
     async savedTables(paneId: string, anchors: string[]): Promise<SavedTables> {
       const agent = await herdr.get(paneId);
       const s = getStore();

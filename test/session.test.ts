@@ -806,3 +806,25 @@ test("live output: herdr's events down doesn't stop a streamed Terminal; if its 
   await flush();
   expect(page.count("output w9:pD")).toBe(1);
 });
+
+test("text chosen from a fresh read waits for the keys on their way and goes through the prompt path only when some is chosen", async () => {
+  const page = setup({ route: { name: "agent", paneId: "w9:pE" } });
+  await flush();
+  await page.live();
+  page.reset();
+  const read: string[] = [];
+  const earlier = page.hold("keys w9:pE atomic enter");
+  const enter = page.session.sendKey("enter");
+  const shown = page.session.sendChosenText((text) => (read.push(text), "/tasks"));
+  await flush();
+  expect([page.calls, read]).toEqual([["keys w9:pE atomic enter"], []]);
+  earlier.resolve();
+  await enter;
+  expect(await shown).toMatchObject({ status: "sent", error: null });
+  expect(read).toEqual(["screen of w9:pE"]);
+  expect(page.calls).toContain("prompt w9:pE atomic /tasks");
+
+  page.reset();
+  expect(await page.session.sendChosenText(() => null)).toMatchObject({ status: "unchosen", error: null });
+  expect(page.calls.filter((call) => call.startsWith("prompt"))).toEqual([]);
+});

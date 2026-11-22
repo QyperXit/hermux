@@ -4,6 +4,7 @@ import { composerHtml } from "../web/composer.js";
 import { drawTerminalControls } from "../web/controls.js";
 import { memoryStorage } from "../web/home.js";
 import { createKeyBar } from "../web/key-bar.js";
+import { attachPausedCard } from "../web/paused-card.js";
 import { attachQuestionCard } from "../web/question-card.js";
 import { readScreen } from "../web/screen.js";
 import { stripHtml } from "../web/subagent-strip.js";
@@ -25,6 +26,7 @@ function controlsScreen() {
   });
   attachment.attach(page);
   attachQuestionCard(page, async () => {});
+  attachPausedCard(page, async () => {});
   const draw = (status: string, screen: string) => drawTerminalControls(page, { terminal: atomic(status), sending: false, screen: readScreen(screen) }, { keyBar, attachment });
   const shown = (selector: string) => root.querySelector(selector)!.shown;
   const click = (selector: string) => root.querySelector(selector)!.dispatch("click", { detail: 1 });
