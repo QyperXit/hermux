@@ -50,21 +50,6 @@ const blockHtml = (rows, extraClass = "", copy = "press") => `<div class="block$
  */
 const withoutColours = (line) => ({ ...line, runs: [{ text: line.text, cls: "" }] });
 
-// Atomic's full-screen workflow graph is all Atomic's drawing: one block, blank
-// and connector rows included. Atomic pins its GRAPH pill to the bottom of the
-// screen, so a small graph sits over many blank rows; that filler is screen
-// space, not layout, so a blank run keeps at most MAX_GRAPH_GAP rows.
-const MAX_GRAPH_GAP = 3;
-
-/** @param {Line[]} rows */
-function graphHtml(rows) {
-  let end = rows.length;
-  while (end > 0 && isBlank(rows[end - 1])) end--;
-  const drawn = rows.slice(rows.findIndex((row) => !isBlank(row)), end);
-  let gap = 0;
-  return blockHtml(drawn.filter((row) => (isBlank(row) ? ++gap <= MAX_GRAPH_GAP : ((gap = 0), true))));
-}
-
 /** @param {string} text */
 const hidden = (text) => `<span class="visually-hidden">${text}</span>`;
 
@@ -78,7 +63,6 @@ function optionHtml(row) {
   const classes = ["opt", row.selected && "is-selected", row.ticked === true && "is-ticked", row.ticked === false && "is-unticked"].filter(Boolean);
   return (
     `<div class="${classes.join(" ")}">` +
-    (row.inBox ? `<span class="opt-edge"></span>` : "") +
     `<span class="opt-mark">${row.selected ? hidden("selected") : ""}</span>` +
     (row.number === null ? "" : `<span class="opt-num">${row.number}.</span>`) +
     (row.ticked === null ? "" : `<span class="opt-box">${hidden(row.ticked ? "ticked" : "not ticked")}</span>`) +
@@ -132,10 +116,6 @@ function questionHtml(question) {
  * @param {Run[]} runs
  */
 const bandParagraphHtml = (first, runs) => `<p class="p"${indentStyle(leading(first) - 1, "margin-left")}>${runsHtml(runs)}</p>`;
-
-/** @param {string[]} lines */
-const runPanelHtml = (lines) =>
-  `<div class="run-panel is-chrome">${lines.map((line) => `<div class="line"${indentStyle(line.length - line.trimStart().length)}>${escapeHtml(line.trim()) || " "}</div>`).join("")}</div>`;
 
 /** @param {string} text */
 export function shellParts(text) {
@@ -194,8 +174,7 @@ export function readLive(text, savedTables = []) {
   /** @type {PipeTable[]} */
   const read = [];
   const screen = readScreen(text);
-  if (screen.graph) return { parts: [graphHtml(screen.rows)], anchors, read, screen };
-  const { rows, options, panel, question } = screen;
+  const { rows, options, question } = screen;
   const prose = new Map(screen.prose.map((paragraph) => [paragraph.start, paragraph]));
   /** @type {string[]} */
   const html = [];
@@ -211,10 +190,7 @@ export function readLive(text, savedTables = []) {
       continue;
     }
     if (line.chrome) {
-      if (panel && i === panel.start) {
-        html.push(runPanelHtml(panel.lines));
-        i = panel.end;
-      } else if (line.kind === "rule") {
+      if (line.kind === "rule") {
         html.push(`<hr class="output-rule is-chrome">`);
         i++;
       } else if (line.kind === "box") {

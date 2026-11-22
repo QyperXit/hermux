@@ -101,7 +101,7 @@ describe("tap keys", () => {
     expect(screen.names(BAR)).toEqual([...ANSWER_NAMES, ...DEFAULT_BAR_NAMES, "Add a key"]);
   });
 
-  test("a tap on Ctrl X sends it once, so a workflow stage's chat can be left", () => {
+  test("a tap on Ctrl X, on the default bar, sends it once", () => {
     const screen = keyBarScreen();
     screen.tap(screen.button("Send Ctrl X"));
     screen.clock.advance(5000);
@@ -369,7 +369,7 @@ describe("saved commands", () => {
     const homeRow = screen.root.querySelectorAll("button")[0];
     expect(() => screen.click(homeRow)).not.toThrow();
     expect(() => screen.click(homeRow)).not.toThrow();
-    expect(() => screen.keyBar.setBlocked(true)).not.toThrow();
+    expect(() => screen.keyBar.setHidden(true)).not.toThrow();
   });
 
   test("an empty command has no button, and the others keep sending their own text", () => {
@@ -463,7 +463,7 @@ describe("saved commands", () => {
   test("while the Agent is blocked an open popover closes", () => {
     const screen = keyBarScreen();
     open(screen);
-    screen.keyBar.setBlocked(true);
+    screen.keyBar.setHidden(true);
     expect(popover(screen).shown).toBe(false);
     expect(slash(screen).getAttribute("aria-expanded")).toBe("false");
   });
@@ -471,10 +471,10 @@ describe("saved commands", () => {
   test("the block's close leaves the focus where it was, and a block lifted leaves an open popover open", () => {
     const screen = keyBarScreen();
     open(screen);
-    screen.keyBar.setBlocked(false);
+    screen.keyBar.setHidden(false);
     expect(popover(screen).shown).toBe(true);
     const held = screen.focused();
-    screen.keyBar.setBlocked(true);
+    screen.keyBar.setHidden(true);
     expect([popover(screen).shown, screen.focused()]).toEqual([false, held]);
   });
 });
@@ -482,9 +482,9 @@ describe("saved commands", () => {
 test("making the key bar writes nothing to the phone and touches no page; attaching and sending write nothing either", () => {
   const storage = memoryStorage();
   const keyBar = createKeyBar({ storage });
-  expect(Object.keys(keyBar)).toEqual(["attach", "setBlocked"]);
+  expect(Object.keys(keyBar)).toEqual(["attach", "setHidden"]);
   expect(storage.length).toBe(0);
-  expect(() => keyBar.setBlocked(true)).toThrow("The key bar isn't attached to a screen.");
+  expect(() => keyBar.setHidden(true)).toThrow("The key bar isn't attached to a screen.");
   const screen = keyBarScreen({ storage });
   screen.tap(screen.button("Send Esc"));
   screen.click(screen.button(SLASH));

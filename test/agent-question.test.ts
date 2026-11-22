@@ -5,8 +5,6 @@ import { readScreen } from "../web/screen.js";
 import { declarations } from "./support/css";
 import * as Atomic0990 from "./support/atomic-0990";
 import * as Q from "./support/atomic-0990-question";
-import { WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
-import { GRAPH_SCREEN, STAGE_QUESTION_SCREEN } from "./support/workflow-question";
 
 const questionOf = (text: string) => readScreen(text).question;
 const optionsOf = (text: string) =>
@@ -110,7 +108,7 @@ describe("Atomic 0.9.90's trust prompt", () => {
 
 describe("no question is read", () => {
   test("on screens without Atomic 0.9.90's question box or trust prompt", () => {
-    const screens = [GRAPH_SCREEN, STAGE_QUESTION_SCREEN, WORKFLOW_PICKER_SCREEN, ...Object.values(Atomic0990).filter((value) => typeof value === "string")];
+    const screens = Object.values(Atomic0990).filter((value) => typeof value === "string");
     for (const screen of screens) expect(questionOf(screen)).toBeNull();
   });
 
@@ -241,7 +239,7 @@ describe("a tap or a number key on a question", () => {
 describe("text typed on the phone for a blocked agent", () => {
   test("is taken only while the question's own typing field is open", () => {
     for (const screen of [Q.ASK_TYPE_FOCUSED_SCREEN, Q.ASK_TYPED_SCREEN, Q.ASK_CHAT_TYPED_SCREEN, Q.ASK_SIX_SCREEN, Q.NOTES_SCREEN]) expect(takesTypedAnswer(questionOf(screen))).toBe(true);
-    for (const screen of [Q.ASK_SCREEN, Q.ASK_DOWN_SCREEN, Q.MULTI_SUBMIT_SCREEN, Q.TABS_SCREEN, Q.REVIEW_SCREEN, Q.PREVIEW_SCREEN, Q.TRUST_SCREEN, GRAPH_SCREEN, WORKFLOW_PICKER_SCREEN, STAGE_QUESTION_SCREEN]) {
+    for (const screen of [Q.ASK_SCREEN, Q.ASK_DOWN_SCREEN, Q.MULTI_SUBMIT_SCREEN, Q.TABS_SCREEN, Q.REVIEW_SCREEN, Q.PREVIEW_SCREEN, Q.TRUST_SCREEN]) {
       expect(takesTypedAnswer(questionOf(screen))).toBe(false);
     }
   });

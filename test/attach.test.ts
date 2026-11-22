@@ -805,10 +805,10 @@ describe("the clip menu", () => {
   test("a block closes it without taking the focus, and a block lifted leaves an open menu open", () => {
     const screen = clipScreen();
     screen.open();
-    screen.attachment.setBlocked(false);
+    screen.attachment.setHidden(false);
     expect(screen.menuState()).toEqual([true, "true"]);
     const held = screen.focused();
-    screen.attachment.setBlocked(true);
+    screen.attachment.setHidden(true);
     expect([screen.menuState(), screen.focused()]).toEqual([[false, "false"], held]);
   });
 
@@ -886,8 +886,8 @@ describe("the clip menu", () => {
     const screen = clipScreen();
     const draw = (blocked: boolean) => {
       drawComposer(asPageElement(screen.root), { target: "weather-app", sending: false, blocked });
-      screen.keyBar.setBlocked(blocked);
-      screen.attachment.setBlocked(blocked);
+      screen.keyBar.setHidden(blocked);
+      screen.attachment.setHidden(blocked);
     };
     draw(false);
     screen.open();
@@ -917,7 +917,7 @@ describe("the clip menu", () => {
     const homeRow = screen.root.querySelectorAll("button")[0];
     expect(() => screen.click(homeRow)).not.toThrow();
     expect(() => screen.click(homeRow)).not.toThrow();
-    expect(() => screen.attachment.setBlocked(true)).not.toThrow();
+    expect(() => screen.attachment.setHidden(true)).not.toThrow();
   });
 
   test("its two icons are drawn in the page's sprite", () => {

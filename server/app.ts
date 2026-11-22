@@ -67,7 +67,9 @@ type StreamEvent = LiveEvent | WatchEvent | { type: "stream"; id: string };
 
 const sseFrame = ({ type, ...data }: StreamEvent) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
-function eventStream(request: Request, events: LiveEvents, attach?: (send: (event: StreamEvent) => void) => () => void): Response {
+type EventFeed = Pick<LiveEvents, "subscribe">;
+
+function eventStream(request: Request, events: EventFeed, attach?: (send: (event: StreamEvent) => void) => () => void): Response {
   const encoder = new TextEncoder();
   let cleanup = () => {};
   const body = new ReadableStream<Uint8Array>({
@@ -161,6 +163,7 @@ async function keysBody(request: Request) {
 
 export function createApp({
   herdr,
+  roster: sharedRoster,
   webRoot,
   allowedLogin,
   now = Date.now,
@@ -173,13 +176,15 @@ export function createApp({
   files,
 }: {
   herdr: Herdr;
+  // Shared with the notifier and the "Needs you" look, so their reads are reused.
+  roster?: ReturnType<typeof createRoster>;
   webRoot: string;
   allowedLogin: string;
   now?: () => number;
   // Earlier messages from Atomic's session store; without it there are none.
   history?: ReturnType<typeof createHistory>;
   // herdr's events for the page's stream; without it there is no stream.
-  events?: LiveEvents;
+  events?: EventFeed;
   // Live output; without it the page polls the open Terminal's output.
   watcher?: Watcher;
   // Push notifications; without it the push routes are unknown (404).
@@ -190,7 +195,7 @@ export function createApp({
   files?: Files;
 }) {
   const root = resolve(webRoot);
-  const roster = createRoster(herdr, now);
+  const roster = sharedRoster ?? createRoster(herdr, now);
   const streams = new Map<string, Viewer>();
   const watchGeneration = new Map<Viewer, number>();
   const isStreamOpen = (viewer: Viewer) => watchGeneration.has(viewer);

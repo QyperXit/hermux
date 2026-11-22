@@ -6,8 +6,7 @@ import { WEB } from "./support/agents";
 import { ALLOWED_LOGIN, auditCalls, herdrError, paste } from "./support/http";
 import { REFUSED_KEYS, REPRESENTATIVE_KEYS } from "./support/key-grammar";
 import * as Q from "./support/atomic-0990-question";
-import { WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
-import { GRAPH_SCREEN, STAGE_QUESTION_SCREEN } from "./support/workflow-question";
+import * as A from "./support/atomic-0100";
 import { AGENTS, ATOMIC, CONFIG, BLOCKED_ATOMIC, PI, SHELLS, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
 
 type Call = string[];
@@ -351,9 +350,6 @@ describe.concurrent("typed answers to a blocked agent", () => {
     ["the cursor on Submit", Q.MULTI_SUBMIT_SCREEN],
     ["a questionnaire's Review", Q.REVIEW_SCREEN],
     ["the trust prompt", Q.TRUST_SCREEN],
-    ["the workflow graph", GRAPH_SCREEN],
-    ["the /workflow connect picker", WORKFLOW_PICKER_SCREEN],
-    ["a workflow stage's chat", STAGE_QUESTION_SCREEN],
     ["no question at all", "Which port should it use?"],
   ];
   for (const [name, screen] of closed) {
@@ -372,7 +368,7 @@ describe.concurrent("typed answers to a blocked agent", () => {
     expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], READ]);
   });
 
-  test("an agent that isn't blocked is never read first, field or not", async () => {
+  test("an idle agent is never read first, field or not", async () => {
     const { request, calls } = setup({ ...CONFIG, ansiOutputs: { [ATOMIC]: Q.ASK_SCREEN } });
     expect((await request("POST", ...prompt(ATOMIC, "hello", "atomic"))).status).toBe(200);
     expect(calls()).toEqual([CUSTOM.recheck, ...CUSTOM.message("hello")]);
@@ -383,5 +379,51 @@ describe.concurrent("typed answers to a blocked agent", () => {
     const { request, calls } = setup(blocked);
     expect(await errorOf(await request("POST", ...prompt(PI, "hello", "pi")))).toEqual([409, "agent_blocked"]);
     expect(calls()).toEqual([BUILT_IN.recheck, ...BUILT_IN.message("hello")]);
+  });
+});
+
+describe.concurrent("text to an agent herdr calls working, as Atomic 0.10 is while a subagent runs", () => {
+  const READ = screenRead(ATOMIC);
+  const working = (screen: string): FakeConfig => ({ ...CONFIG, agents: AGENTS.map((agent) => (agent.pane_id === ATOMIC ? { ...agent, agent_status: "working" } : agent)), ansiOutputs: { [ATOMIC]: screen } });
+
+  const asked: [string, string][] = [
+    ["the main agent's own question (\"hello there\" once answered Roof → Flat this way)", A.MAIN_QUESTION_SCREEN],
+    ["a subagent's question", A.QUESTION_SCREEN],
+    ["a subagent's question on a narrow pane", A.NARROWER_QUESTION_SCREEN],
+    ["an older Atomic's question", Q.ASK_SCREEN],
+    ["the trust prompt", Q.TRUST_SCREEN],
+  ];
+  for (const [name, screen] of asked) {
+    test(`with ${name} on screen, its typing field closed, the text is refused with 409 agent_blocked and nothing is sent`, async () => {
+      const { request, calls } = setup(working(screen));
+      expect(await errorOf(await request("POST", ...prompt(ATOMIC, "hello there", "atomic")))).toEqual([409, "agent_blocked"]);
+      expect(calls()).toEqual([CUSTOM.recheck, READ]);
+    });
+  }
+
+  const free: [string, string][] = [
+    ["a subagent's question with its typing field open", A.TYPE_FOCUSED_SCREEN],
+    ["a subagent waiting, its question not on screen", A.WAITING_SCREEN],
+    ["a subagent on screen, working", A.SHOWN_WORKING_SCREEN],
+    ["no question", A.RETRY_SCREEN],
+  ];
+  for (const [name, screen] of free) {
+    test(`with ${name}, the text is pasted and Enter pressed after the re-check and a read of the screen`, async () => {
+      const { request, calls } = setup(working(screen));
+      expect((await request("POST", ...prompt(ATOMIC, "hello there", "atomic"))).status).toBe(200);
+      expect(calls()).toEqual([CUSTOM.recheck, READ, ...CUSTOM.message("hello there")]);
+    });
+  }
+
+  test("a screen that can't be read is not sent to: herdr's error is answered and nothing is sent", async () => {
+    const { request, calls } = setup({ ...working(A.RETRY_SCREEN), answers: { "pane read --format ansi": herdrError("pane_not_found", "pane gone", "cli:pane:read") } });
+    expect(await errorOf(await request("POST", ...prompt(ATOMIC, "hello there", "atomic")))).toEqual([404, "pane_not_found"]);
+    expect(calls()).toEqual([CUSTOM.recheck, READ]);
+  });
+
+  test("keys still go to a working agent with a question on screen, unread", async () => {
+    const { request, calls } = setup(working(A.QUESTION_SCREEN));
+    expect((await request("POST", ...keys(ATOMIC, ["down"], "atomic"))).status).toBe(200);
+    expect(calls()).toEqual([CUSTOM.recheck, ...CUSTOM.keys(["down"])]);
   });
 });

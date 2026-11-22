@@ -327,7 +327,7 @@ try {
     };
 
     const atomicScreen = (line: string) =>
-      `\n${line}\n\n ∀ Gestating...\n\n${" ".repeat(20)}↑83k • ↓168k • R44M • CH99.9% • $23.389 (sub) • 43.2%/1.0M (auto)\n[stage: live-check] ${RULE}\n❯\n${RULE}\nesc to interrupt\nTasks  1 shell running · /tasks\n`;
+      `\n${line}\n\n ∀ Gestating...\n\n${" ".repeat(20)}↑83k • ↓168k • R44M • CH99.9% • $23.389 (sub) • 43.2%/1.0M (auto)\n${RULE}\n❯\n${RULE}\nesc to interrupt\nTasks  1 shell running · /tasks\n`;
     writeFileSync(`${log}.state`, "working");
     say(atomicScreen("Built the release bundle; 31 tests pass."));
     const working = await waitFor((a) => a.agent_status === "working" && a.latest_line === "Built the release bundle; 31 tests pass.");

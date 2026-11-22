@@ -7,7 +7,7 @@
 //   workspace list, tab list (labels and tab numbers only);
 //   pane send-text, pane send-keys, each straight after the re-check of the
 //     pane: `agent get` for an agent, `pane get` for a plain shell, and
-//     for text to a blocked agent a read of its screen;
+//     for text to a blocked or working agent a read of its screen;
 //   terminal session observe: a read-only stream of a pane's screen,
 //     with stdin closed, so nothing can be typed through it.
 // Keys come from the shared grammar (web/key-grammar.js) only. Never pane run,
@@ -296,15 +296,21 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
     return styled(readArgs(paneId, kind), () => read(paneId, kind));
   }
 
-  // A blocked agent takes text only while its screen, read now, shows Atomic
-  // 0.9.90's own typing field for its question open; a failed read is a
-  // closed field.
-  async function typingFieldOpen(paneId: string): Promise<boolean> {
+  // Text never answers a question by accident. A blocked agent takes text
+  // only while its screen, read now, shows its question's own typing field
+  // open (a failed read is a closed field); a working one, which Atomic 0.10
+  // is while a subagent or shell runs, takes none while a question is on
+  // its screen without that field open.
+  async function refusesText(paneId: string, status: string): Promise<boolean> {
+    if (status !== "blocked" && status !== "working") return false;
+    let question;
     try {
-      return takesTypedAnswer(readScreen(await readStyled(paneId)).question);
-    } catch {
-      return false;
+      question = readScreen(await readStyled(paneId)).question;
+    } catch (error) {
+      if (status === "blocked") return true;
+      throw error;
     }
+    return !takesTypedAnswer(question) && (status === "blocked" || question !== null);
   }
 
   async function enterAfterText(paneId: string, what: string) {
@@ -348,7 +354,7 @@ export function createHerdr(bin: string, { submitDelayMs = SUBMIT_DELAY_MS }: { 
         await run(["agent", "prompt", paneId, text]);
         return;
       }
-      if (target.agent.agent_status === "blocked" && !(await typingFieldOpen(paneId))) {
+      if (await refusesText(paneId, target.agent.agent_status)) {
         throw new HerdrError("agent_blocked", `agent ${paneId} is blocked and requires interactive input`);
       }
       await run(["pane", "send-text", paneId, `${PASTE_START}${text}${PASTE_END}`]);

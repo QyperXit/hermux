@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isBoxTopRule, isRule, isUsage, plainText, proseEndingAt, readScreen, shellRows } from "../web/screen.js";
 import {
-  GRAPH_SCREEN,
   IDLE_NAMED_SCREEN,
   IDLE_QUOTE_SCREEN,
   INTERRUPTED_SCREEN,
@@ -20,7 +19,6 @@ import {
   SPINNER_SCREEN,
   WORKING_NAMED_SCREEN,
 } from "./support/atomic-0990";
-import { BACKGROUND, HINT, PICKER_FOOTER, PICKER_ROWS, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
 
 type Row = ReturnType<typeof readScreen>["rows"][number];
 
@@ -83,12 +81,12 @@ describe("rows", () => {
 });
 
 describe("where Atomic's chrome starts", () => {
-  test("at the usage line: the labelled prompt box, footer, 'esc to interrupt', task line, background panel and hints are all chrome", () => {
+  test("at the usage line: the prompt box, footer, 'esc to interrupt', task line, a panel and hints are all chrome", () => {
     const rows = [
       " The worker can find the detect command on its own.",
       "",
       `${" ".repeat(28)}↑20 • ↓5.1k • R377k • W55k • CH98.6% • $0.615 (sub) • 5.8%/1.0M (auto)`,
-      `[stage: orchestrator-1] ${"─".repeat(70)}`,
+      "─".repeat(94),
       "❯ please also run",
       "  the tests",
       "─".repeat(94),
@@ -114,22 +112,10 @@ describe("where Atomic's chrome starts", () => {
     expect(chrome([" Done.", USAGE, " not a rule under it"].join("\n"))).toEqual([]);
   });
 
-  test("with Atomic's workflow picker in the prompt box's place, the usage line above it and everything under it are chrome, and the picker is not", () => {
-    const screen = readScreen(WORKFLOW_PICKER_SCREEN);
-    const chromeRows = screen.rows.filter((row) => row.chrome).map((row) => row.text.trim());
-    expect(chromeRows).toEqual([PICKER_USAGE, HINT.trim(), PICKER_FOOTER, "", ...BACKGROUND, SCROLL_HINT.trim()]);
-    expect(screen.rows[screen.chromeStart].text.trim()).toBe(PICKER_USAGE);
-    const top = screen.rows.findIndex((row) => row.text.startsWith("╭── Connect to workflow run"));
-    const picker = screen.rows.slice(top, top + PICKER_ROWS.length);
-    expect(picker.at(-1)?.text).toStartWith("╰");
-    expect(picker.some((row) => row.chrome)).toBe(false);
-    expect(screen.prose.map((paragraph) => paragraph.runs.map((run) => run.text).join("")).join("\n")).not.toMatch(/Navigate|claude-opus|scroll/);
-  });
-
   test("a box under a usage line is the agent's own without Atomic's footer below it, and a usage line with neither a rule nor a box under it starts nothing", () => {
-    const rows = [" Done.", PICKER_USAGE, "╭── Notes ──╮", "│ one      │", "╰──────────╯", " More words."];
+    const rows = [" Done.", USAGE, "╭── Notes ──╮", "│ one      │", "╰──────────╯", " More words."];
     expect(readScreen(rows.join("\n")).rows.some((row) => row.chrome)).toBe(false);
-    expect(readScreen([" Done.", PICKER_USAGE, " More words.", ...BACKGROUND, PICKER_FOOTER].join("\n")).rows.some((row) => row.chrome)).toBe(false);
+    expect(readScreen([" Done.", USAGE, " More words.", ...PANEL, FOOTER].join("\n")).rows.some((row) => row.chrome)).toBe(false);
   });
 
   test("Atomic's footer is found with the two spaces Atomic now puts before the thinking level", () => {
@@ -312,49 +298,6 @@ describe("Atomic 0.9.90's prompt box", () => {
     const working = readScreen([" Done.", "", " ∀ Stumbling… (27s · ↓ 357 tokens)", usage, ...box].join("\n"));
     expect(working.rows[working.chromeStart].text).toBe(" ∀ Stumbling… (27s · ↓ 357 tokens)");
     expect(working.rows.filter((row) => row.text.startsWith("│")).map((row) => row.chrome)).toEqual([false]);
-  });
-
-  test("the graph F2 opens is still a graph screen", () => {
-    expect(readScreen(GRAPH_SCREEN).graph).toBe(true);
-  });
-});
-
-// The shape of a real Atomic pane showing its full-screen workflow graph.
-const GRAPH = [
-  " ╭──────────────╮",
-  " │ ORCHESTRATOR │  goal                                                                 ✓ 1  ● 1",
-  " ╰──────────────╯",
-  "",
-  "                                   ╭─── orchestrator-1 ───╮",
-  "                                   │      ● running       │",
-  "                                   ╰──────────────────────╯",
-  "                                               │",
-  "                                               │",
-  "                                               │",
-  "                                   ╭────── worker-1 ──────╮",
-  "                                   ╰──────────────────────╯",
-  "",
-  "",
-  "",
-  " ╭───────╮",
-  " │ GRAPH │      ctrl+x return to main chat  ·  ↵ open tool detail  ·  ↑↓←→ navigate  ·  / stages",
-  " ╰───────╯",
-];
-
-describe("Atomic's workflow graph", () => {
-  test("with its GRAPH pill among the last rows, the screen is a graph: all chrome, every row as drawn", () => {
-    const screen = readScreen([...GRAPH, "", ""].join("\n"));
-    expect(screen.graph).toBe(true);
-    expect(screen.chromeStart).toBe(0);
-    expect(screen.prose).toEqual([]);
-    // The connector rows keep their │ (they look like a scrollbar), and the blank rows stay.
-    expect(screen.rows.map((row) => row.text)).toEqual([...GRAPH, "", ""]);
-  });
-
-  test("a pill further up is not a graph screen, and jump-hint rows after a graph don't make it one: the graph is found on the rows as drawn", () => {
-    expect(readScreen([...GRAPH, " The graph above is from earlier.", " Then I", " went on."].join("\n")).graph).toBe(false);
-    const hint = `${" ".repeat(60)}↓ Jump to latest message · ctrl+end`;
-    expect(readScreen([...GRAPH, hint, hint, hint].join("\n")).graph).toBe(false);
   });
 });
 

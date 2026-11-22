@@ -378,17 +378,6 @@ export function createSession({ client, openStream, timers, opened }) {
     return choose(await client.readOutput(terminal.pane_id));
   }
 
-  // The keys for `key`: as they are, or as `choose` makes them of the screen.
-  /**
-   * @param {Terminal} terminal
-   * @param {string} key
-   * @param {((text: string) => string[] | null) | undefined} choose
-   */
-  async function keysFor(terminal, key, choose) {
-    if (!choose) return [key];
-    return (await chosenKeys(terminal, choose)) ?? [key];
-  }
-
   // `sent`, counted among the keys on their way until it settles.
   /**
    * @param {Promise<Sent>} sent
@@ -506,13 +495,12 @@ export function createSession({ client, openStream, timers, opened }) {
 
     /**
      * @param {string} key
-     * @param {(text: string) => string[] | null} [choose] the keys to send instead, from the screen as read now
      * @returns {Promise<Sent>}
      */
-    async sendKey(key, choose) {
+    async sendKey(key) {
       const terminal = openTerminal();
       if (!terminal) return { status: "ignored" };
-      return onItsWay(sendTo(terminal, async () => client.sendKeys(terminal.pane_id, await keysFor(terminal, key, choose), terminal.kind)));
+      return onItsWay(sendTo(terminal, () => client.sendKeys(terminal.pane_id, [key], terminal.kind)));
     },
 
     /**

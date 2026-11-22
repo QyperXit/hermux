@@ -610,7 +610,7 @@ button {
 .history-gap,
 .history-join,
 .stacked-note,
-.question-card-crowded {
+.question-card-note {
   font-size: var(--text-s);
   line-height: var(--leading-output);
   color: var(--ink-soft);
@@ -745,16 +745,8 @@ button {
 }
 
 .line.is-chrome,
-.block.is-chrome,
-.run-panel.is-chrome {
+.block.is-chrome {
   color: var(--ink-soft);
-}
-
-.run-panel {
-  margin: 4px 0;
-  padding: 6px 10px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
 }
 
 .band {
@@ -801,26 +793,6 @@ button {
 
 .opt-mark {
   height: 22px;
-}
-
-/* The negative margin cancels .opt's vertical padding so the edge spans the full row. */
-.opt-edge {
-  position: relative;
-  flex: none;
-  align-self: stretch;
-  width: 1ch;
-  margin: calc(var(--unit) * -1) 0;
-  font-family: var(--mono);
-  font-size: var(--text-s);
-}
-
-.opt-edge::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(0.5ch - 0.5px);
-  border-left: 1px solid var(--opt-ink);
 }
 
 .is-selected .opt-mark::before {
@@ -1431,8 +1403,13 @@ button {
   display: none;
 }
 
-.app[data-agent-status="blocked"] .key-answer {
+.app[data-agent-status="blocked"] .key-answer,
+.app.has-question .key-answer {
   display: grid;
+}
+
+.app.has-subagent-card:not(.has-question) .key-answer {
+  display: none;
 }
 
 .link-key {
@@ -1862,6 +1839,29 @@ button {
 .question-card-open {
   width: 100%;
   font-size: var(--text-m);
+}
+
+.subagent-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--unit);
+  padding: 4px var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.subagent-strip-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.subagent-strip-back {
+  flex: none;
 }
 
 .notice {

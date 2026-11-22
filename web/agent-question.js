@@ -67,7 +67,7 @@ function paragraphsOf(rows, width) {
  * @param {number} from
  * @param {number} to
  */
-const movesTo = (from, to) => Array.from({ length: Math.abs(to - from) }, () => (to > from ? "down" : "up"));
+export const movesTo = (from, to) => Array.from({ length: Math.abs(to - from) }, () => (to > from ? "down" : "up"));
 
 // "Type something." and "Chat about this": rows whose field takes your words.
 /** @param {OptionRole} role */
@@ -189,6 +189,9 @@ export function askQuestion(lines, caret) {
 const TRUST_TITLE = /^ {2}(Trust project folder\?)$/;
 const TRUST_CHOICE = /^ (❯| ) (\S.*)$/;
 const TRUST_HINT = /^ {2}↑↓ select · .*\besc \S+/;
+
+/** @param {string} text */
+export const isTrustTitle = (text) => TRUST_TITLE.test(text);
 
 /**
  * @param {Line[]} lines

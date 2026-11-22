@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readerHtml, readerParts, shellHtml } from "../web/reader.js";
 import { cssRules, declarations } from "./support/css";
-import { ACTIVE_RUN, BACKGROUND, FINISHED_RUN, HINT, PICKER_FOOTER, PICKER_USAGE, SCROLL_HINT, WORKFLOW_PICKER_SCREEN } from "./support/workflow-picker";
 import * as Atomic0990 from "./support/atomic-0990";
-import { GRAPH_SCREEN, ONE_QUESTION, ONE_QUESTION_SCREEN, ONE_RUN, PICKER_WITH_PANEL_SCREEN, STAGE_QUESTION_SCREEN } from "./support/workflow-question";
 
 const ESC = "\x1b";
 const sgr = (params: string) => `${ESC}[${params}m`;
@@ -174,54 +172,12 @@ const RULE40 = "─".repeat(40);
 const FOOTER = "(anthropic) claude-opus-5-5 medium • ~/work/app (main)";
 const PANEL = ["╭ BACKGROUND  1 run  ● 1 running ─────────╮", "│   ●  958abe02-f7b9-4e7b-a2d6-867a19b47275  │", "│     goal · chain · 8/9 · 55m 58s          │", "╰──────────────────────────────────────────╯"];
 const prose = [" The run is on track. The build landed.", "", " - 4f3969e: the shaded backgrounds now apply only to messages.", "", " Next step is review."];
-const chromeCount = (html: string) => html.split("is-chrome").length - 1;
 
 // A box-drawn region keeps its terminal layout in one mono block.
 const unescape = (html: string) => html.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const textOf = (html: string) => unescape(html.replace(/<[^>]+>/g, ""));
 const blocks = (html: string) => [...html.matchAll(/<div class="block[^"]*">([\s\S]*?)<\/div>/g)].map(([, inner]) => textOf(inner));
 const strip = (text: string) => text.replace(/\x1b\[[\d;:]*m/g, "");
-
-// The shape of a real Atomic pane showing its full-screen workflow graph.
-const GRAPH = [
-  " ╭──────────────╮",
-  " │ ORCHESTRATOR │  goal                                                                 ✓ 1  ● 1",
-  " ╰──────────────╯",
-  "",
-  "                                   ╭─── orchestrator-1 ───╮",
-  "                                   │       24m 33s        │",
-  "                                   │      ● running       │",
-  "                                   ╰──────────────────────╯",
-  "                                               │",
-  "                                               │",
-  "                                               │",
-  "                                   ╭────── worker-1 ──────╮",
-  "                                   │      ● running       │",
-  "                                   ╰──────────────────────╯",
-  "",
-  "",
-  " ╭───────╮",
-  " │ GRAPH │      ctrl+x return to main chat  ·  ↵ open tool detail  ·  ↑↓←→ navigate  ·  / stages",
-  " ╰───────╯",
-];
-
-describe("Atomic's workflow graph", () => {
-  test("Atomic's workflow graph screen is one block with every line, blank and connector rows as drawn", () => {
-    const html = readerHtml([...GRAPH, "", ""].join("\n"));
-    expect(blocks(html)).toEqual([GRAPH.join("\n")]);
-    expect(html).toMatch(/^<div class="block">[\s\S]*<\/div>$/);
-    expect(chromeCount(html)).toBe(0);
-  });
-
-  // Real shape (w9:pD, 2026-10-29): Atomic pins the GRAPH pill to the bottom of
-  // the screen, so a small graph has 40 blank rows above it. That filler is
-  // screen space, not layout, so a blank run keeps at most 3 rows.
-  test("the screen filler between a small workflow graph and its pill shrinks to 3 blank rows", () => {
-    const [top, pill] = [GRAPH.slice(0, 14), GRAPH.slice(16)];
-    const html = readerHtml([...top, ...Array(40).fill(" ".repeat(98)), ...pill].join("\n"));
-    expect(blocks(html)).toEqual([[...top, "", "", "", ...pill].join("\n")]);
-  });
-});
 
 // From a real pane (w9:pD, 2026-10-29), with the pane's colours.
 const HEARTBEAT = [
@@ -269,12 +225,9 @@ describe("panels and tables", () => {
     expect(blocks(readerHtml(table.join("\n")))).toEqual([table.join("\n")]);
   });
 
-  test("Atomic's BACKGROUND panel under the usage line is one dimmed panel in the chrome, its rows inside the borders as wrapping lines", () => {
+  test("a panel under Atomic's footer is one dimmed block in the chrome, kept as drawn", () => {
     const html = readerHtml([...prose, "", USAGE, RULE40, "❯", RULE40, FOOTER, "", ...PANEL, " ↑↓ scroll · Alt+k/Alt+j"].join("\n"));
-    expect(html).toContain(
-      `<div class="run-panel is-chrome"><div class="line">BACKGROUND  1 run  ● 1 running</div><div class="line" style="padding-left:3ch">●  958abe02-f7b9-4e7b-a2d6-867a19b47275</div><div class="line" style="padding-left:5ch">goal · chain · 8/9 · 55m 58s</div></div>`,
-    );
-    expect(html).not.toContain("block is-chrome");
+    expect(html).toContain(`<div class="block is-chrome">${PANEL.join("\n")}</div>`);
   });
 });
 
@@ -393,151 +346,6 @@ describe("question dialogs", () => {
   });
 });
 
-// Atomic's `/workflow connect` picker as herdr's `--format ansi` read shows it,
-// escape for escape as captured from a real pane, with generic run ids
-// and names and the inner width cut to 60. Each run is an id row and a name
-// row; the run under the cursor is one bold run on the accent shade.
-const PICKER_INNER = 60;
-const P = { reset: sgr("0"), border: sgr("38;2;108;112;134"), panel: sgr("48;2;30;30;46") };
-const cell = (fg: string, text: string) => `${P.reset}${sgr(fg)}${P.panel}${text}${P.reset}${P.panel}`;
-const pickerRow = (content: string) => `${P.reset}${P.border}│${P.reset}${content}${P.reset}${P.border}│${P.reset}\r`;
-const pad = (text: string) => text + " ".repeat(PICKER_INNER - text.length);
-const pickerRun = (id: string, name: string, elapsed: string, selected: boolean) => {
-  const right = `${elapsed.padStart(8)}   ${"0/0 stages".padStart(10)} `;
-  const gap = " ".repeat(PICKER_INNER - 3 - name.length - right.length);
-  if (selected) {
-    const bar = `${sgr("1")}${sgr("38;2;49;50;68")}${sgr("48;2;137;180;250")}`;
-    return [pickerRow(`${bar}${pad(` ● ${id}`)}`), pickerRow(`${bar}${pad(`   ${name}${gap}${right}`)}`)];
-  }
-  return [
-    pickerRow(`${P.panel} ${cell("38;2;249;226;175", "●")} ${cell("38;2;127;132;156", id)}${" ".repeat(PICKER_INNER - 3 - id.length)}`),
-    pickerRow(`${P.panel}   ${cell("38;2;205;214;244", name)}${gap}${cell("38;2;166;173;200", elapsed.padStart(8))}   ${cell("38;2;127;132;156", "0/0 stages".padStart(10))} `),
-  ];
-};
-const blankPickerRow = pickerRow(`${P.panel}${" ".repeat(PICKER_INNER)}`);
-const sectionRow = (label: string) =>
-  pickerRow(`${P.panel} ${cell("38;2;203;166;247", " ")} ${P.reset}${sgr("1")}${sgr("38;2;166;173;200")}${P.panel}${label}${P.reset}${P.panel}${" ".repeat(PICKER_INNER - 3 - label.length)}`);
-const PICKER_TOP = `${P.reset}${P.border}╭──${P.reset}${sgr("38;2;137;180;250")} Connect to workflow run ${P.reset}${P.border}${"─".repeat(PICKER_INNER - 27)}╮${P.reset}\r`;
-const PICKER_FILTER = pickerRow(
-  `${P.panel} ${cell("38;2;203;166;247", " ")} ${cell("38;2;166;173;200", "filter")}  ${cell("38;2;166;173;200", "(type to filter by name or id)")}${" ".repeat(PICKER_INNER - 41)}`,
-);
-const PICKER_BOTTOM = `${P.reset}${P.border}╰${"─".repeat(PICKER_INNER)}╯${P.reset}\r`;
-const PICKER_HINT = `  ${P.reset}${sgr("38;2;205;214;244")}up/down${P.reset} ${P.reset}${sgr("38;2;166;173;200")}Navigate${P.reset}${sgr("38;2;127;132;156")} · ${P.reset}${sgr("38;2;205;214;244")}enter${P.reset} ${P.reset}${sgr("38;2;166;173;200")}Connect${P.reset}\r`;
-const RUN_A = "11111111-2222-3333-4444-555555555555";
-const RUN_B = "66666666-7777-8888-9999-000000000000";
-// The picker with run `selected` (0 or 1, -1 for none) under the cursor, and a TERMINAL group when `finished` is set.
-const picker = (selected: number, finished = false) =>
-  [
-    " Both runs are going.",
-    "",
-    PICKER_TOP,
-    blankPickerRow,
-    PICKER_FILTER,
-    blankPickerRow,
-    sectionRow("ACTIVE"),
-    ...pickerRun(RUN_A, "docs-build", "14s", selected === 0),
-    ...(finished ? [sectionRow("TERMINAL")] : []),
-    ...pickerRun(RUN_B, "nightly-review", "19s", selected === 1),
-    blankPickerRow,
-    PICKER_BOTTOM,
-    PICKER_HINT,
-  ].join("\n");
-
-describe("Atomic's /workflow connect picker", () => {
-  test("the picker's selected run gets the question dialog's selection bar and the other run is a plain row", () => {
-    for (const selected of [0, 1]) {
-      const html = readerHtml(picker(selected));
-      const rows = optionRowsOf(html);
-      expect(rows.map((row) => row.cls)).toEqual(selected === 0 ? ["opt is-selected", "opt"] : ["opt", "opt is-selected"]);
-      expect(rows.map((row) => visibleText(row.inner).replace(/\s+/g, " "))).toEqual([`● ${RUN_A} docs-build 14s 0/0 stages`, `● ${RUN_B} nightly-review 19s 0/0 stages`]);
-      expect(rows[selected].inner).toContain(`<span class="opt-mark"><span class="visually-hidden">selected</span></span>`);
-      expect(blocks(html).join("\n")).not.toContain(RUN_A);
-      expect(blocks(html).join("\n")).not.toContain(RUN_B);
-      expect(rows[selected].inner).not.toContain("a-b");
-      expect(html).not.toMatch(/a-(link|accent)/);
-      expect(blocks(html)[0]).toContain("Connect to workflow run");
-      expect(blocks(html)[0]).toContain("ACTIVE");
-      expect(blocks(html).at(-1)).toContain("╰");
-      expect(html).toContain(`<p class="p">Both runs are going.</p>`);
-    }
-  });
-
-  test("a TERMINAL heading between the groups stays a heading, not part of the run above it", () => {
-    const html = readerHtml(picker(1, true));
-    const rows = optionRowsOf(html);
-    expect(rows.map((row) => row.cls)).toEqual(["opt", "opt is-selected"]);
-    expect(visibleText(rows[0].inner)).not.toContain("TERMINAL");
-    expect(blocks(html).join("\n")).toContain("TERMINAL");
-  });
-
-  test("a picker with no run under the cursor, and Atomic's BACKGROUND panel of runs, are left as drawn", () => {
-    const none = readerHtml(picker(-1));
-    expect(none).not.toContain('class="opt');
-    expect(blocks(none).join("\n")).toContain(RUN_A);
-    const panel = ["╭ BACKGROUND  1 run  ● 1 running ──────────────╮", `│   ●  ${RUN_A} │`, `│     ${sgr("1")}docs-build${RESET} · single · 14s       │`, "╰───────────────────────────────────────────────╯"].join("\n");
-    expect(readerHtml(panel)).not.toContain('class="opt');
-  });
-
-  test("picker text is escaped", () => {
-    const html = readerHtml(picker(0).replace("docs-build", `<b x="1">&`).replace("nightly-review", "<i>"));
-    expect(html).not.toContain("<b ");
-    expect(html).not.toContain("<i>");
-    expect(html).toContain("&lt;b x=&quot;1&quot;&gt;&amp;");
-    expect(html).toContain("&lt;i&gt;");
-  });
-});
-
-describe("Atomic's workflow picker in the prompt box's place", () => {
-  const parts = readerParts(WORKFLOW_PICKER_SCREEN);
-  const at = (text: string) => parts.findIndex((part) => textOf(part).includes(text));
-
-  test("its hint line is a line of its own, and the usage line, footer, BACKGROUND panel and scroll hint are dimmed chrome, never prose", () => {
-    expect(parts[at("Navigate")]).toBe(`<div class="line is-chrome" style="padding-left:2ch">${HINT.trim()}</div>`);
-    expect(parts[at("claude-opus")]).toBe(`<div class="line is-chrome">${PICKER_FOOTER}</div>`);
-    expect(parts[at("4.4%/1.0M")]).toBe(`<div class="line is-chrome" style="padding-left:12ch">${PICKER_USAGE}</div>`);
-    expect(parts[at("BACKGROUND")]).toBe(
-      `<div class="run-panel is-chrome"><div class="line">BACKGROUND  1 run  ● 1 running</div><div class="line" style="padding-left:3ch">●  ${ACTIVE_RUN}</div><div class="line" style="padding-left:5ch">lint-run · single · pause · running · 13s</div></div>`,
-    );
-    expect(BACKGROUND).toHaveLength(4);
-    expect(parts[at("Alt+k")]).toBe(`<div class="line is-chrome" style="padding-left:1ch">${SCROLL_HINT.trim()}</div>`);
-    expect(parts.slice(at("Navigate")).join("")).not.toContain("copy-key");
-  });
-
-  test("the picker itself is not dimmed: its run under the cursor is the Selection Bar and the other run a plain row", () => {
-    const html = parts.join("");
-    expect(optionRowsOf(html).map((row) => [row.cls, visibleText(row.inner).replace(/\s+/g, " ")])).toEqual([
-      ["opt is-selected", `● ${ACTIVE_RUN} lint-run 13s`],
-      ["opt", `✓ ${FINISHED_RUN} docs-site 1s`],
-    ]);
-    expect(html).toContain(`<span class="opt-mark"><span class="visually-hidden">selected</span></span>`);
-    const picker = parts.slice(at("Connect to workflow run"), at("Navigate")).join("");
-    expect(picker).not.toContain("is-chrome");
-    expect(picker).not.toMatch(/a-(link|accent)/);
-  });
-
-  test("the box's left edge runs unbroken from its title row to its bottom edge, past the Selection Bar and the plain run row", () => {
-    const box = parts.slice(at("Connect to workflow run"), at("Navigate"));
-    expect(box.map((part) => (part.startsWith(`<div class="block">`) ? "block" : part.match(/^<div class="(opt[^"]*)">/)?.[1]))).toEqual(["block", "opt is-selected", "block", "opt", "block"]);
-    for (const part of box) {
-      if (part.startsWith(`<div class="block">`)) for (const line of blocks(part)[0].split("\n")) expect(line).toMatch(/^[╭│╰]/);
-      else expect(part).toMatch(/^<div class="opt[^"]*"><span class="opt-edge"><\/span>/);
-    }
-    expect(blocks(box[0])[0]).toStartWith("╭── Connect to workflow run");
-    expect(blocks(box.at(-1) ?? "")[0].split("\n").at(-1)).toStartWith("╰");
-  });
-
-  test("a question dialog's options are not in a box and draw no edge", () => {
-    expect(readerHtml(SINGLE_DIALOG)).not.toContain("opt-edge");
-  });
-
-  test("the edge is drawn in the row's own ink at the block's first column, so it shows on the ink Selection Bar", () => {
-    expect(declarations(".opt-edge::before")["border-left"]).toBe("1px solid var(--opt-ink)");
-    const font = (selector: string) => [declarations(selector)["font-family"], declarations(selector)["font-size"]];
-    expect(font(".opt-edge")).toEqual(font(".block"));
-    expect(declarations(".opt.is-selected")["--opt-ink"]).toBe("var(--key-dark-ink)");
-  });
-});
-
 describe("sideways-scrolling rows", () => {
   test("box-drawn blocks and every other row that scrolls sideways still scroll but draw no scrollbar, as the key row does", () => {
     const sideways = cssRules.filter((rule) => ["auto", "scroll"].includes(rule.declarations["overflow-x"])).flatMap((rule) => rule.selectors);
@@ -578,9 +386,7 @@ describe("plain shells", () => {
 describe("what is not a table stays as drawn", () => {
   const TABLE_WORDS = /stacked|Table continues above/;
 
-  test("the workflow graph, the workflow picker, the heartbeat and BACKGROUND panels and Atomic's chrome draw no stacked rows", () => {
-    expect(readerHtml(GRAPH.join("\n"))).not.toMatch(TABLE_WORDS);
-    expect(readerHtml(WORKFLOW_PICKER_SCREEN)).not.toMatch(TABLE_WORDS);
+  test("the heartbeat panel, a panel under the footer and Atomic's chrome draw no stacked rows", () => {
     expect(readerHtml([...prose, "", ...HEARTBEAT].join("\n"))).not.toMatch(TABLE_WORDS);
     expect(readerHtml([...prose, "", USAGE, RULE40, "❯", RULE40, FOOTER, "", ...PANEL].join("\n"))).not.toMatch(TABLE_WORDS);
   });
@@ -596,81 +402,6 @@ describe("Atomic's orange text", () => {
     expect(declarations(".a-accent")).toMatchObject({ color: "var(--link)" });
     expect(declarations(".a-accent")["text-decoration"]).toBeUndefined();
     expect(declarations(".a-link")).toMatchObject({ color: "var(--link)", "text-decoration": "underline" });
-  });
-});
-
-describe("a workflow's question on the Live screen", () => {
-  const panelOf = (html: string) => html.match(/<div class="run-panel is-chrome">.*?<\/div><\/div>/)?.[0] ?? "";
-  const panelLines = (html: string) => [...panelOf(html).matchAll(/<div class="line"[^>]*>(.*?)<\/div>/g)].map(([, inner]) => textOf(inner));
-
-  test("the BACKGROUND panel's rows come inside the page's own border, whole, each a line that wraps", () => {
-    expect(panelLines(readerHtml(ONE_QUESTION_SCREEN))).toEqual([
-      "BACKGROUND  2 runs  ● 1 running  ？ ↵ 1 needs attention (attach to workflow with `/workflow …",
-      `？  ${ONE_RUN}`,
-      "fence-check · single · 0/1 · 2m 50s",
-      ONE_QUESTION,
-      `Answer: /workflow connect ${ONE_RUN}`,
-      " ",
-      "✓  7d40b2e9-91c3-4a58-b6f0-2e8c5d1a4b07",
-      "two-questions · complete · 3m 1s",
-    ]);
-    expect(panelOf(readerHtml(ONE_QUESTION_SCREEN))).not.toMatch(/[│╭╮╰╯]/);
-    expect(declarations(".line")).toMatchObject({ "white-space": "pre-wrap", "overflow-wrap": "anywhere" });
-    expect(declarations(".run-panel")).not.toHaveProperty("white-space");
-    expect(declarations(".run-panel")).not.toHaveProperty("overflow-x");
-    expect(declarations(".run-panel.is-chrome")).toMatchObject({ color: "var(--ink-soft)" });
-  });
-
-  test("question text in the panel stays text", () => {
-    const hostile = ONE_QUESTION_SCREEN.replace("Paint the new fence green", `<img src=x onerror="alert(1)">&amp;`);
-    const html = panelOf(readerHtml(hostile));
-    expect(html).not.toContain("<img");
-    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;amp;");
-  });
-
-  test("only the panel changes: the rest of its screen's chrome and other boxes are as before, and the graph is one block", () => {
-    const parts = readerParts(ONE_QUESTION_SCREEN);
-    const chrome = parts.filter((part) => part.includes("is-chrome") && !part.includes("run-panel"));
-    expect(chrome.map((part) => textOf(part).trim())).toEqual([
-      "↑5.5k • ↓977 • R271k • W46k • CH99.3% • $0.467 (sub) • 4.6%/1.0M (auto)",
-      "",
-      "❯",
-      "",
-      "anthropic/claude-opus-5-5  medium • ~/projects/yard (main)",
-      "",
-      "↑↓ scroll · Alt+k/Alt+j",
-    ]);
-    const picker = readerHtml(PICKER_WITH_PANEL_SCREEN);
-    expect(blocks(picker).some((block) => block.startsWith("╭ DISPATCHED"))).toBe(true);
-    expect(optionRowsOf(picker).map((row) => row.cls)).toEqual(["opt is-selected", "opt", "opt"]);
-    expect(panelLines(picker)[0]).toStartWith("BACKGROUND  2 runs");
-    const graph = readerParts(GRAPH_SCREEN);
-    expect(graph).toHaveLength(1);
-    expect(graph[0]).toStartWith(`<div class="block">`);
-    expect(graph[0]).not.toContain("run-panel");
-  });
-
-  test("a stage's chat with AWAITING INPUT reads its response box as options: the one under → is the Selection Bar, in the box", () => {
-    const html = readerHtml(STAGE_QUESTION_SCREEN);
-    expect(optionRowsOf(html).map((row) => [row.cls, visibleText(row.inner)])).toEqual([
-      ["opt is-selected", "Keep it"],
-      ["opt", "Move it to March"],
-      ["opt", "Drop it"],
-    ]);
-    expect(html.match(/opt-edge/g)).toHaveLength(3);
-    const parts = readerParts(STAGE_QUESTION_SCREEN);
-    const question = parts.find((part) => part.includes("Spring Tulip Parade")) ?? "";
-    expect(question).toStartWith(`<div class="block">`);
-    expect(textOf(question)).toContain("AWAITING INPUT");
-    expect(blocks(parts.join("")).at(-1)).toContain("↑↓ Choose · enter Submit");
-  });
-
-  test("a response box with no option, or two, under → is left as drawn", () => {
-    const none = STAGE_QUESTION_SCREEN.replace("→ Keep it", "  Keep it");
-    expect(readerHtml(none)).not.toContain('class="opt');
-    const two = STAGE_QUESTION_SCREEN.replace("  \u001b[0m\u001b[38;2;127;132;156mMove it to March", "→ \u001b[0m\u001b[38;2;127;132;156mMove it to March");
-    expect(two).not.toBe(STAGE_QUESTION_SCREEN);
-    expect(readerHtml(two)).not.toContain('class="opt');
   });
 });
 

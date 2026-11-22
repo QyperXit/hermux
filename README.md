@@ -19,7 +19,7 @@ The screenshots use the built-in sample data.
 - **Activity.** Working agents first, then the most recently active others. Older sessions are one tap away.
 - **Reader.** An agent's screen as readable text. Scroll up to load its earlier messages. Links open in a new tab.
 - **Answer questions.** An agent's question shows as big answers to tap, including pick-several questions and sets of questions. "Type something" and "Chat about this" open the message box for your own words.
-- **Workflow questions.** When a background workflow is waiting on you, a card shows its question and opens it in one tap.
+- **Subagent questions.** When a subagent is waiting on you, its agent shows "Needs you" and a card opens the subagent's question in one tap; a strip names the subagent on screen and takes you back to the main chat.
 - **Keys.** Esc, Tab, arrows and Enter, number keys while an agent is asking, and a Ctrl+C you hold to send. You can add your own keys.
 - **Saved commands.** One-tap replies you write yourself, behind the "/" button in the message bar.
 - **Send pictures.** Attach screenshots, photos from your gallery or new ones from the camera, up to 10 in one message. The pictures are saved on the computer and their paths go into your message, so the agent can open them.

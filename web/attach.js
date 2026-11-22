@@ -209,9 +209,9 @@ export function createAttachment({ client, previews = BROWSER_PREVIEWS, prepare 
       drawGroup();
     },
 
-    /** @param {boolean} blocked */
-    setBlocked(blocked) {
-      if (blocked) menu.close({ focus: false });
+    /** @param {boolean} hidden attach is hidden: the message box is, or it types into a question */
+    setHidden(hidden) {
+      if (hidden) menu.close({ focus: false });
     },
 
     /**

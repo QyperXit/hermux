@@ -1,9 +1,10 @@
 import { createHttpClient, createPushClient } from "./api.js";
 import { homeLists, memoryStorage, recordOpened } from "./home.js";
 import { find, fitField, need } from "./dom.js";
-import { answerTap, keysIfStillAsked, takesTypedAnswer } from "./agent-question.js";
+import { answerTap, keysIfStillAsked } from "./agent-question.js";
 import { createAttachment } from "./attach.js";
-import { composerHtml, drawComposer } from "./composer.js";
+import { composerHtml } from "./composer.js";
+import { drawTerminalControls } from "./controls.js";
 import { createKeyBar } from "./key-bar.js";
 import { escapeHtml, icon } from "./html.js";
 import { createFileSheet } from "./file-sheet.js";
@@ -13,7 +14,9 @@ import { bellHtml, createNotifications, looksLikeBrave } from "./notifications.j
 import { createNotifyPanel } from "./notify-panel.js";
 import { freshnessText } from "./live.js";
 import { createPictureViewer } from "./picture-viewer.js";
-import { attachQuestionCard, drawQuestionCard } from "./question-card.js";
+import { attachQuestionCard } from "./question-card.js";
+import { attachSubagentStrip, stripHtml } from "./subagent-strip.js";
+import { stepTowards } from "./subagents.js";
 import { drawLive } from "./live-render.js";
 import { readLive, shellParts } from "./reader.js";
 import { readScreen } from "./screen.js";
@@ -34,7 +37,6 @@ import { createEarlier } from "./earlier.js";
 import { createSavedTables } from "./saved-tables.js";
 import { isAtBottom } from "./scroll.js";
 import { createSession } from "./session.js";
-import { blockedWorkflowAsk, choiceChooser, openChooser } from "./workflow-question.js";
 import { createSheet } from "./sheet.js";
 import { THEME_KEY, applyTheme, nextTheme, storedTheme, themeLabel } from "./theme.js";
 
@@ -208,7 +210,7 @@ function renderTerminalScreen() {
         </p>
       </div>
       <span class="state"><span class="lamp" aria-hidden="true"></span>${icon("i-shell", "shell-glyph")}<span class="state-word"></span></span>
-    </header>
+    </header>${stripHtml()}
     <div class="output-wrap">
       <div class="output" role="log" aria-label="Recent output" tabindex="0">
         <div class="history" role="group" aria-label="Earlier messages" hidden>
@@ -274,19 +276,12 @@ function updateTerminalScreen(view) {
   need(app, ".state").dataset.status = shell ? "shell" : String(status);
   const word = shell ? "Shell" : `${(status && STATE_WORDS[status]) ?? status}${terminal.since && status !== "idle" ? ` · ${duration(terminal.since)}` : ""}`;
   need(app, ".state-word").textContent = word;
-  drawBlockedControls(view);
+  drawControls(view);
 }
 
 /** @param {Snapshot} view */
-function drawBlockedControls({ terminal, sending }) {
-  if (!terminal) return;
-  const blocked = terminal.status === "blocked";
-  const ask = blockedWorkflowAsk(terminal.status, liveScreen);
-  const target = sendTarget(terminal);
-  drawComposer(app, { target, sending, blocked, answering: takesTypedAnswer(liveScreen?.question ?? null), withNote: !ask });
-  drawQuestionCard(app, ask, { target });
-  keyBar.setBlocked(blocked);
-  attachment.setBlocked(blocked);
+function drawControls({ terminal, sending }) {
+  if (terminal) drawTerminalControls(app, { terminal, sending, screen: liveScreen }, { keyBar, attachment });
 }
 
 /** @param {Snapshot} view */
@@ -299,7 +294,7 @@ function renderOutput(view) {
   if (text === null) {
     liveScreen = null;
     drawLive(live, error ? [`<p class="output-empty">${escapeHtml(error)}</p>`, `<a class="link-key" href="#/">${icon("i-back")}Back to agents</a>`] : [`<p class="output-empty">Reading output…</p>`]);
-    drawBlockedControls(view);
+    drawControls(view);
     return;
   }
   const shell = isShell(terminal ?? { kind: "" });
@@ -317,7 +312,7 @@ function renderOutput(view) {
     savedTables.live(text, anchors, read);
     liveScreen = screen;
   }
-  drawBlockedControls(view);
+  drawControls(view);
   if (atBottom || !output.dataset.seen) {
     output.scrollTop = output.scrollHeight;
     output.dataset.seen = "1";
@@ -352,18 +347,6 @@ async function sendPrompt(text) {
   return true;
 }
 
-/**
- * @param {string} key
- * @param {string} label
- * @param {((text: string) => string[] | null) | undefined} choose
- */
-async function sendKeyWith(key, label, choose) {
-  const sent = await session.sendKey(key, choose);
-  if (sent.status === "ignored") return;
-  if (sent.error) notify(`${label} not sent. ${sent.error.message}`, { error: true });
-  else notify(`Sent ${label}`);
-}
-
 let answerInFlight = false;
 
 // Answers the question on the Live screen with option `number`, its keys
@@ -390,13 +373,64 @@ async function answerWith(number) {
   }
 }
 
+const STEP_MS = 150;
+const MAX_STEPS = 16;
+let bringing = false;
+
+// Brings main, or the first subagent waiting, to Atomic's screen, one send
+// at a time, each chosen from the screen read just before it (see
+// stepTowards); a read that doesn't show the last send yet is read again.
+/**
+ * @param {"main" | "waiting"} target
+ * @param {string} label
+ */
+async function bringToScreen(target, label) {
+  if (bringing) return;
+  bringing = true;
+  /** @type {import("./subagents.js").Progress} */
+  let progress = { sent: null };
+  try {
+    for (let read = 0; read < MAX_STEPS; read++) {
+      /** @type {{ step: import("./subagents.js").Step | null }} */
+      const chosen = { step: null };
+      const sent = await session.sendChosenKeys((text) => {
+        const step = stepTowards(readScreen(text), target, progress);
+        chosen.step = step;
+        return "keys" in step ? step.keys : null;
+      });
+      if (sent.status === "ignored") return;
+      if (sent.error) {
+        notify(`${label} stopped. ${sent.error.message}`, { error: true });
+        return;
+      }
+      const taken = chosen.step;
+      if (taken && "done" in taken) {
+        notify(target === "main" ? "Main is on screen." : "The question is on screen.");
+        return;
+      }
+      if (taken && "refused" in taken) {
+        notify(taken.refused, { error: true });
+        return;
+      }
+      if (taken && "keys" in taken) progress = taken.then;
+      await new Promise((resolve) => setTimeout(resolve, STEP_MS));
+    }
+    notify(`${label} didn't finish. Check the screen and try again.`, { error: true });
+  } finally {
+    bringing = false;
+  }
+}
+
 /**
  * @param {string} key
  * @param {string} label
  */
-function sendKey(key, label) {
+async function sendKey(key, label) {
   if (liveScreen?.question && /^[1-9]$/.test(key)) return answerWith(Number(key));
-  return sendKeyWith(key, label, choiceChooser(key, liveScreen));
+  const sent = await session.sendKey(key);
+  if (sent.status === "ignored") return;
+  if (sent.error) notify(`${label} not sent. ${sent.error.message}`, { error: true });
+  else notify(`Sent ${label}`);
 }
 
 function bindTerminalScreen() {
@@ -429,7 +463,8 @@ function bindTerminalScreen() {
 
   keyBar.attach(app, { sendKey, sendText: sendPrompt, announce: notify });
   attachment.attach(app);
-  attachQuestionCard(app, (key, label) => sendKeyWith(key, label, openChooser(liveScreen)));
+  attachQuestionCard(app, () => bringToScreen("waiting", "Open the question"));
+  attachSubagentStrip(app, () => bringToScreen("main", "Back to main"));
 
   const fit = () => fitField(textarea);
   textarea.addEventListener("input", fit);

@@ -2,13 +2,14 @@
 // its recent output that the agent itself wrote. Atomic draws its own screen
 // furniture below that line, and none of it may be shown as the agent's words.
 import { questionLine } from "../web/agent-question.js";
-import { FOOTER, PROMPT, isBoxTopRule, isRule, isUsage, proseEndingAt, readScreen, type Row } from "../web/screen.js";
+import { FOOTER, PROMPT, isBoxTopRule, isRule, isUsage, proseEndingAt, readScreen, type Row, type Screen } from "../web/screen.js";
+import { waitingLine, waitingSubagent, type Waiting } from "../web/subagents.js";
 
 const INTERRUPT = /^\s*esc to interrupt\b/;
 // One spinner glyph (Atomic's ∀, a braille frame or a star), then a short
 // message that ends in an ellipsis, e.g. "∀ Gestating..." or "⠋ Running... (esc Cancel)".
 const SPINNER = /^\s*[∀\u2800-\u28ff✢✳✶✻✽]\s+\S.*?(?:\.\.\.|…)(?:\s+\([^)]*\))?\s*$/u;
-// Atomic's background-run panel: ╭ BACKGROUND … ╮, │ … │, ╰───╯.
+// A row of a box Atomic draws: ╭ … ╮, │ … │, ╰───╯.
 const PANEL = /^\s*[╭│╰].*[╮│╯]\s*$/;
 // Atomic's key hints: transcript scroll, a question dialog's keys ("enter
 // select · ↑/↓ navigate · esc cancel", or since 0.9.90 "↑↓ select · enter
@@ -44,6 +45,12 @@ const BANNER_ROW = /^(?:Update Available|New version \S+ is available\b.*|Change
 // A running tool's ticking time, and the expand hint after a row.
 const RUNNING_TOOL = /^(\s*∀ \S.*\)) · \d+(?:s|m \d+s|h \d+m)$/;
 const EXPAND = /\s+\(ctrl\+o to expand\)$/;
+// Atomic 0.10's hint under a subagent's notice, "(ctrl+o for prompt, tool calls
+// and full result)", alone or as the notice's only output row, and a message
+// queued for the agent on screen, "Steering: …" over "↳ alt+up to edit all
+// queued messages".
+const HINT_ROW = /^\s*(?:⎿\s+)?\(ctrl\+o for [^)]*\)\s*$/;
+const QUEUED = /^\s*(?:(?:Steering|Follow-up): \S.*|↳ alt\+up to edit\b.*)$/;
 
 function afterBanner(rows: Row[]): number {
   const top = rows.findIndex((row) => LOGO_TOP.test(row.text));
@@ -63,13 +70,18 @@ const tidied = (line: string) => line.replace(EXPAND, "").replace(RUNNING_TOOL, 
 
 // The last meaningful line of `herdr agent read` text, without surrounding
 // whitespace, or null when the output has none. While Atomic 0.9.90 asks a
-// question of its own, the line is that question. On a screen Atomic 0.9.90
+// question of its own, the line is that question; while a subagent of Atomic
+// 0.10 waits for an answer, it names it. On a screen Atomic 0.9.90
 // drew its banner and notices are skipped, a tool row is never joined to
 // another row, and the expand hint and a running tool's time are dropped.
 export function latestLine(text: string): string | null {
-  const { rows, chromeStart, question, atomic0990 } = readScreen(text);
+  return readLatest(text).line;
+}
+
+function lineOf({ rows, chromeStart, question, atomic0990 }: Screen, waiting: Waiting | null): string | null {
   if (question) return questionLine(question);
-  const skipped = (row: Row) => isChrome(row.text) || (atomic0990 && NOTICE.test(row.text));
+  if (waiting) return waitingLine(waiting);
+  const skipped = (row: Row) => isChrome(row.text) || (atomic0990 && (NOTICE.test(row.text) || HINT_ROW.test(row.text) || QUEUED.test(row.text)));
   const stops = (row: Row) => skipped(row) || (atomic0990 && row.band === "tool");
   const first = atomic0990 ? afterBanner(rows) : 0;
   for (let i = chromeStart - 1; i >= first; i--) {
@@ -80,6 +92,14 @@ export function latestLine(text: string): string | null {
     return atomic0990 ? tidied(line) : line;
   }
   return null;
+}
+
+// The Latest line, and whether the screen shows a subagent of Atomic 0.10
+// waiting for an answer: its agent needs you while herdr says it works.
+export function readLatest(text: string): { line: string | null; waiting: boolean } {
+  const screen = readScreen(text);
+  const waiting = waitingSubagent(screen);
+  return { line: lineOf(screen, waiting), waiting: waiting !== null };
 }
 
 export function shellLatestLine(text: string): string | null {

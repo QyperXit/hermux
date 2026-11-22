@@ -50,22 +50,30 @@ _Avoid_: lightbox, gallery, preview
 The sheet raised by a laptop file's "file" key in the Live screen or Earlier messages: the file's name, size, changed time and path, with Open, Save, Share… and Copy path.
 _Avoid_: download dialog, file card, file viewer
 
+**Subagent**:
+A helper agent an Agent on Atomic 0.10 starts. Atomic lists its subagents in its agent panel and shows one at a time on the main screen; one waiting for an answer makes its Agent need you.
+_Avoid_: workflow, child, worker (that is one subagent's name)
+
 **Question card**:
-The card above the keys while an Agent is blocked by a workflow waiting in Atomic's BACKGROUND panel, or, from Atomic 0.9.90, in its list of runs under the footer: who is asking, the question as Atomic shows it there, and Open the question, which presses Atomic's F2 to open the graph of its newest running workflow, usually the one asking.
+The card above the keys while a Subagent waits for an answer and no question is on the Live screen: "‹name› is asking · ‹its task›", its question when the main chat shows it, and Open ‹name›'s question, which brings that Subagent's chat, and its question, to the screen.
 _Avoid_: banner, prompt card, alert
 
+**Subagent strip**:
+The strip under the header while a Subagent is on Atomic's screen: its name, what it is doing, and Back to main.
+_Avoid_: breadcrumb, tab
+
 **Agent's question**:
-Atomic 0.9.90's own question to you (its ask_user_question box, or its trust prompt), drawn on the Live screen as its header, the question and an option row for each answer, tapped to answer.
-_Avoid_: dialog, popup, question card (that is a workflow's)
+Atomic's own question to you (its ask_user_question box, an Agent's or a Subagent's, or its trust prompt), drawn on the Live screen as its header, the question and an option row for each answer, tapped to answer.
+_Avoid_: dialog, popup, question card (that points to a Subagent's)
 
 **Typing field**:
-The field inside an Agent's question that takes your own words: "Type something.", "Chat about this" or the notes. Only while it is open does a blocked Agent take text from the message box.
+The field inside an Agent's question that takes your own words: "Type something.", "Chat about this" or the notes. While a question is on screen, only with its field open does the Agent take text from the message box.
 _Avoid_: input, text box, other
 
 ## Notifications
 
 **Notification**:
-A push message to the phone when an Agent needs you (it is blocked) or has finished (it went from working to done). It names the Agent's folder and name, and tapping it opens that Terminal. Not the Inbox, which is a list inside the app.
+A push message to the phone when an Agent needs you (it is blocked, or a Subagent of it waits for an answer) or has finished (it went from working to done). It names the Agent's folder and name, and tapping it opens that Terminal. Not the Inbox, which is a list inside the app.
 _Avoid_: alert, ping
 
 ## Home

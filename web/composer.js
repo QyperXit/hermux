@@ -27,15 +27,19 @@ export const composerHtml = () => `
       </form>
       <p class="blocked-note" hidden><span class="lamp" data-status="blocked" aria-hidden="true"></span><span>Waiting for your answer. Read the question above, then pick with the keys.</span></p>`;
 
-// While blocked the message box is hidden, unless `answering`: the Agent's
-// question has its own typing field open, and the box, without attach and
-// "/", types into it.
+// The message box never answers a question by accident: hidden while a
+// question is on the screen (`asked`) or the agent is blocked, unless
+// `answering`: the question's own typing field is open, and the box, without
+// attach and "/", types into it. A waiting subagent's card (`card`) leaves
+// the main prompt free, so the box stays. `target` is whoever is on screen.
 /**
  * @param {HTMLElement} screen the Terminal screen holding the composer
- * @param {{ target: string, sending: boolean, blocked: boolean, answering?: boolean, withNote?: boolean }} state
+ * @param {{ target: string, sending: boolean, blocked: boolean, asked?: boolean, answering?: boolean, card?: boolean }} state
+ * @returns {boolean} whether "/" and attach are hidden: the box is hidden, or it types into a question
  */
-export function drawComposer(screen, { target, sending, blocked, answering = false, withNote = true }) {
-  const typing = blocked && answering;
+export function drawComposer(screen, { target, sending, blocked, asked = false, answering = false, card = false }) {
+  const typing = (blocked || asked) && answering;
+  const hidden = !typing && (asked || (blocked && !card));
   const message = `Message ${target}`;
   /** @type {HTMLTextAreaElement} */
   const field = need(screen, "#message");
@@ -47,8 +51,9 @@ export function drawComposer(screen, { target, sending, blocked, answering = fal
   send.setAttribute("aria-busy", String(sending));
   send.setAttribute("aria-label", `${sending ? "Sending" : "Send"} ${typing ? "your answer " : ""}to ${target}`);
   need(screen, ".saved").setAttribute("aria-label", `Send a saved command to ${target}`);
-  need(screen, ".composer").hidden = blocked && !typing;
+  need(screen, ".composer").hidden = hidden;
   need(screen, ".attach").hidden = typing;
   need(screen, ".slash").hidden = typing;
-  need(screen, ".blocked-note").hidden = !blocked || typing || !withNote;
+  need(screen, ".blocked-note").hidden = !hidden;
+  return hidden || typing;
 }

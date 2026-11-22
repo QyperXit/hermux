@@ -4,6 +4,7 @@ import { createApp } from "./app";
 import { createLiveEvents, herdrSocketPath } from "./events";
 import { createHerdr } from "./herdr";
 import { createHistory, openSessionStore } from "./history";
+import { createNeedsYou } from "./needs-you";
 import { createNotifier } from "./notifier";
 import { createFiles } from "./files";
 import { createPictures } from "./pictures";
@@ -40,20 +41,23 @@ const uploadsDir = process.env.AGENTS_UPLOADS_DIR || resolve(import.meta.dir, ".
 
 const herdr = createHerdr(herdrBin);
 const socketPath = herdrSocketPath();
-const events = createLiveEvents({ socketPath, panes: async () => (await herdr.panes()).map((pane) => pane.pane_id) });
+const herdrEvents = createLiveEvents({ socketPath, panes: async () => (await herdr.panes()).map((pane) => pane.pane_id) });
+herdrEvents.start();
+const roster = createRoster(herdr, Date.now);
+const events = createNeedsYou({ events: herdrEvents, roster });
 events.start();
 const watcher = createWatcher({ herdr });
 const pushStore = createPushStore(pushDir);
 const push = createPush({ store: pushStore, send: webPushSend(pushStore, pushSubject) });
 const uploads = createUploads({ dir: uploadsDir });
 uploads.tidyDaily();
-createNotifier({ events, herdr, roster: createRoster(herdr, Date.now), push, watcher }).start();
+createNotifier({ events, herdr, roster, push, watcher }).start();
 
 const server = Bun.serve({
   hostname: HOSTNAME,
   port,
   maxRequestBodySize: MAX_BODY_BYTES,
-  fetch: createApp({ herdr, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher, push, uploads, pictures: createPictures(), files: createFiles() }),
+  fetch: createApp({ herdr, roster, allowedLogin, webRoot: resolve(import.meta.dir, "../web"), history: createHistory({ herdr, openStore: () => openSessionStore(sessionStore) }), events, watcher, push, uploads, pictures: createPictures(), files: createFiles() }),
 });
 
 console.log(`Agents server listening on http://${HOSTNAME}:${server.port} (herdr: ${herdrBin}, events: ${socketPath}, sessions: ${sessionStore}, read-only, push keys: ${pushDir}, uploads: ${uploads.folder})`);

@@ -569,10 +569,10 @@ export function createKeyBar({ storage, timers = PAGE_TIMERS }) {
       need(drawn, "[data-commands-done]").addEventListener("click", () => setCommandsEditor(false));
     },
 
-    /** @param {boolean} blocked */
-    setBlocked(blocked) {
+    /** @param {boolean} hidden "/" is hidden: the message box is, or it types into a question */
+    setHidden(hidden) {
       assertAttached();
-      if (blocked) saved.close({ focus: false });
+      if (hidden) saved.close({ focus: false });
     },
   };
 }

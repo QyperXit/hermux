@@ -1,6 +1,6 @@
 import { RECENT_IDLE_READS, RECENT_ROWS } from "../web/activity.js";
 import { HerdrError, SHELL, type Agent, type Herdr, type Pane, type Tab } from "./herdr";
-import { latestLine, shellLatestLine } from "./latest-line";
+import { readLatest, shellLatestLine } from "./latest-line";
 import { kindOf, tabsOf, toTerminals, type Terminal } from "./terminals";
 
 export const LATEST_LINE_STATUSES = new Set(["blocked", "working", "unknown", "done"]);
@@ -18,7 +18,9 @@ type LatestLine = { latest_line: string | null; latest_line_error?: LineError };
 type AgentState = { status: string; seq: unknown };
 type Look = AgentState & { at: number; since?: number };
 type Read = { at: number; line: string | null };
-type AgentRead = AgentState & Read;
+type AgentRead = AgentState & Read & { waiting: boolean };
+type AgentLine = LatestLine & { waiting: boolean };
+type PaneLine = LatestLine & { waiting?: boolean };
 
 const stateOf = (agent: Agent): AgentState => ({ status: agent.agent_status, seq: agent.state_change_seq });
 const sameState = (a: AgentState, b: AgentState) => a.status === b.status && a.seq === b.seq;
@@ -53,6 +55,19 @@ function failedRead(error: unknown): LatestLine {
   return { latest_line: null, latest_line_error: { code: error.code, message: error.message } };
 }
 
+// Atomic 0.10 tells herdr it is working while a subagent waits for an
+// answer; its screen showing that makes the agent blocked, "Needs you".
+export const shownStatus = (status: string, waiting: boolean | undefined) => (status === "working" && waiting ? "blocked" : status);
+
+// Only Atomic draws an agent panel with subagents in it.
+const showsSubagents = (agent: Agent) => agent.agent === "atomic";
+
+function withLine(terminal: Terminal, read: PaneLine | undefined): Terminal {
+  if (!read) return terminal;
+  const { waiting, ...line } = read;
+  return { ...terminal, ...line, status: terminal.status === null ? null : shownStatus(terminal.status, waiting) };
+}
+
 export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" | "tabs" | "read">, now: () => number) {
   const looks = new Map<string, Look>();
   const agentReads = new Map<string, AgentRead>();
@@ -80,18 +95,20 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
 
   const canReuse = (cached: AgentRead, agent: Agent) => sameState(cached, stateOf(agent)) && (agent.agent_status === "idle" || isFresh(cached));
 
-  async function agentLine(agent: Agent): Promise<LatestLine> {
+  async function agentLine(agent: Agent): Promise<AgentLine> {
     const state = stateOf(agent);
     const cached = agentReads.get(agent.pane_id);
-    if (cached && canReuse(cached, agent)) return { latest_line: cached.line };
+    if (cached && canReuse(cached, agent)) return { latest_line: cached.line, waiting: cached.waiting };
     const at = now();
     try {
-      const line = latestLine(await herdr.read(agent.pane_id, kindOf(agent.agent)));
-      agentReads.set(agent.pane_id, { ...state, at, line });
-      return { latest_line: line };
+      const read = readLatest(await herdr.read(agent.pane_id, kindOf(agent.agent)));
+      const line = read.line;
+      const waiting = read.waiting && showsSubagents(agent);
+      agentReads.set(agent.pane_id, { ...state, at, line, waiting });
+      return { latest_line: line, waiting };
     } catch (error) {
       agentReads.delete(agent.pane_id);
-      return failedRead(error);
+      return { ...failedRead(error), waiting: false };
     }
   }
 
@@ -109,7 +126,7 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
     }
   }
 
-  async function linesOf(agents: Agent[], shells: string[]) {
+  async function linesOf(agents: Agent[], shells: string[]): Promise<Map<string, PaneLine>> {
     return new Map(
       await Promise.all([
         ...agents.map(async (agent) => [agent.pane_id, await agentLine(agent)] as const),
@@ -150,7 +167,21 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
       choose(stamped.filter((agent) => scope.has(agent.pane_id))),
       shells.filter((paneId) => scope.has(paneId)),
     );
-    return all.filter((terminal) => scope.has(terminal.pane_id)).map((terminal) => ({ ...terminal, ...lines.get(terminal.pane_id) }));
+    return all.filter((terminal) => scope.has(terminal.pane_id)).map((terminal) => withLine(terminal, lines.get(terminal.pane_id)));
+  }
+
+  // Every listed agent's herdr status, and whether a subagent waits on it: read
+  // only for an Atomic agent herdr calls working, from the screen its Latest
+  // line is read from (and reused as that is).
+  async function lookForWaiting(): Promise<{ pane_id: string; agent_status: string; waiting: boolean }[]> {
+    const agents = stampListed(await herdr.list());
+    return Promise.all(
+      agents.map(async (agent) => ({
+        pane_id: agent.pane_id,
+        agent_status: agent.agent_status,
+        waiting: agent.agent_status === "working" && showsSubagents(agent) && (await agentLine(agent)).waiting,
+      })),
+    );
   }
 
   return {
@@ -159,7 +190,10 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
       const agents = stampListed(listed);
       const tabOf = tabsOf(tabs);
       const lines = await linesOf(agentsToRead(agents, shownIdlePanes), []);
-      return agents.map((agent) => ({ ...agent, tab: tabOf(agent.tab_id), ...lines.get(agent.pane_id) }));
+      return agents.map((agent) => {
+        const { waiting, ...line } = lines.get(agent.pane_id) ?? {};
+        return { ...agent, agent_status: shownStatus(agent.agent_status, waiting), tab: tabOf(agent.tab_id), ...line };
+      });
     },
 
     async terminals(shownIdlePanes: string[]): Promise<Terminal[]> {
@@ -171,8 +205,10 @@ export function createRoster(herdr: Pick<Herdr, "list" | "panes" | "workspaces" 
       const terminal = toTerminals(panes, agents, workspaces, tabs).find((candidate) => candidate.pane_id === paneId);
       const agent = agents.find((candidate) => candidate.pane_id === paneId);
       if (!terminal || !agent) return terminal ?? null;
-      return { ...terminal, ...(await agentLine(agent)) };
+      return withLine(terminal, await agentLine(agent));
     },
+
+    lookForWaiting,
 
     async workspace(workspaceId: string) {
       const listed = await listing();

@@ -138,26 +138,6 @@ test("tool rows' ctrl+o expand hints are chrome", () => {
   expect(latestLine([" Writing web/app.js", " Took 0.3s", " ... (18 earlier lines, ctrl+o Expand)", " (ctrl+o Expand)"].join("\n"))).toBe("Writing web/app.js");
 });
 
-// The shape of a real Atomic pane showing its workflow graph (a full screen of
-// Atomic's own drawing): no line on it is the agent's.
-test("a pane showing Atomic's workflow graph has no latest line", () => {
-  const graph = [
-    " ╭──────────────╮",
-    " │ ORCHESTRATOR │  goal                                                                 ✓ 1  ● 1",
-    " ╰──────────────╯",
-    "                                   ╭─── orchestrator-1 ───╮",
-    "                                   │       24m 33s        │",
-    "                                   │      ● running       │",
-    "                                   ╰──────────────────────╯",
-    "                                               │",
-    " ╭───────╮",
-    " │ GRAPH │      ctrl+x return to main chat  ·  ↵ open tool detail  ·  ↑↓←→ navigate  ·  / stages",
-    " ╰───────╯",
-    "",
-  ].join("\n");
-  expect(latestLine(graph)).toBeNull();
-});
-
 test("the agent's own words that only look a little like chrome are kept", () => {
   for (const line of [
     "- Running migrations...",
@@ -199,11 +179,6 @@ test("without a usage line, a prompt box with no footer under it is the agent's,
 test("a long row of Atomic's own (a ❯ row) above the line is not joined into it", () => {
   const echoed = "❯ this is a long prompt-like line that the agent echoed in its output text here";
   expect(latestLine([echoed, "continuation of it.", "", RULE, "❯", RULE, "(anthropic) claude-opus-5-5 high • ~/x"].join("\n"))).toBe("continuation of it.");
-});
-
-test("a labelled rule above the usage line is skipped, so the line above it is the latest", () => {
-  const usage = `${" ".repeat(24)}↑72M • ↓2.8M • R2408M • W7.8M • CH99.4% • $1027.186 (sub) • 36.3%/1.0M (auto)`;
-  expect(latestLine([" Tests pass.", "[stage: x] ────────", "", usage, RULE, "❯", RULE].join("\n"))).toBe("Tests pass.");
 });
 
 test("control characters are dropped", () => {
