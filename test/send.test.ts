@@ -7,6 +7,7 @@ import { ALLOWED_LOGIN, auditCalls, herdrError, paste } from "./support/http";
 import { REFUSED_KEYS, REPRESENTATIVE_KEYS } from "./support/key-grammar";
 import * as Q from "./support/atomic-0990-question";
 import * as A from "./support/atomic-0100";
+import * as A10 from "./support/atomic-01010";
 import { AGENTS, ATOMIC, CONFIG, BLOCKED_ATOMIC, PI, SHELLS, SHELL_PANE, keys, pane, path, prompt, setup, without } from "./support/terminals";
 
 type Call = string[];
@@ -379,6 +380,51 @@ describe.concurrent("typed answers to a blocked agent", () => {
     const { request, calls } = setup(blocked);
     expect(await errorOf(await request("POST", ...prompt(PI, "hello", "pi")))).toEqual([409, "agent_blocked"]);
     expect(calls()).toEqual([BUILT_IN.recheck, ...BUILT_IN.message("hello")]);
+  });
+});
+
+describe.concurrent("typed answers on Atomic 0.10.10, its cursor ∀", () => {
+  const READ = screenRead(BLOCKED_ATOMIC);
+  const showing = (status: string, screen: string): FakeConfig => ({ ...CONFIG, agents: AGENTS.map((agent) => (agent.pane_id === BLOCKED_ATOMIC ? { ...agent, agent_status: status } : agent)), ansiOutputs: { [BLOCKED_ATOMIC]: screen } });
+  const typed = (text: string) => [["pane", "send-text", BLOCKED_ATOMIC, paste(text)], ["pane", "send-keys", BLOCKED_ATOMIC, "enter"]];
+
+  const open: [string, string, string][] = [
+    ["Type something. open, empty", "blocked", A10.TYPE_OPEN_SCREEN],
+    ["Type something. typed into", "blocked", A10.TYPE_PASTED_SCREEN],
+    ["Chat about this open, empty", "blocked", A10.CHAT_OPEN_SCREEN],
+    ["Chat about this typed into", "blocked", A10.CHAT_PASTED_SCREEN],
+    ["a helper's Chat about this open", "working", A10.HELPER_CHAT_OPEN_SCREEN],
+  ];
+  for (const [name, status, screen] of open) {
+    test(`${name} (herdr ${status}): the text is pasted and Enter pressed, after the re-check and a read of the screen`, async () => {
+      const { request, calls } = setup(showing(status, screen));
+      expect((await request("POST", ...prompt(BLOCKED_ATOMIC, "Thatched roof", "atomic"))).status).toBe(200);
+      expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], READ, ...typed("Thatched roof")]);
+    });
+  }
+
+  const closed: [string, string, string][] = [
+    ["the cursor on an answer row", "blocked", A10.QUESTION_SCREEN],
+    ["the cursor on row 3", "blocked", A10.QUESTION_ROW3_SCREEN],
+    ["a caret left on the cursor's answer row", "blocked", A10.QUESTION_SCREEN.replace("∀ 1. Flat\u001b[0m", "∀ 1. Flat\u001b[0m\u001b[7m \u001b[0m")],
+    ["a question with descriptions", "blocked", A10.DESCRIBED_QUESTION_SCREEN],
+    ["the cursor on Submit", "blocked", A10.MULTI_SUBMIT_SCREEN],
+    ["a questionnaire's Review", "blocked", A10.REVIEW_SCREEN],
+    ["the trust prompt", "blocked", A10.TRUST_SCREEN],
+    ["a helper's question", "working", A10.HELPER_QUESTION_SCREEN],
+  ];
+  for (const [name, status, screen] of closed) {
+    test(`${name} (herdr ${status}): refused with 409 agent_blocked, nothing sent`, async () => {
+      const { request, calls } = setup(showing(status, screen));
+      expect(await errorOf(await request("POST", ...prompt(BLOCKED_ATOMIC, "Thatched roof", "atomic")))).toEqual([409, "agent_blocked"]);
+      expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], READ]);
+    });
+  }
+
+  test("Chat about this sent empty: herdr says done, and a message goes as any other, unread", async () => {
+    const { request, calls } = setup(showing("done", A10.CHAT_SENT_EMPTY_SCREEN));
+    expect((await request("POST", ...prompt(BLOCKED_ATOMIC, "Would green hide moss better?", "atomic"))).status).toBe(200);
+    expect(calls()).toEqual([["agent", "get", BLOCKED_ATOMIC], ...typed("Would green hide moss better?")]);
   });
 });
 

@@ -10,6 +10,7 @@ import { makeFakeHerdr, type FakeAgent, type FakeConfig } from "./fake-herdr";
 import { until } from "./support/fake-events";
 import { addEntries, bumpLastSeq, makeStore, type Entry } from "./support/session-store";
 import { FOOTER } from "./support/screens";
+import * as A10 from "./support/atomic-01010";
 import { DONE_HELPER_SHELL_SCREEN, FORK_DONE_HELPER_SHELL_SCREEN, MAIN_AGAIN_SCREEN, PAUSED_MAIN_SCREEN, PAUSED_PANEL_SCREEN, PAUSED_SHOWN_SCREEN, QUESTION_SCREEN, SHOWN_WORKING_SCREEN, TASKS_PAUSED_SCREEN, WAITING_SCREEN } from "./support/atomic-0100";
 
 const fakes: ReturnType<typeof makeFakeHerdr>[] = [];
@@ -349,6 +350,32 @@ describe("a paused helper Atomic lists nowhere, confirmed by its saved session",
     const helper = { id: "helper", cwd: CWD, header: { parentSessionId: "main" }, entries: [words("user", "Run sleep 30."), words("assistant", LATEST)] };
     const { roster } = rosterWith(makeStore([mainSession([...PAUSED, child("b:0", "worker", "terminal", { terminalStatus: "ok", childSessionId: "helper" })]), helper]));
     expect(await status(roster)).toEqual([["paused", "asker is paused · send to continue"]]);
+  });
+
+  describe("Atomic 0.10.4 on: a helper's own session has only `internal` in its header, no parent", () => {
+    const QUOTED_ANSWER = "Answer: Gravel";
+    const helper = (id: string) => ({ id, cwd: CWD, internal: 1, header: { version: 4, id, cwd: CWD, internal: true }, entries: [words("user", "Ask which path."), words("assistant", QUOTED_ANSWER)] });
+    const LAUNCHED = [
+      child("p:0", "asker", "running", { childSessionId: "asker-own" }),
+      child("p:1", "scribe", "running", { childSessionId: "scribe-own" }),
+      child("p:1", "scribe", "running", { childSessionId: "scribe-own", pausedByUser: true }),
+      child("p:0", "asker", "terminal", { childSessionId: "asker-own", terminalStatus: "ok" }),
+    ];
+    const main = (records: Entry[]) => ({ id: "main", cwd: CWD, header: { version: 4, id: "main", cwd: CWD }, entries: [words("user", "Launch two helpers."), ...owned("main", records), words("assistant", QUOTED_ANSWER)] });
+
+    test("main quotes its finished helper, both sessions on screen: main's own records name the helper's, so main confirms", async () => {
+      const { roster } = rosterWith(makeStore([main(LAUNCHED), helper("asker-own")]), A10.PAUSED_MAIN_SCREEN);
+      expect(await status(roster)).toEqual([["paused", "scribe is paused · send to continue"]]);
+    });
+
+    test("a session named only in a copied record, or by a session not on screen, stays: ambiguous, working", async () => {
+      const copied = LAUNCHED.map((entry) => ({ ...entry, data: { ...(entry.data as Entry), owner: { kind: "session", sessionId: "elsewhere" } } }));
+      const notOwn = rosterWith(makeStore([main([...copied, child("q:0", "scribe", "running", { childSessionId: "scribe-own", pausedByUser: true })]), helper("asker-own")]), A10.PAUSED_MAIN_SCREEN);
+      expect((await status(notOwn.roster))[0][0]).toBe("working");
+      const offScreen = { id: "other", cwd: CWD, entries: [...owned("other", [child("o:0", "asker", "terminal", { childSessionId: "asker-own", terminalStatus: "ok" })]), words("assistant", "Something long that is not on this screen at all, said much earlier.")] };
+      const unnamed = rosterWith(makeStore([main(LAUNCHED.filter((entry) => (entry.data as Entry).agent !== "asker")), helper("asker-own"), offScreen]), A10.PAUSED_MAIN_SCREEN);
+      expect((await status(unnamed.roster))[0][0]).toBe("working");
+    });
   });
 
   test("a fork copies its parent's paused record, but the record's owner is the parent: the fork alone, or with its parent on screen, reads working", async () => {

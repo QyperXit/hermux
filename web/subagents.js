@@ -1,4 +1,4 @@
-import { movesTo } from "./agent-question.js";
+import { CURSOR_MARK, isCursorMark, movesTo } from "./agent-question.js";
 import { AGENT_RULE, FOOTER, PROMPT, RUN_LIST_MORE, focusedRuns } from "./screen.js";
 
 /**
@@ -23,12 +23,12 @@ const WAITS = "◆";
 // · ? keys" (0.9.90's count of runs had no "↓ N agents").
 const NEEDS_INPUT = / · ↓ \d+ agents? · (\d+) needs input\b/;
 // /tasks, drawn on its ▔ edge in the prompt box's place: " Tasks  1 needs
-// input · 1 working · …" on top, a waiting row " ❯ ◆ asker  …".
+// input · 1 working · …" on top, a waiting row " ❯ ◆ asker  …" with the cursor.
 const TASKS_TITLE = /^ Tasks {2}\S/;
-const TASKS_WAITING = /^ [❯ ] ◆ (\S+)/;
+const TASKS_WAITING = new RegExp(String.raw`^ (?:${CURSOR_MARK}| ) ◆ (\S+)`);
 // A subagent's call in the main chat while it waits: " ! Agent(asker · ‹task›)"
-// over "   ⎿  Needs input · ‹its question›".
-const AGENT_CALL = /^ ! Agent\((\S+) · /;
+// (since 0.10.3 "◆ Agent(") over "   ⎿  Needs input · ‹its question›".
+const AGENT_CALL = /^ [!◆] Agent\((\S+) · /;
 const NEEDS_INPUT_ROW = /^ {3}⎿ {2}Needs input · (\S.*?)\s*$/;
 const LIST_CLOSED = "Atomic's list of agents changed while moving to that agent. Check the screen and try again.";
 const DRAFT = "Atomic's prompt has a draft in it, so the arrow keys won't reach its list of agents. Send or clear it first.";
@@ -43,7 +43,7 @@ const SEE_SUBAGENTS = / · \/tasks to see subagents · \? keys\s*$/;
 const PAUSED = /^paused\b/;
 const ENDED = /^(?:done|failed|stopped)\b/;
 // A /tasks row, " ❯ ‖ asker  ‹model›  ‹task›  paused · 25s", and its title's counts.
-const TASKS_ROW = /^ ([❯ ]) (\S) (\S+)(?: {2,}(\S.*?))?\s*$/u;
+const TASKS_ROW = new RegExp(String.raw`^ (${CURSOR_MARK}| ) (\S) (\S+)(?: {2,}(\S.*?))?\s*$`, "u");
 const TASKS_COUNTS = /^ Tasks {2}(\S.*?)\s*$/;
 const TASKS_GONE = "Atomic's /tasks list isn't on screen. Tap Show helpers first.";
 const TASKS_CHANGED = "Atomic's /tasks list changed. Check it and tap the helper again.";
@@ -173,7 +173,7 @@ export function taskRows(screen) {
     const found = TASKS_ROW.exec(row.text);
     if (!found) return [];
     const columns = found[4] ? found[4].split(/ {2,}/) : [];
-    return [{ cursor: found[1] === "❯", mark: found[2], name: found[3], task: columns.length >= 2 ? columns[columns.length - 2] : null, state: columns.length > 1 ? columns[columns.length - 1] : null, at: list.start + i }];
+    return [{ cursor: isCursorMark(found[1]), mark: found[2], name: found[3], task: columns.length >= 2 ? columns[columns.length - 2] : null, state: columns.length > 1 ? columns[columns.length - 1] : null, at: list.start + i }];
   });
 }
 

@@ -19,6 +19,13 @@ import { isBlank, leading, sliceLine, trimEnd } from "./line.js";
  * @property {boolean} typing Atomic's own typing field is open: the cursor's typing row shows the caret, or the notes are open
  */
 
+// Atomic's mark before a picker's selected row: ❯, or ∀ since 0.10.6. A regex
+// source fragment, for the rows that hold it.
+export const CURSOR_MARK = "[❯∀]";
+const CURSOR_MARK_IN = new RegExp(CURSOR_MARK);
+/** @param {string} slot a picker row's mark slot: Atomic's cursor or blanks */
+export const isCursorMark = (slot) => CURSOR_MARK_IN.test(slot);
+
 // Atomic 0.9.90 draws an agent's question (ask_user_question) as a box in
 // the prompt box's place, its key hint straight under it and nothing after:
 // "↑↓ select · enter choose · esc cancel", "↑↓ select · esc cancel" on an
@@ -32,9 +39,10 @@ const HEADING = /^\s*∀ Questions · .+ · \d+(?:s|m \d+s|h \d+m)$/;
 // A questionnaire's steps over its question, the current one's count at the
 // right: "Size ── Roof ── Extras ── Review   2/3", on Review "1/3 answered".
 const STEPS = /^(\S.* ── .*?) {2,}(\d+)\/(\d+)( answered)?$/;
-// "❯ 1. Red", "  2. [✔] Cheese", "  2. Pitched ✔" (answered before), and
-// "❯ 3." on an empty typing field. The number is padded to the widest one.
-const OPTION = /^(❯ | {2})( *)(\d+)\.(?: (.*))?$/;
+// "❯ 1. Red" with the cursor, "  2. [✔] Cheese", "  2. Pitched ✔" (answered
+// before), and "❯ 3." on an empty typing field. The number is padded to the
+// widest one.
+const OPTION = new RegExp(String.raw`^(${CURSOR_MARK} | {2})( *)(\d+)\.(?: (.*))?$`);
 const TICK = /^\[(✔| )\] (.*)$/;
 const ANSWERED = / ✔$/;
 const INNER_RULE = /^─{8,}$/;
@@ -118,7 +126,7 @@ function askBody(inner, caret, width, notes) {
       const [, pointer, pad, number, rest = ""] = row;
       const tick = TICK.exec(rest);
       const label = tick ? tick[2] : rest;
-      option = { number: Number(number), selected: pointer === "❯ ", ticked: tick ? tick[1] === "✔" : null, labels: [label], descriptions: [], caret: caret[n + 1], underRule, indent: 2 + pad.length + number.length + 2 };
+      option = { number: Number(number), selected: isCursorMark(pointer), ticked: tick ? tick[1] === "✔" : null, labels: [label], descriptions: [], caret: caret[n + 1], underRule, indent: 2 + pad.length + number.length + 2 };
       drawn.push(option);
       paragraph = null;
       return;
@@ -185,9 +193,9 @@ export function askQuestion(lines, caret) {
 
 // Atomic 0.9.90's "Trust project folder?" prompt, drawn under its usage line
 // in place of the prompt box: the question, the folder, what trusting allows,
-// its choices with ❯ before the one under the cursor, and its key hint.
+// its choices with the cursor's mark before one, and its key hint.
 const TRUST_TITLE = /^ {2}(Trust project folder\?)$/;
-const TRUST_CHOICE = /^ (❯| ) (\S.*)$/;
+const TRUST_CHOICE = new RegExp(String.raw`^ (${CURSOR_MARK}| ) (\S.*)$`);
 const TRUST_HINT = /^ {2}↑↓ select · .*\besc \S+/;
 
 /** @param {string} text */
@@ -215,7 +223,7 @@ export function trustQuestion(lines, from) {
     const choice = TRUST_CHOICE.exec(lines[i].text);
     if (!choice) break;
     const [, pointer, label] = choice;
-    options.push({ number: options.length + 1, label, description: "", selected: pointer === "❯", ticked: null, answered: false, role: "answer" });
+    options.push({ number: options.length + 1, label, description: "", selected: isCursorMark(pointer), ticked: null, answered: false, role: "answer" });
   }
   while (i < lines.length && isBlank(lines[i])) i++;
   if (options.filter((option) => option.selected).length !== 1 || i >= lines.length || !TRUST_HINT.test(lines[i].text)) return null;

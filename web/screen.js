@@ -256,12 +256,13 @@ export const FOOTER = new RegExp(`${CLASSIC_FOOTER.source}|${KEYS_FOOTER.source}
 // works "∀ Biffing…", "∀ Biffing… (25s)", "∀ Biffing… (1m 3s · ↑ 55 tokens)" or
 // "∀ Compacting… (3s · ctrl+c to cancel)", after it "∀ Emancipated for 5s" or
 // "∀ Emancipated for 5s · ↓ 1.2m tokens", and since 0.10 its countdown to a
-// retry, "∀ Retrying · response timed out · attempt 2/3 in 4s   esc cancel".
+// retry, "∀ Retrying · response timed out · attempt 2/3 in 4s   esc cancel"
+// ("∀ Retrying summary · …" for a compaction summary).
 const ELAPSED = String.raw`\d+(?:s|m \d+s|h \d+m)`;
 const TOKENS = String.raw`[↑↓] [\d.]+[kmbtKMB]? tokens`;
 const TURN_META = String.raw`\(${ELAPSED}(?: · ${TOKENS})?(?: · [^()]+)?\)`;
 const TURN = new RegExp(
-  String.raw`^\s*∀ (?:\S.*?(?:(?:…|\.\.\.)(?: ${TURN_META})?| ${TURN_META})|\p{Lu}[\p{L}'-]* for ${ELAPSED}(?: · ${TOKENS})?|Retrying · \S.*)\s*$`,
+  String.raw`^\s*∀ (?:\S.*?(?:(?:…|\.\.\.)(?: ${TURN_META})?| ${TURN_META})|\p{Lu}[\p{L}'-]* for ${ELAPSED}(?: · ${TOKENS})?|Retrying(?: summary)? · \S.*)\s*$`,
   "u",
 );
 const TURN_ENDING_IN_TOKENS = new RegExp(String.raw`^\s*∀ \S.* · ${TOKENS}\)?\s*$`);

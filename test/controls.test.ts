@@ -11,6 +11,7 @@ import { stripHtml } from "../web/subagent-strip.js";
 import { fakeClock } from "./support/key-bar";
 import { asPageElement, fakePage } from "./support/fake-dom";
 import * as A from "./support/atomic-0100";
+import * as A10 from "./support/atomic-01010";
 
 const atomic = (status: string) => ({ pane_id: "w8:p1", kind: "atomic", status, cwd: "/home/you/garden", title: null, tab: { id: "w8:t1", label: "garden", number: 1 }, workspace: { id: "w8", label: "garden" } });
 
@@ -101,5 +102,37 @@ describe("the controls beside the subagent card", () => {
     draw("done", A.MAIN_AGAIN_SCREEN);
     expect(shown(".subagent-strip")).toBe(false);
     expect(root.querySelector("#message")!.getAttribute("placeholder")).toBe("Message garden");
+  });
+});
+
+describe("the message box on Atomic 0.10.10, its cursor ∀", () => {
+  test("shows as \"Your answer\" while a question's typing or chat field is open, and hides on any other question", () => {
+    for (const [status, screen] of [
+      ["blocked", A10.TYPE_OPEN_SCREEN],
+      ["blocked", A10.TYPE_PASTED_SCREEN],
+      ["blocked", A10.CHAT_OPEN_SCREEN],
+      ["blocked", A10.CHAT_PASTED_SCREEN],
+      ["working", A10.HELPER_CHAT_OPEN_SCREEN],
+    ]) {
+      const { draw, shown, root } = controlsScreen();
+      draw(status, screen);
+      expect([shown(".composer"), root.querySelector("#message")!.getAttribute("placeholder")]).toEqual([true, "Your answer"]);
+    }
+    for (const [status, screen] of [
+      ["blocked", A10.QUESTION_SCREEN],
+      ["blocked", A10.DESCRIBED_QUESTION_SCREEN],
+      ["blocked", A10.TRUST_SCREEN],
+      ["working", A10.HELPER_QUESTION_SCREEN],
+    ]) {
+      const { draw, shown } = controlsScreen();
+      draw(status, screen);
+      expect(shown(".composer")).toBe(false);
+    }
+  });
+
+  test("after \"Chat about this\" is sent empty (herdr done) it is the ordinary message box", () => {
+    const { draw, shown, root } = controlsScreen();
+    draw("done", A10.CHAT_SENT_EMPTY_SCREEN);
+    expect([shown(".composer"), root.querySelector("#message")!.getAttribute("placeholder")]).toEqual([true, "Message garden"]);
   });
 });

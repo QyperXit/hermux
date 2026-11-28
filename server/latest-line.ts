@@ -1,7 +1,7 @@
 // The home screen shows an agent's latest line: the last line of
 // its recent output that the agent itself wrote. Atomic draws its own screen
 // furniture below that line, and none of it may be shown as the agent's words.
-import { questionLine } from "../web/agent-question.js";
+import { CURSOR_MARK, questionLine } from "../web/agent-question.js";
 import { FOOTER, PROMPT, isBoxTopRule, isRule, isUsage, proseEndingAt, readScreen, type Row, type Screen } from "../web/screen.js";
 import { mayHidePaused, pausedHelpers, waitingLine, waitingSubagent, type Paused, type Waiting } from "../web/subagents.js";
 
@@ -17,7 +17,7 @@ const PANEL = /^\s*[╭│╰].*[╮│╯]\s*$/;
 // "Press ctrl+o for live detail").
 const HINT = /^\s*(?:↑↓ scroll\b|↑↓ select · .*· esc \S+\s*$|.*\benter select\b.*\besc cancel\b|.*\(.*\bExpand\)\s*$|Press \S+ for live detail\s*$)/;
 // The rows Atomic adds to every question dialog itself.
-const DIALOG_ROW = /^\s*(?:❯\s*)?\d+\.\s+(?:Type something\.|Chat about this)\s*$/;
+const DIALOG_ROW = new RegExp(String.raw`^\s*(?:${CURSOR_MARK}\s*)?\d+\.\s+(?:Type something\.|Chat about this)\s*$`);
 // The timer Atomic prints under a finished tool row: "Elapsed 6.0s", "Took 7.8s", "Observed for 10.0s".
 const TOOL_TIMER = /^\s*(?:Elapsed|Took|Observed for)\s+\d+(?:\.\d+)?\s*(?:ms|s|m)\s*$/;
 

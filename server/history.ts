@@ -326,15 +326,19 @@ export function createHistory({ herdr, openStore, now = Date.now }: { herdr: Her
   // of the folder's sessions whose latest words are on screen, once a
   // helper's own session (which main quotes) is left out. A session is a
   // helper's when its parent is on screen too and the parent's own records
-  // name it; a fork, which its parent doesn't name, stays.
+  // name it, or, with no parent in its header (Atomic 0.10.4 on), when
+  // another session on screen names it as its helper in its own records; a
+  // fork, which no one names, stays.
   function pausedMatch(s: SessionStore, paneId: string, cwd: string, screen: string): string | null {
     const known = pausedMatches.get(paneId);
     if (known && known.cwd === cwd && known.screen === screen) return known.session;
     const shown = sessionsShown(s, cwd, screen);
     const onScreen = new Set(shown);
+    const namesAsHelper = (namer: string, session: string) => ownOf(s, namer).some((record) => record.childSessionId === session);
     const isNamedHelper = (session: string) => {
       const parent = s.parentOf(session);
-      return parent !== null && onScreen.has(parent) && ownOf(s, parent).some((record) => record.childSessionId === session);
+      if (parent !== null) return onScreen.has(parent) && namesAsHelper(parent, session);
+      return shown.some((other) => other !== session && namesAsHelper(other, session));
     };
     const left = shown.filter((session) => !isNamedHelper(session));
     const session = left.length === 1 ? left[0] : null;

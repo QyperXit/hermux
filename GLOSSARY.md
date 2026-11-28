@@ -71,7 +71,7 @@ The strip under the header while a Subagent is on Atomic's screen: its name, wha
 _Avoid_: breadcrumb, tab
 
 **Agent's question**:
-Atomic's own question to you (its ask_user_question box, an Agent's or a Subagent's, or its trust prompt), drawn on the Live screen as its header, the question and an option row for each answer, tapped to answer.
+Atomic's own question to you (its ask_user_question box, an Agent's or a Subagent's, or its trust prompt), drawn on the Live screen as its header, the question and an option row for each answer, tapped to answer. Atomic marks the row under its cursor with ❯, or ∀ since 0.10.6.
 _Avoid_: dialog, popup, question card (that points to a Subagent's)
 
 **Typing field**:

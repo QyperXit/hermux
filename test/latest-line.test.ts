@@ -130,6 +130,9 @@ test("in a question dialog, the key hint and Atomic's own rows are skipped; the 
     "(anthropic) claude-opus-5-5 medium • ~/AndroidStudioProjects/weather-app",
   ].join("\n");
   expect(latestLine(dialog)).toBe("3. Production");
+  // Since Atomic 0.10.6 the cursor is ∀.
+  expect(latestLine(dialog.replace(" ❯ 1.", "   1.").replace("   4. Type something.", " ∀ 4. Type something."))).toBe("3. Production");
+  expect(latestLine(dialog.replace(" ❯ 1.", "   1.").replace("   5. Chat about this", " ∀ 5. Chat about this"))).toBe("3. Production");
   // The prototype's sample dialog orders its hint differently; it is a hint all the same.
   expect(latestLine("Where should I upload the bundle?\n ↑↓ navigate • enter select • esc cancel")).toBe("Where should I upload the bundle?");
 });
